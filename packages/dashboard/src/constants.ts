@@ -11,6 +11,10 @@ export const WHEEL_COALESCE_MS = 33;
 
 export const RECONNECT_DELAY_MS = 1_000;
 
+// 콘솔/네트워크 이벤트는 폭주할 수 있다(HMR, 폴링 앱) — 이벤트당 setState 대신
+// 이 간격으로 배칭해 리렌더를 초당 ~20회로 상한한다
+export const EVENT_BATCH_MS = 50;
+
 export const ENGINE_LABEL: Record<EngineName, string> = {
   chromium: 'Chromium · Android WebView',
   webkit: 'WebKit · iOS WKWebView',

@@ -16,6 +16,7 @@ const BOOT_TIMEOUT_MS = 120_000;
 const IDLE_CAPTURE_INTERVAL_MS = 1_500;
 const ACTIVE_CAPTURE_INTERVAL_MS = 600;
 const ACTIVITY_WINDOW_MS = 5_000;
+const MAX_QUEUED_COMMANDS = 200;
 
 const XCODE_DEVELOPER_DIR = '/Applications/Xcode.app/Contents/Developer';
 const SHELL_BUNDLE_ID = 'dev.crosspane.shell';
@@ -248,6 +249,10 @@ export class IosSimulatorSession implements InputTarget {
 
   private enqueue(command: Record<string, unknown>): void {
     this.commandQueue.push(command);
+    // 셸앱이 폴링을 멈춘 상태(크래시 등)에서 입력이 계속 오면 무한 성장한다 — 상한
+    if (this.commandQueue.length > MAX_QUEUED_COMMANDS) {
+      this.commandQueue.splice(0, this.commandQueue.length - MAX_QUEUED_COMMANDS);
+    }
     this.markActivity();
   }
 

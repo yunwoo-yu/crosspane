@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MAX_LOGS, MAX_NETWORK_ENTRIES, RECONNECT_DELAY_MS } from '../constants';
+import { EVENT_BATCH_MS, MAX_LOGS, MAX_NETWORK_ENTRIES, RECONNECT_DELAY_MS } from '../constants';
 import {
   type ClientCommand,
   ENGINE_NAMES_BY_CODE,
@@ -39,13 +39,42 @@ export function useCrosspaneSocket(): CrosspaneConnection {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [networkEntries, setNetworkEntries] = useState<NetworkEntry[]>([]);
 
-  // 로그가 무한히 쌓이면 리렌더 비용이 커지므로 최근 MAX_LOGS개만 유지한다
-  const appendLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
-    setLogs((prev) => {
-      const next = [...prev, { ...entry, id: logIdRef.current++ }];
-      return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
-    });
+  // 이벤트 폭주 시 이벤트당 setState는 O(n) 복사 × 리렌더를 초당 수백 회 유발한다 —
+  // 펜딩 버퍼에 모았다가 EVENT_BATCH_MS마다 한 번에 반영한다 (상한은 반영 시점에 적용)
+  const pendingLogsRef = useRef<LogEntry[]>([]);
+  const pendingNetworkRef = useRef<NetworkEntry[]>([]);
+  const flushTimerRef = useRef<number | null>(null);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current !== null) return;
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null;
+      if (pendingLogsRef.current.length > 0) {
+        const batch = pendingLogsRef.current;
+        pendingLogsRef.current = [];
+        setLogs((prev) => {
+          const next = [...prev, ...batch];
+          return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
+        });
+      }
+      if (pendingNetworkRef.current.length > 0) {
+        const batch = pendingNetworkRef.current;
+        pendingNetworkRef.current = [];
+        setNetworkEntries((prev) => {
+          const next = [...prev, ...batch];
+          return next.length > MAX_NETWORK_ENTRIES ? next.slice(-MAX_NETWORK_ENTRIES) : next;
+        });
+      }
+    }, EVENT_BATCH_MS);
   }, []);
+
+  const appendLog = useCallback(
+    (entry: Omit<LogEntry, 'id'>) => {
+      pendingLogsRef.current.push({ ...entry, id: logIdRef.current++ });
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
 
   const handleServerEvent = useCallback(
     (event: ServerEvent) => {
@@ -85,10 +114,8 @@ export function useCrosspaneSocket(): CrosspaneConnection {
           });
           break;
         case 'network':
-          setNetworkEntries((prev) => {
-            const next = [...prev, { ...event, id: logIdRef.current++ }];
-            return next.length > MAX_NETWORK_ENTRIES ? next.slice(-MAX_NETWORK_ENTRIES) : next;
-          });
+          pendingNetworkRef.current.push({ ...event, id: logIdRef.current++ });
+          scheduleFlush();
           break;
         case 'httperror':
           appendLog({
@@ -128,7 +155,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
           break;
       }
     },
-    [appendLog],
+    [appendLog, scheduleFlush],
   );
 
   const handleFramePacket = useCallback((packet: ArrayBuffer) => {
@@ -175,6 +202,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     return () => {
       disposed = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
+      if (flushTimerRef.current !== null) window.clearTimeout(flushTimerRef.current);
       socketRef.current?.close();
     };
   }, [handleServerEvent, handleFramePacket]);
@@ -185,6 +213,8 @@ export function useCrosspaneSocket(): CrosspaneConnection {
   }, []);
 
   const clearLogs = useCallback(() => {
+    pendingLogsRef.current = [];
+    pendingNetworkRef.current = [];
     setLogs([]);
     setNetworkEntries([]);
   }, []);

@@ -15,6 +15,8 @@ interface EnginePaneProps {
   viewOnly: boolean;
   /** 포커스 모드: 이 pane만 크게 표시 */
   focused: boolean;
+  /** 숨김 상태(다른 pane 포커스 중) — 프레임 구독을 끊어 디코드 비용을 없앤다 */
+  visible: boolean;
   onToggleFocus: () => void;
   onSendCommand: (command: ClientCommand) => void;
   subscribeToFrames: (engine: EngineName, listener: FrameListener) => () => void;
@@ -51,6 +53,7 @@ export function EnginePane({
   urlDesynced,
   viewOnly,
   focused,
+  visible,
   onToggleFocus,
   onSendCommand,
   subscribeToFrames,
@@ -74,38 +77,38 @@ export function EnginePane({
   const lastFrameScrollYRef = useRef<number | null>(null);
   const lastWheelTsRef = useRef(0);
 
-  // 프레임은 React 상태를 거치지 않고 canvas에 직접 그린다 — 리렌더 비용 0
-  useEffect(
-    () =>
-      subscribeToFrames(engine, (frame, scrollY) => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        if (canvas.width !== frame.width || canvas.height !== frame.height) {
-          canvas.width = frame.width;
-          canvas.height = frame.height;
-        }
-        canvas.getContext('2d')?.drawImage(frame, 0, 0);
-        setHasFrame(true); // 같은 값이면 React가 리렌더를 생략하므로 매 프레임 호출해도 무해
+  // 프레임은 React 상태를 거치지 않고 canvas에 직접 그린다 — 리렌더 비용 0.
+  // 숨김 상태면 구독 자체를 끊는다 (canvas는 마지막 프레임을 유지하므로 안전)
+  useEffect(() => {
+    if (!visible) return;
+    return subscribeToFrames(engine, (frame, scrollY) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      if (canvas.width !== frame.width || canvas.height !== frame.height) {
+        canvas.width = frame.width;
+        canvas.height = frame.height;
+      }
+      canvas.getContext('2d')?.drawImage(frame, 0, 0);
+      setHasFrame(true); // 같은 값이면 React가 리렌더를 생략하므로 매 프레임 호출해도 무해
 
-        if (scrollY < 0) {
-          // 스크롤 위치를 모르는 프레임(ios-sim 등) — 에코 없이 그대로 표시
-          canvas.style.transform = '';
-          return;
-        }
-        lastFrameScrollYRef.current = scrollY;
-        const target = localTargetRef.current;
-        const wheelIdle = Date.now() - lastWheelTsRef.current > ECHO_RELEASE_AFTER_MS;
-        if (target === null || wheelIdle || Math.abs(target - scrollY) < 2) {
-          // 스크롤이 끝났거나 프레임이 목표를 따라잡음 — 실제 위치로 스냅
-          localTargetRef.current = null;
-          canvas.style.transform = '';
-        } else {
-          // 프레임이 아직 뒤에 있음 — 남은 차이만큼만 에코 유지 (고무줄 현상 방지)
-          applyEchoOffset(canvas, target - scrollY);
-        }
-      }),
-    [engine, subscribeToFrames],
-  );
+      if (scrollY < 0) {
+        // 스크롤 위치를 모르는 프레임(ios-sim 등) — 에코 없이 그대로 표시
+        canvas.style.transform = '';
+        return;
+      }
+      lastFrameScrollYRef.current = scrollY;
+      const target = localTargetRef.current;
+      const wheelIdle = Date.now() - lastWheelTsRef.current > ECHO_RELEASE_AFTER_MS;
+      if (target === null || wheelIdle || Math.abs(target - scrollY) < 2) {
+        // 스크롤이 끝났거나 프레임이 목표를 따라잡음 — 실제 위치로 스냅
+        localTargetRef.current = null;
+        canvas.style.transform = '';
+      } else {
+        // 프레임이 아직 뒤에 있음 — 남은 차이만큼만 에코 유지 (고무줄 현상 방지)
+        applyEchoOffset(canvas, target - scrollY);
+      }
+    });
+  }, [engine, subscribeToFrames, visible]);
 
   // React의 onWheel은 passive라 preventDefault가 불가능하다.
   // 네이티브 non-passive 리스너로 대시보드 자체 스크롤을 막고(미러링 전용),

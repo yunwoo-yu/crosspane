@@ -238,6 +238,12 @@ body {
   opacity: 0.85;
 }
 
+.log-time {
+  flex: 0 0 62px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .log-engine {
   flex: 0 0 64px;
   font-size: 10px;

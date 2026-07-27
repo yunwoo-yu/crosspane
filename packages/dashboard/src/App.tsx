@@ -20,6 +20,27 @@ export default function App() {
     subscribeToFrames,
   } = useCrosspaneSocket();
   const [bottomTab, setBottomTab] = useState<'console' | 'network'>('console');
+  // 하단 패널 높이 — 드래그 리사이즈, localStorage 유지
+  const [panelHeight, setPanelHeight] = useState(() => {
+    const saved = Number(localStorage.getItem('crosspane.panelHeight'));
+    return Number.isFinite(saved) && saved >= 120 ? saved : 250;
+  });
+  const startPanelResize = (event: React.PointerEvent) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = panelHeight;
+    const onMove = (move: PointerEvent) => {
+      const next = Math.min(600, Math.max(120, startHeight + (startY - move.clientY)));
+      setPanelHeight(next);
+      localStorage.setItem('crosspane.panelHeight', String(next));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   const errorCountFor = useCallback(
     (engine: EngineName) => countErrorsSinceLastNavigation(logs, engine),
@@ -65,9 +86,9 @@ export default function App() {
       <main
         className="grid"
         style={{
-          gridTemplateColumns: focusedEngine
-            ? '1fr'
-            : `repeat(${Math.max(engineNames.length, 1)}, 1fr)`,
+          // auto-fit: 좁은 창에서는 pane이 다음 줄로 흘러 내려간다 (5-pane 대응)
+          gridTemplateColumns: focusedEngine ? '1fr' : 'repeat(auto-fit, minmax(340px, 1fr))',
+          gridAutoRows: 'minmax(0, 1fr)',
         }}
       >
         {engineNames.map((engine) => (
@@ -77,6 +98,7 @@ export default function App() {
           >
             <EnginePane
               engine={engine}
+              visible={!focusedEngine || focusedEngine === engine}
               state={engineStates[engine]}
               errorCount={errorCountFor(engine)}
               urlDesynced={urlDesynced}
@@ -92,7 +114,13 @@ export default function App() {
         ))}
       </main>
 
-      <section className="console">
+      <section className="console" style={{ flexBasis: panelHeight }}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: 패널 높이 드래그 핸들 */}
+        <div
+          className="h-1.5 shrink-0 cursor-row-resize bg-line/40 hover:bg-accent/60"
+          onPointerDown={startPanelResize}
+          title="드래그로 패널 높이 조절"
+        />
         <div className="flex items-center gap-1 border-line border-b px-3 py-1">
           <Button
             variant="ghost"

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   countErrorsSinceLastNavigation,
   detectUrlDesync,
+  filterLogs,
+  isNearBottom,
   normalizeUrlInput,
   toDisplayPath,
 } from '../src/log-utils';
@@ -83,5 +85,41 @@ describe('normalizeUrlInput', () => {
 
   it('완전한 URL은 그대로', () => {
     expect(normalizeUrlInput('https://a.dev')).toBe('https://a.dev');
+  });
+});
+
+describe('filterLogs', () => {
+  const logs: LogEntry[] = [
+    entry({ engine: 'chromium', kind: 'console', level: 'log', text: 'hello world' }),
+    entry({ engine: 'chromium', kind: 'console', level: 'warning', text: 'careful' }),
+    entry({ engine: 'chromium', kind: 'pageerror', level: 'error', text: 'boom' }),
+    entry({ engine: 'chromium', kind: 'navigation', level: 'info', text: 'http://a/' }),
+  ];
+
+  it('error 레벨은 에러만 (내비게이션 구분선은 항상 유지)', () => {
+    const result = filterLogs(logs, 'error', '');
+    expect(result.map((log) => log.kind)).toEqual(['pageerror', 'navigation']);
+  });
+
+  it('warning 레벨은 warning 이상', () => {
+    expect(filterLogs(logs, 'warning', '').map((log) => log.text)).toEqual([
+      'careful',
+      'boom',
+      'http://a/',
+    ]);
+  });
+
+  it('검색은 텍스트 부분일치 (대소문자 무시)', () => {
+    expect(filterLogs(logs, 'all', 'HELLO').map((log) => log.text)).toEqual([
+      'hello world',
+      'http://a/',
+    ]);
+  });
+});
+
+describe('isNearBottom', () => {
+  it('바닥 근처면 true, 위로 스크롤했으면 false', () => {
+    expect(isNearBottom({ scrollTop: 990, scrollHeight: 1200, clientHeight: 200 })).toBe(true);
+    expect(isNearBottom({ scrollTop: 100, scrollHeight: 1200, clientHeight: 200 })).toBe(false);
   });
 });

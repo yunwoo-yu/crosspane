@@ -44,6 +44,7 @@ function renderEnginePane(overrides: {
       urlDesynced={overrides.urlDesynced ?? false}
       viewOnly={overrides.viewOnly ?? false}
       focused={overrides.focused ?? false}
+      visible={true}
       onToggleFocus={overrides.onToggleFocus ?? vi.fn()}
       onSendCommand={overrides.onSendCommand ?? vi.fn()}
       subscribeToFrames={subscribeToFrames}
@@ -302,7 +303,7 @@ describe('ConsolePanel', () => {
     expect(screen.queryByText('chromium-only-log')).toBeNull();
     expect(screen.getByText('webkit-only-error')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'all' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'all' })[0]); // 엔진 필터의 all
     expect(screen.getByText('chromium-only-log')).toBeTruthy();
   });
 

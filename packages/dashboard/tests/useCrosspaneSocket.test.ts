@@ -58,11 +58,16 @@ describe('useCrosspaneSocket', () => {
   beforeEach(() => {
     FakeWebSocket.instances = [];
     vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  /** 로그/네트워크는 EVENT_BATCH_MS 배칭 — 단언 전에 플러시 */
+  const flushBatch = () => act(() => vi.advanceTimersByTime(60));
 
   it('hello를 받으면 엔진 상태를 starting으로 초기화한다', () => {
     const { result } = renderHook(() => useCrosspaneSocket());
@@ -152,6 +157,7 @@ describe('useCrosspaneSocket', () => {
     });
 
     expect(result.current.engineStates.chromium?.currentUrl).toBe('http://localhost:3000/detail');
+    flushBatch();
     expect(result.current.logs[0]).toMatchObject({ kind: 'navigation', engine: 'chromium' });
   });
 
@@ -172,6 +178,7 @@ describe('useCrosspaneSocket', () => {
       });
     });
 
+    flushBatch();
     expect(result.current.networkEntries).toHaveLength(1);
     expect(result.current.networkEntries[0]).toMatchObject({ status: 200, method: 'GET' });
 
@@ -193,6 +200,7 @@ describe('useCrosspaneSocket', () => {
       });
     });
 
+    flushBatch();
     expect(result.current.logs[0]).toMatchObject({ kind: 'httperror', level: 'error' });
     expect(result.current.logs[0].text).toContain('HTTP 500');
   });
@@ -213,6 +221,7 @@ describe('useCrosspaneSocket', () => {
       });
     });
 
+    flushBatch();
     expect(result.current.logs).toHaveLength(3);
     // pageerror/requestfailed는 error 레벨로 정규화된다
     expect(result.current.logs[1]).toMatchObject({ kind: 'pageerror', level: 'error' });
@@ -245,7 +254,6 @@ describe('useCrosspaneSocket', () => {
   });
 
   it('연결이 끊기면 자동으로 재접속한다', () => {
-    vi.useFakeTimers();
     renderHook(() => useCrosspaneSocket());
     expect(FakeWebSocket.instances).toHaveLength(1);
 
@@ -254,6 +262,25 @@ describe('useCrosspaneSocket', () => {
       vi.advanceTimersByTime(2_000);
     });
     expect(FakeWebSocket.instances).toHaveLength(2);
-    vi.useRealTimers();
+  });
+
+  it('이벤트 폭주 시 배칭 — 여러 이벤트가 한 번의 상태 반영으로 묶인다', () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => {
+      for (let i = 0; i < 50; i++) {
+        socket.receiveEvent({
+          type: 'console',
+          engine: 'chromium',
+          level: 'log',
+          text: `t${i}`,
+          ts: i,
+        });
+      }
+    });
+    expect(result.current.logs).toHaveLength(0); // 플러시 전에는 반영 안 됨
+    flushBatch();
+    expect(result.current.logs).toHaveLength(50);
   });
 });
