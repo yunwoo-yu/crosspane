@@ -12,7 +12,8 @@
     "check:fix": "biome check --write .",
     "format": "biome format --write .",
     "prepare": "husky",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "release": "pnpm build && pnpm exec changeset publish"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.1.0",
