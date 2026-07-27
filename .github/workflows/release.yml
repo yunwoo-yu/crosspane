@@ -6,9 +6,11 @@ name: Release
 #    (버전 범프 + CHANGELOG.md 갱신)
 # 3. 그 PR을 머지하면 npm 배포 + git 태그까지 자동
 #
-# 필요 시크릿: NPM_TOKEN — npmjs.com에서 Granular Access Token(퍼블리시 권한,
-# 2FA bypass 허용)을 만들어 저장소 Settings > Secrets에 등록해야 자동 배포가 동작한다.
-# 시크릿이 없으면 Version PR 생성까지만 동작하고 배포 스텝은 실패한다.
+# 인증 (둘 중 하나가 있어야 배포 스텝이 실행된다):
+# - 권장: npm Trusted Publishing (OIDC, 토큰 없음)
+#   npmjs.com 패키지 Settings → Trusted Publisher에 이 저장소/워크플로를 등록한 뒤
+#   GitHub 저장소 Settings → Variables에 NPM_TRUSTED_PUBLISHER=true 를 추가
+# - 대안: NPM_TOKEN 시크릿 (granular token) — 장기 토큰이라 비권장
 
 on:
   push:
@@ -19,6 +21,7 @@ concurrency: release-${{ github.ref }}
 permissions:
   contents: write
   pull-requests: write
+  id-token: write # npm Trusted Publishing(OIDC)에 필요
 
 jobs:
   release:
@@ -35,20 +38,26 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # OIDC 기반 publish는 npm 11.5.1+ 필요 (Node 22 번들 npm은 10.x)
+      - name: Update npm for OIDC publishing
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # NPM_TOKEN 시크릿이 등록되기 전에는 배포 스텝을 조용히 건너뛴다
-      - name: Check NPM token
-        id: npm-token
-        run: echo "present=${{ secrets.NPM_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
-
-      - name: Skip notice
-        if: steps.npm-token.outputs.present != 'true'
-        run: echo "NPM_TOKEN secret not set — skipping release (see workflow header comment)"
+      # 인증 수단이 준비되기 전에는 배포 스텝을 조용히 건너뛴다
+      - name: Check publish auth
+        id: auth
+        run: |
+          if [ "${{ vars.NPM_TRUSTED_PUBLISHER }}" = "true" ] || [ -n "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "No npm auth configured — skipping release (see workflow header comment)"
+          fi
 
       - name: Create release PR or publish
-        if: steps.npm-token.outputs.present == 'true'
+        if: steps.auth.outputs.ready == 'true'
         uses: changesets/action@v1
         with:
           publish: pnpm release
