@@ -49,7 +49,6 @@ crosspane <url | :port> [options]
 --engines <list>   chromium,webkit,firefox (default: all)
 --device <name>    Playwright device preset (default: "iPhone 15")
 --port <n>         dashboard port (default: 7788)
---fps <n>          capture frame rate (default: 4)
 --inject <path>    JS injected into every page before load
 ```
 
@@ -60,11 +59,20 @@ CLI (Node)
  ├─ Playwright: one browser context per engine (device preset + init scripts)
  ├─ HTTP server: serves the dashboard (React) on :7788
  └─ WebSocket:
-     server → client   JPEG frames (polling), console/pageerror/requestfailed events
-     client → server   normalized click coords, scroll deltas → replayed via Playwright on all engines
+     server → client   binary frame packets ([engine byte][JPEG]) + JSON events
+     client → server   normalized click coords, coalesced scroll deltas → mirrored to all engines
 ```
 
-Frame capture uses `page.screenshot()` polling (default 4 fps) because WebKit/Firefox expose no screencast API. Good enough for visual verification; not meant for watching animations.
+Frame streaming is per-engine:
+
+- **Chromium** — CDP screencast: the browser pushes a frame only when the screen
+  changes, so idle traffic is zero and interactions render at native frame rates
+- **WebKit / Firefox** — no screencast API, so adaptive `page.screenshot()` polling:
+  slow while idle, fast for 2s after any input, and unchanged frames are never sent
+
+Frames are captured at CSS-pixel scale (not device scale — an iPhone 15 preset is
+DPR 3, which would be 9× the pixels) and drawn straight to a `<canvas>` per pane,
+bypassing React state entirely.
 
 ## Known limits
 

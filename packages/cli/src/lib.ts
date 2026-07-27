@@ -1,12 +1,19 @@
-export { type CliOptions, normalizeTarget, parseArgs } from './args.js';
-export { resolveDevice, type Viewport } from './devices.js';
-export type {
-  ClientMessage,
-  EngineName,
-  EngineStatus,
-  HelloMessage,
-  LogLevel,
-  ServerMessage,
+export { type CliOptions, parseCliArguments, resolveTargetUrl } from './args.js';
+export { resolveDeviceViewport, type Viewport } from './devices.js';
+export {
+  type ClientCommand,
+  ENGINE_CODES,
+  ENGINE_NAMES_BY_CODE,
+  type EngineName,
+  type EngineStatus,
+  encodeFramePacket,
+  type HelloEvent,
+  type LogLevel,
+  type ServerEvent,
 } from './protocol.js';
-export { type AppServer, type ServerOptions, startServer } from './server.js';
+export {
+  type DashboardServer,
+  type DashboardServerOptions,
+  startDashboardServer,
+} from './server.js';
 export { EngineSession, type SessionEvents, type SessionOptions } from './session.js';

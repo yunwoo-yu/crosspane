@@ -1,13 +1,13 @@
-import type { ClientMessage, HelloMessage } from '../types';
+import type { ClientCommand, HelloEvent } from '../types';
 
 interface ToolbarProps {
   connected: boolean;
-  hello: HelloMessage | null;
-  onSend: (msg: ClientMessage) => void;
+  hello: HelloEvent | null;
+  onSendCommand: (command: ClientCommand) => void;
   onClearLogs: () => void;
 }
 
-export function Toolbar({ connected, hello, onSend, onClearLogs }: ToolbarProps) {
+export function Toolbar({ connected, hello, onSendCommand, onClearLogs }: ToolbarProps) {
   return (
     <header className="toolbar">
       <span className="brand">crosspane</span>
@@ -20,7 +20,7 @@ export function Toolbar({ connected, hello, onSend, onClearLogs }: ToolbarProps)
           <span className="device">{hello.device}</span>
         </>
       )}
-      <button type="button" onClick={() => onSend({ type: 'reload' })}>
+      <button type="button" onClick={() => onSendCommand({ type: 'reload' })}>
         ⟳ reload all
       </button>
       <button type="button" onClick={onClearLogs}>

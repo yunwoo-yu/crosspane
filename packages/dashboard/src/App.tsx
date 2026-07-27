@@ -6,10 +6,12 @@ import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
 import type { EngineName } from './types';
 
 export default function App() {
-  const { connected, hello, engines, logs, send, clearLogs } = useCrosspaneSocket();
+  const { connected, hello, engineStates, logs, sendCommand, clearLogs, subscribeToFrames } =
+    useCrosspaneSocket();
 
-  const errorCount = useCallback(
-    (engine: EngineName) => logs.filter((l) => l.engine === engine && l.level === 'error').length,
+  const errorCountFor = useCallback(
+    (engine: EngineName) =>
+      logs.filter((log) => log.engine === engine && log.level === 'error').length,
     [logs],
   );
 
@@ -17,7 +19,12 @@ export default function App() {
 
   return (
     <div className="app">
-      <Toolbar connected={connected} hello={hello} onSend={send} onClearLogs={clearLogs} />
+      <Toolbar
+        connected={connected}
+        hello={hello}
+        onSendCommand={sendCommand}
+        onClearLogs={clearLogs}
+      />
 
       <main
         className="grid"
@@ -27,9 +34,10 @@ export default function App() {
           <EnginePane
             key={engine}
             engine={engine}
-            state={engines[engine]}
-            errorCount={errorCount(engine)}
-            onSend={send}
+            state={engineStates[engine]}
+            errorCount={errorCountFor(engine)}
+            onSendCommand={sendCommand}
+            subscribeToFrames={subscribeToFrames}
           />
         ))}
       </main>

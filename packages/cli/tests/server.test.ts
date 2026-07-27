@@ -3,23 +3,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import type { EngineName, HelloMessage, ServerMessage } from '../src/protocol';
-import { type AppServer, startServer } from '../src/server';
+import { ENGINE_CODES, type EngineName, type HelloEvent, type ServerEvent } from '../src/protocol';
+import { type DashboardServer, startDashboardServer } from '../src/server';
 import type { EngineSession } from '../src/session';
 
 /** 실제 브라우저 없이 입력 미러링을 검증하기 위한 EngineSession 대역 */
 function fakeSession() {
   return {
-    click: vi.fn(async () => {}),
-    scroll: vi.fn(async () => {}),
-    keypress: vi.fn(async () => {}),
+    clickAt: vi.fn(async () => {}),
+    scrollBy: vi.fn(async () => {}),
+    pressKey: vi.fn(async () => {}),
     reload: vi.fn(async () => {}),
     navigate: vi.fn(async () => {}),
-    boost: vi.fn(),
+    markActivity: vi.fn(),
   };
 }
 
-const hello = (): HelloMessage => ({
+const hello = (): HelloEvent => ({
   type: 'hello',
   url: 'http://localhost:3000',
   device: 'iPhone 15',
@@ -27,20 +27,24 @@ const hello = (): HelloMessage => ({
   viewport: { width: 390, height: 844 },
 });
 
+type ReceivedMessage = { kind: 'event'; event: ServerEvent } | { kind: 'binary'; data: Buffer };
+
 /**
  * 서버가 보내는 메시지(hello 등)는 핸드셰이크 직후 open과 같은 틱에 도착할 수 있어
  * open 이후에 리스너를 붙이면 놓친다. 연결 시점에 리스너를 붙이고 큐에 쌓아둔다.
  */
 class TestClient {
-  private readonly queue: ServerMessage[] = [];
-  private readonly waiters: ((msg: ServerMessage) => void)[] = [];
+  private readonly queue: ReceivedMessage[] = [];
+  private readonly waiters: ((msg: ReceivedMessage) => void)[] = [];
 
   private constructor(readonly ws: WebSocket) {
-    ws.on('message', (raw) => {
-      const msg = JSON.parse(String(raw)) as ServerMessage;
+    ws.on('message', (raw, isBinary) => {
+      const message: ReceivedMessage = isBinary
+        ? { kind: 'binary', data: raw as Buffer }
+        : { kind: 'event', event: JSON.parse(String(raw)) as ServerEvent };
       const waiter = this.waiters.shift();
-      if (waiter) waiter(msg);
-      else this.queue.push(msg);
+      if (waiter) waiter(message);
+      else this.queue.push(message);
     });
   }
 
@@ -53,19 +57,31 @@ class TestClient {
     });
   }
 
-  next(): Promise<ServerMessage> {
+  next(): Promise<ReceivedMessage> {
     const queued = this.queue.shift();
     if (queued) return Promise.resolve(queued);
     return new Promise((resolve) => this.waiters.push(resolve));
   }
 
-  send(msg: unknown): void {
-    this.ws.send(JSON.stringify(msg));
+  async nextEvent(): Promise<ServerEvent> {
+    const message = await this.next();
+    if (message.kind !== 'event') throw new Error('expected JSON event, got binary');
+    return message.event;
+  }
+
+  async nextBinary(): Promise<Buffer> {
+    const message = await this.next();
+    if (message.kind !== 'binary') throw new Error('expected binary, got JSON event');
+    return message.data;
+  }
+
+  sendCommand(command: unknown): void {
+    this.ws.send(JSON.stringify(command));
   }
 }
 
-describe('startServer', () => {
-  let server: AppServer | undefined;
+describe('startDashboardServer', () => {
+  let server: DashboardServer | undefined;
   const clients: TestClient[] = [];
 
   afterEach(() => {
@@ -77,92 +93,118 @@ describe('startServer', () => {
   });
 
   it('접속하면 hello를 먼저 보낸다', async () => {
-    server = await startServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
     const client = await TestClient.connect(server.port);
     clients.push(client);
-    const msg = await client.next();
-    expect(msg).toMatchObject({ type: 'hello', device: 'iPhone 15' });
+    expect(await client.nextEvent()).toMatchObject({ type: 'hello', device: 'iPhone 15' });
   });
 
-  it('입력이 모든 세션에 미러링된다', async () => {
+  it('입력 커맨드가 모든 세션에 미러링된다', async () => {
     const a = fakeSession();
     const b = fakeSession();
     const sessions = new Map([
       ['chromium', a as unknown as EngineSession],
       ['webkit', b as unknown as EngineSession],
     ] as [EngineName, EngineSession][]);
-    server = await startServer({ port: 0, hello, sessions });
+    server = await startDashboardServer({ port: 0, hello, sessions });
     const client = await TestClient.connect(server.port);
     clients.push(client);
 
-    client.send({ type: 'click', x: 0.5, y: 0.25 });
+    client.sendCommand({ type: 'click', x: 0.5, y: 0.25 });
     await vi.waitFor(() => {
-      expect(a.click).toHaveBeenCalledWith(0.5, 0.25);
-      expect(b.click).toHaveBeenCalledWith(0.5, 0.25);
+      expect(a.clickAt).toHaveBeenCalledWith(0.5, 0.25);
+      expect(b.clickAt).toHaveBeenCalledWith(0.5, 0.25);
     });
 
-    client.send({ type: 'scroll', deltaY: 120 });
+    client.sendCommand({ type: 'scroll', deltaY: 120 });
     await vi.waitFor(() => {
-      expect(a.scroll).toHaveBeenCalledWith(120);
-      expect(b.scroll).toHaveBeenCalledWith(120);
+      expect(a.scrollBy).toHaveBeenCalledWith(120);
+      expect(b.scrollBy).toHaveBeenCalledWith(120);
+      expect(a.markActivity).toHaveBeenCalled();
     });
   });
 
-  it('잘못된 JSON을 받아도 죽지 않고 다음 메시지를 처리한다', async () => {
+  it('잘못된 JSON을 받아도 죽지 않고 다음 커맨드를 처리한다', async () => {
     const a = fakeSession();
     const sessions = new Map([['chromium', a as unknown as EngineSession]] as [
       EngineName,
       EngineSession,
     ][]);
-    server = await startServer({ port: 0, hello, sessions });
+    server = await startDashboardServer({ port: 0, hello, sessions });
     const client = await TestClient.connect(server.port);
     clients.push(client);
 
     client.ws.send('not-json{{{');
-    client.send({ type: 'reload' });
+    client.sendCommand({ type: 'reload' });
     await vi.waitFor(() => {
       expect(a.reload).toHaveBeenCalled();
     });
   });
 
-  it('broadcast가 연결된 모든 클라이언트에 전달된다', async () => {
-    server = await startServer({ port: 0, hello, sessions: new Map() });
+  it('broadcastEvent가 연결된 모든 클라이언트에 전달된다', async () => {
+    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
     const c1 = await TestClient.connect(server.port);
     const c2 = await TestClient.connect(server.port);
     clients.push(c1, c2);
-    await Promise.all([c1.next(), c2.next()]); // hello 소비
+    await Promise.all([c1.nextEvent(), c2.nextEvent()]); // hello 소비
 
-    const received = Promise.all([c1.next(), c2.next()]);
-    server.broadcast({ type: 'frame', engine: 'chromium', data: 'abc' });
+    const received = Promise.all([c1.nextEvent(), c2.nextEvent()]);
+    server.broadcastEvent({ type: 'engine-status', engine: 'chromium', status: 'ready' });
     const [m1, m2] = await received;
-    expect(m1).toEqual({ type: 'frame', engine: 'chromium', data: 'abc' });
-    expect(m2).toEqual({ type: 'frame', engine: 'chromium', data: 'abc' });
+    expect(m1).toEqual({ type: 'engine-status', engine: 'chromium', status: 'ready' });
+    expect(m2).toEqual(m1);
+  });
+
+  it('broadcastFrame이 [엔진코드 1바이트][JPEG] 바이너리 패킷으로 전달된다', async () => {
+    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    const client = await TestClient.connect(server.port);
+    clients.push(client);
+    await client.nextEvent(); // hello 소비
+
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+    server.broadcastFrame('webkit', jpeg);
+    const packet = await client.nextBinary();
+    expect(packet[0]).toBe(ENGINE_CODES.webkit);
+    expect(packet.subarray(1)).toEqual(jpeg);
+  });
+
+  it('마지막 프레임을 새 클라이언트에 재전송한다', async () => {
+    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    // 클라이언트가 없을 때 프레임 발생 — 화면 변화가 없으면 다시 오지 않는다
+    server.broadcastFrame('chromium', Buffer.from([1, 2, 3]));
+
+    const client = await TestClient.connect(server.port);
+    clients.push(client);
+    await client.nextEvent(); // hello 소비
+    const packet = await client.nextBinary();
+    expect(packet[0]).toBe(ENGINE_CODES.chromium);
+    expect(packet.subarray(1)).toEqual(Buffer.from([1, 2, 3]));
   });
 
   it('접속 전에 발생한 로그를 새 클라이언트에 재전송한다', async () => {
-    server = await startServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
     // 클라이언트가 없을 때 발생한 이벤트
-    server.broadcast({
+    server.broadcastEvent({
       type: 'console',
       engine: 'chromium',
       level: 'log',
       text: 'early-log',
       ts: 1,
     });
-    server.broadcast({ type: 'engine-status', engine: 'chromium', status: 'ready' });
+    server.broadcastEvent({ type: 'engine-status', engine: 'chromium', status: 'ready' });
 
     const client = await TestClient.connect(server.port);
     clients.push(client);
-    expect(await client.next()).toMatchObject({ type: 'hello' });
-    expect(await client.next()).toMatchObject({ type: 'engine-status', status: 'ready' });
-    expect(await client.next()).toMatchObject({ type: 'console', text: 'early-log' });
+    expect(await client.nextEvent()).toMatchObject({ type: 'hello' });
+    expect(await client.nextEvent()).toMatchObject({ type: 'engine-status', status: 'ready' });
+    expect(await client.nextEvent()).toMatchObject({ type: 'console', text: 'early-log' });
   });
 
   it('사용 중인 포트면 명확한 에러로 실패한다', async () => {
-    server = await startServer({ port: 0, hello, sessions: new Map() });
-    await expect(startServer({ port: server.port, hello, sessions: new Map() })).rejects.toThrow(
-      /already in use/,
-    );
+    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    await expect(
+      startDashboardServer({ port: server.port, hello, sessions: new Map() }),
+    ).rejects.toThrow(/already in use/);
   });
 
   it('CROSSPANE_DASHBOARD_DIR로 대시보드 정적 파일을 서빙한다', async () => {
@@ -170,9 +212,9 @@ describe('startServer', () => {
     writeFileSync(join(dir, 'index.html'), '<html>test-dashboard</html>');
     vi.stubEnv('CROSSPANE_DASHBOARD_DIR', dir);
 
-    server = await startServer({ port: 0, hello, sessions: new Map() });
-    const res = await fetch(`http://127.0.0.1:${server.port}/`);
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain('test-dashboard');
+    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    const response = await fetch(`http://127.0.0.1:${server.port}/`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('test-dashboard');
   });
 });

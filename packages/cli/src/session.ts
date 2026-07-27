@@ -6,7 +6,7 @@ import type { EngineName, EngineStatus, LogLevel } from './protocol.js';
 const launchers = { chromium, webkit, firefox } as const;
 
 export interface SessionEvents {
-  onFrame(engine: EngineName, jpegBase64: string): void;
+  onFrame(engine: EngineName, jpeg: Buffer): void;
   onConsole(engine: EngineName, level: LogLevel, text: string): void;
   onPageError(engine: EngineName, message: string): void;
   onRequestFailed(engine: EngineName, url: string, error: string): void;
@@ -16,21 +16,23 @@ export interface SessionEvents {
 export interface SessionOptions {
   url: string;
   device: string;
-  fps: number;
   injectScriptPath?: string;
 }
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const SCREENSHOT_TIMEOUT_MS = 5_000;
-const MIN_FRAME_INTERVAL_MS = 100;
-const MIN_IDLE_MS = 50;
-// 입력 직후에는 이 간격(≈10fps)으로 캡처해서 반응이 빨리 보이게 한다
-const BOOST_INTERVAL_MS = 100;
-const BOOST_DURATION_MS = 1_500;
+const JPEG_QUALITY = 60;
+// 폴링 캡처 주기: 평소에는 낮게 유지하고(변화 없는 프레임은 어차피 스킵),
+// 입력 직후 ACTIVITY_WINDOW_MS 동안은 빠르게 돌려 반응이 즉시 보이게 한다
+const IDLE_CAPTURE_INTERVAL_MS = 400;
+const ACTIVE_CAPTURE_INTERVAL_MS = 120;
+const ACTIVITY_WINDOW_MS = 2_000;
 
 export class EngineSession {
-  private closed = false;
-  private boostUntil = 0;
+  private disposed = false;
+  private activeUntil = 0;
+  private wakeCapture: (() => void) | null = null;
+  private lastFrame: Buffer | null = null;
 
   private constructor(
     readonly engine: EngineName,
@@ -39,24 +41,24 @@ export class EngineSession {
     private readonly viewport: Viewport,
   ) {}
 
-  static async create(
+  static async launch(
     engine: EngineName,
-    opts: SessionOptions,
+    options: SessionOptions,
     events: SessionEvents,
   ): Promise<EngineSession> {
     events.onStatus(engine, 'starting');
-    const preset = devices[opts.device];
-    if (!preset) throw new Error(`Unknown device "${opts.device}"`);
+    const devicePreset = devices[options.device];
+    if (!devicePreset) throw new Error(`Unknown device "${options.device}"`);
 
     const browser = await launchers[engine].launch();
     const context = await browser.newContext({
-      ...preset,
+      ...devicePreset,
       // Firefox는 모바일 에뮬레이션(isMobile/hasTouch)을 지원하지 않아 옵션을 제거해야 launch가 성공한다
       ...(engine === 'firefox' ? { isMobile: false, hasTouch: false } : {}),
     });
 
-    if (opts.injectScriptPath) {
-      const script = await readFile(opts.injectScriptPath, 'utf-8');
+    if (options.injectScriptPath) {
+      const script = await readFile(options.injectScriptPath, 'utf-8');
       await context.addInitScript({ content: script });
     }
 
@@ -67,9 +69,9 @@ export class EngineSession {
       events.onRequestFailed(engine, req.url(), req.failure()?.errorText ?? 'failed'),
     );
 
-    const session = new EngineSession(engine, browser, page, preset.viewport);
+    const session = new EngineSession(engine, browser, page, devicePreset.viewport);
     try {
-      await page.goto(opts.url, {
+      await page.goto(options.url, {
         waitUntil: 'domcontentloaded',
         timeout: NAVIGATION_TIMEOUT_MS,
       });
@@ -77,46 +79,103 @@ export class EngineSession {
     } catch (err) {
       events.onStatus(engine, 'error', String(err));
     }
-    session.startCaptureLoop(opts.fps, events);
+    await session.startFrameStreaming(events);
     return session;
   }
 
   /**
-   * 프레임 캡처 루프. WebKit/Firefox는 CDP screencast 같은 스트리밍 API가 없어서
-   * screenshot() 폴링이 세 엔진을 동일하게 다룰 수 있는 유일한 방법이다.
-   * 캡처가 밀려도 겹치지 않도록 setInterval 대신 순차 루프를 쓰고,
-   * 캡처 소요 시간을 빼서 목표 fps에 맞춘다.
+   * 프레임 스트리밍 전략:
+   * - Chromium: CDP screencast — 화면이 변할 때만 브라우저가 프레임을 밀어줘서
+   *   폴링 없이 고프레임을 얻는다
+   * - WebKit/Firefox: screencast API가 없어 적응형 폴링으로 대체.
+   *   변화 없는 프레임은 전송을 생략하고, 입력 직후에는 주기를 올린다
    */
-  private startCaptureLoop(fps: number, events: SessionEvents): void {
-    const interval = Math.max(1000 / fps, MIN_FRAME_INTERVAL_MS);
+  private async startFrameStreaming(events: SessionEvents): Promise<void> {
+    // 첫 화면을 즉시 보여주기 위한 시드 프레임
+    await this.captureAndEmitFrame(events);
+    if (this.engine === 'chromium') {
+      try {
+        await this.startCdpScreencast(events);
+        return;
+      } catch {
+        // CDP를 열 수 없으면 폴링으로 폴백
+      }
+    }
+    this.startAdaptivePolling(events);
+  }
+
+  private async startCdpScreencast(events: SessionEvents): Promise<void> {
+    const cdp = await this.page.context().newCDPSession(this.page);
+    cdp.on('Page.screencastFrame', (frame) => {
+      if (!this.disposed) events.onFrame(this.engine, Buffer.from(frame.data, 'base64'));
+      // ack를 보내지 않으면 다음 프레임이 오지 않는다
+      void cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {});
+    });
+    await cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: JPEG_QUALITY,
+      // CSS 픽셀 크기로 제한 — 기기 DPR(예: iPhone 15는 3배) 그대로 보내면
+      // 인코딩/전송/디코딩 비용이 9배가 된다
+      maxWidth: this.viewport.width,
+      maxHeight: this.viewport.height,
+    });
+  }
+
+  private startAdaptivePolling(events: SessionEvents): void {
     void (async () => {
-      while (!this.closed) {
-        const started = Date.now();
-        try {
-          const buf = await this.page.screenshot({
-            type: 'jpeg',
-            quality: 60,
-            timeout: SCREENSHOT_TIMEOUT_MS,
-          });
-          events.onFrame(this.engine, buf.toString('base64'));
-        } catch {
-          // 내비게이션/리로드 중에는 스크린샷이 일시적으로 실패할 수 있다 — 루프는 유지
-        }
-        const elapsed = Date.now() - started;
-        const target = Date.now() < this.boostUntil ? BOOST_INTERVAL_MS : interval;
-        await new Promise((r) => setTimeout(r, Math.max(target - elapsed, MIN_IDLE_MS)));
+      while (!this.disposed) {
+        const interval =
+          Date.now() < this.activeUntil ? ACTIVE_CAPTURE_INTERVAL_MS : IDLE_CAPTURE_INTERVAL_MS;
+        await this.sleepUntilWoken(interval);
+        if (this.disposed) break;
+        await this.captureAndEmitFrame(events);
       }
     })();
   }
 
-  /** 입력 직후 일정 시간 캡처 주기를 올린다 (평소에는 저fps로 리소스 절약) */
-  boost(): void {
-    this.boostUntil = Date.now() + BOOST_DURATION_MS;
+  private async captureAndEmitFrame(events: SessionEvents): Promise<void> {
+    try {
+      const jpeg = await this.page.screenshot({
+        type: 'jpeg',
+        quality: JPEG_QUALITY,
+        scale: 'css', // DPR 배율 제거 — 위 startCdpScreencast의 maxWidth 주석 참고
+        timeout: SCREENSHOT_TIMEOUT_MS,
+      });
+      // 변화 없는 프레임은 전송하지 않는다 — 유휴 상태에서 트래픽이 0이 된다
+      if (this.lastFrame?.equals(jpeg)) return;
+      this.lastFrame = jpeg;
+      events.onFrame(this.engine, jpeg);
+    } catch {
+      // 내비게이션/리로드 중에는 스크린샷이 일시적으로 실패할 수 있다 — 루프는 유지
+    }
+  }
+
+  private sleepUntilWoken(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.wakeCapture = null;
+        resolve();
+      }, ms);
+      this.wakeCapture = () => {
+        clearTimeout(timer);
+        this.wakeCapture = null;
+        resolve();
+      };
+    });
+  }
+
+  /** 입력이 발생했음을 알린다 — 대기 중인 폴링을 즉시 깨우고 잠시 고주기로 전환 */
+  markActivity(): void {
+    this.activeUntil = Date.now() + ACTIVITY_WINDOW_MS;
+    this.wakeCapture?.();
   }
 
   /** 대시보드가 보내는 0~1 정규화 좌표를 실제 뷰포트 픽셀 좌표로 환산해 클릭한다 */
-  async click(nx: number, ny: number): Promise<void> {
-    await this.page.mouse.click(nx * this.viewport.width, ny * this.viewport.height);
+  async clickAt(normalizedX: number, normalizedY: number): Promise<void> {
+    await this.page.mouse.click(
+      normalizedX * this.viewport.width,
+      normalizedY * this.viewport.height,
+    );
   }
 
   /**
@@ -124,13 +183,13 @@ export class EngineSession {
    * 애니메이션 속도가 달라 위치가 어긋난다. 세 엔진이 항상 같은 픽셀만큼
    * 움직이도록 JS scrollBy를 주입해 즉시 스크롤한다.
    */
-  async scroll(deltaY: number): Promise<void> {
+  async scrollBy(deltaY: number): Promise<void> {
     await this.page.evaluate((dy) => {
       (globalThis as unknown as { scrollBy: (x: number, y: number) => void }).scrollBy(0, dy);
     }, deltaY);
   }
 
-  async keypress(key: string): Promise<void> {
+  async pressKey(key: string): Promise<void> {
     await this.page.keyboard.press(key);
   }
 
@@ -142,8 +201,9 @@ export class EngineSession {
     await this.page.goto(url, { waitUntil: 'domcontentloaded' });
   }
 
-  async close(): Promise<void> {
-    this.closed = true;
+  async dispose(): Promise<void> {
+    this.disposed = true;
+    this.wakeCapture?.();
     await this.browser.close().catch(() => undefined);
   }
 }

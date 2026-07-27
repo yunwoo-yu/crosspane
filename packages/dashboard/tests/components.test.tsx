@@ -1,11 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { ConsolePanel } from '../src/components/ConsolePanel';
 import { EnginePane } from '../src/components/EnginePane';
 import { Toolbar } from '../src/components/Toolbar';
-import type { HelloMessage, LogEntry } from '../src/types';
+import type { EngineName, FrameListener, HelloEvent, LogEntry } from '../src/types';
 
-const hello: HelloMessage = {
+const helloEvent: HelloEvent = {
   type: 'hello',
   url: 'http://localhost:3000',
   device: 'iPhone 15',
@@ -13,17 +13,56 @@ const hello: HelloMessage = {
   viewport: { width: 390, height: 844 },
 };
 
+const fakeFrame = { width: 390, height: 844, close: vi.fn() } as unknown as ImageBitmap;
+
+/** EnginePane을 렌더하고 프레임 리스너를 캡처해 프레임 주입을 흉내낼 수 있게 한다 */
+function renderEnginePane(overrides: {
+  onSendCommand?: ReturnType<typeof vi.fn>;
+  status?: 'starting' | 'ready' | 'error';
+  detail?: string;
+  errorCount?: number;
+}) {
+  let capturedListener: FrameListener | undefined;
+  const subscribeToFrames = (_engine: EngineName, listener: FrameListener) => {
+    capturedListener = listener;
+    return () => {};
+  };
+  const view = render(
+    <EnginePane
+      engine="chromium"
+      state={{ status: overrides.status ?? 'ready', detail: overrides.detail }}
+      errorCount={overrides.errorCount ?? 0}
+      onSendCommand={overrides.onSendCommand ?? vi.fn()}
+      subscribeToFrames={subscribeToFrames}
+    />,
+  );
+  return {
+    view,
+    emitFrame: () => {
+      if (!capturedListener) throw new Error('frame listener not captured');
+      act(() => capturedListener?.(fakeFrame));
+    },
+  };
+}
+
 describe('Toolbar', () => {
   it('연결 상태·타깃 URL을 보여주고 reload/clear 버튼이 동작한다', () => {
-    const onSend = vi.fn();
+    const onSendCommand = vi.fn();
     const onClearLogs = vi.fn();
-    render(<Toolbar connected={true} hello={hello} onSend={onSend} onClearLogs={onClearLogs} />);
+    render(
+      <Toolbar
+        connected={true}
+        hello={helloEvent}
+        onSendCommand={onSendCommand}
+        onClearLogs={onClearLogs}
+      />,
+    );
 
     expect(screen.getByText('connected')).toBeTruthy();
     expect(screen.getByText('http://localhost:3000')).toBeTruthy();
 
     fireEvent.click(screen.getByText('⟳ reload all'));
-    expect(onSend).toHaveBeenCalledWith({ type: 'reload' });
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'reload' });
 
     fireEvent.click(screen.getByText('clear logs'));
     expect(onClearLogs).toHaveBeenCalled();
@@ -52,71 +91,43 @@ describe('EnginePane', () => {
       toJSON: () => ({}),
     } as DOMRect);
 
-    const onSend = vi.fn();
-    render(
-      <EnginePane
-        engine="chromium"
-        state={{ status: 'ready', frame: 'abc' }}
-        errorCount={0}
-        onSend={onSend}
-      />,
-    );
+    const onSendCommand = vi.fn();
+    const { emitFrame } = renderEnginePane({ onSendCommand });
+    emitFrame(); // 프레임이 있어야 canvas가 표시된다
 
-    fireEvent.pointerDown(screen.getByAltText('chromium'), { clientX: 50, clientY: 50 });
-    expect(onSend).toHaveBeenCalledWith({ type: 'click', x: 0.5, y: 0.25 });
+    fireEvent.pointerDown(screen.getByLabelText('chromium'), { clientX: 50, clientY: 50 });
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'click', x: 0.5, y: 0.25 });
   });
 
-  it('휠 델타를 모아 하나의 scroll 메시지로 보낸다', () => {
+  it('휠 델타를 모아 하나의 scroll 커맨드로 보낸다', () => {
     vi.useFakeTimers();
-    const onSend = vi.fn();
-    render(
-      <EnginePane
-        engine="chromium"
-        state={{ status: 'ready', frame: 'abc' }}
-        errorCount={0}
-        onSend={onSend}
-      />,
-    );
-    const container = screen.getByAltText('chromium').closest('.pane-screen');
-    if (!container) throw new Error('pane-screen not found');
+    const onSendCommand = vi.fn();
+    const { view } = renderEnginePane({ onSendCommand });
+    const paneScreen = view.container.querySelector('.pane-screen');
+    if (!paneScreen) throw new Error('pane-screen not found');
 
-    fireEvent.wheel(container, { deltaY: 30 });
-    fireEvent.wheel(container, { deltaY: 40 });
-    expect(onSend).not.toHaveBeenCalled(); // 플러시 전에는 전송하지 않는다
+    fireEvent.wheel(paneScreen, { deltaY: 30 });
+    fireEvent.wheel(paneScreen, { deltaY: 40 });
+    expect(onSendCommand).not.toHaveBeenCalled(); // 플러시 전에는 전송하지 않는다
 
     vi.advanceTimersByTime(200);
-    expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith({ type: 'scroll', deltaY: 70 });
+    expect(onSendCommand).toHaveBeenCalledTimes(1);
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 70 });
     vi.useRealTimers();
   });
 
-  it('프레임이 없으면 placeholder, 에러면 실패 사유를 보여준다', () => {
-    const onSend = vi.fn();
-    const { rerender } = render(
-      <EnginePane engine="webkit" state={{ status: 'starting' }} errorCount={0} onSend={onSend} />,
-    );
+  it('첫 프레임 전에는 placeholder, 에러면 실패 사유를 보여준다', () => {
+    renderEnginePane({ status: 'starting' });
     expect(screen.getByText('starting…')).toBeTruthy();
+  });
 
-    rerender(
-      <EnginePane
-        engine="webkit"
-        state={{ status: 'error', detail: 'launch failed' }}
-        errorCount={0}
-        onSend={onSend}
-      />,
-    );
+  it('에러 상태면 실패 사유를 보여준다', () => {
+    renderEnginePane({ status: 'error', detail: 'launch failed' });
     expect(screen.getByText(/failed: launch failed/)).toBeTruthy();
   });
 
   it('에러 개수가 있으면 배지를 표시한다', () => {
-    render(
-      <EnginePane
-        engine="firefox"
-        state={{ status: 'ready', frame: 'abc' }}
-        errorCount={3}
-        onSend={vi.fn()}
-      />,
-    );
+    renderEnginePane({ errorCount: 3 });
     expect(screen.getByText('3')).toBeTruthy();
   });
 });

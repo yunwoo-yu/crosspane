@@ -1,6 +1,6 @@
 import type { EngineName } from './protocol.js';
 
-export const HELP = `crosspane — preview one URL across Chromium, WebKit and Firefox in a single dashboard
+export const HELP_TEXT = `crosspane — preview one URL across Chromium, WebKit and Firefox in a single dashboard
 
 Usage:
   crosspane <url | :port> [options]
@@ -14,7 +14,6 @@ Options:
   --engines <list>   Comma-separated engines (default: chromium,webkit,firefox)
   --device <name>    Playwright device preset (default: "iPhone 15")
   --port <n>         Dashboard port (default: 7788)
-  --fps <n>          Capture frames per second (default: 4)
   --inject <path>    JS file injected into every page before load (bridge mocks etc.)
   -h, --help         Show this help
 `;
@@ -24,51 +23,50 @@ export interface CliOptions {
   engines: EngineName[];
   device: string;
   port: number;
-  fps: number;
   injectScriptPath?: string;
 }
 
-const VALID_ENGINES: readonly EngineName[] = ['chromium', 'webkit', 'firefox'];
+const SUPPORTED_ENGINES: readonly EngineName[] = ['chromium', 'webkit', 'firefox'];
 
-const DEFAULTS = {
-  engines: VALID_ENGINES,
+const DEFAULT_OPTIONS = {
+  engines: SUPPORTED_ENGINES,
   device: 'iPhone 15',
   port: 7788,
-  fps: 4,
 } as const;
 
-function parseEngines(value: string): EngineName[] {
-  const engines = value.split(',').map((e) => e.trim());
+function parseEngineList(value: string): EngineName[] {
+  const engines = value.split(',').map((engine) => engine.trim());
   for (const engine of engines) {
-    if (!(VALID_ENGINES as readonly string[]).includes(engine)) {
-      throw new Error(`Unknown engine "${engine}" (valid: ${VALID_ENGINES.join(', ')})`);
+    if (!(SUPPORTED_ENGINES as readonly string[]).includes(engine)) {
+      throw new Error(`Unknown engine "${engine}" (valid: ${SUPPORTED_ENGINES.join(', ')})`);
     }
   }
   return engines as EngineName[];
 }
 
-function parsePositiveNumber(flag: string, value: string): number {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) throw new Error(`Invalid value for ${flag}: "${value}"`);
-  return n;
+function parsePositiveNumberFlag(flag: string, value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Invalid value for ${flag}: "${value}"`);
+  }
+  return parsed;
 }
 
 /** ":3000" / "3000" 같은 포트 축약형을 localhost URL로 확장한다 */
-export function normalizeTarget(target: string): string {
+export function resolveTargetUrl(target: string): string {
   return /^:?\d+$/.test(target) ? `http://localhost:${target.replace(':', '')}` : target;
 }
 
-export function parseArgs(argv: string[]): CliOptions {
+export function parseCliArguments(argv: string[]): CliOptions {
   const args = [...argv];
   const target = args.shift();
-  if (target === undefined) throw new Error(HELP);
+  if (target === undefined) throw new Error(HELP_TEXT);
 
-  const opts: CliOptions = {
-    url: normalizeTarget(target),
-    engines: [...DEFAULTS.engines],
-    device: DEFAULTS.device,
-    port: DEFAULTS.port,
-    fps: DEFAULTS.fps,
+  const options: CliOptions = {
+    url: resolveTargetUrl(target),
+    engines: [...DEFAULT_OPTIONS.engines],
+    device: DEFAULT_OPTIONS.device,
+    port: DEFAULT_OPTIONS.port,
   };
 
   while (args.length > 0) {
@@ -78,23 +76,20 @@ export function parseArgs(argv: string[]): CliOptions {
     if (value === undefined) throw new Error(`Missing value for ${flag}`);
     switch (flag) {
       case '--engines':
-        opts.engines = parseEngines(value);
+        options.engines = parseEngineList(value);
         break;
       case '--device':
-        opts.device = value;
+        options.device = value;
         break;
       case '--port':
-        opts.port = parsePositiveNumber(flag, value);
-        break;
-      case '--fps':
-        opts.fps = parsePositiveNumber(flag, value);
+        options.port = parsePositiveNumberFlag(flag, value);
         break;
       case '--inject':
-        opts.injectScriptPath = value;
+        options.injectScriptPath = value;
         break;
       default:
         throw new Error(`Unknown option ${flag}`);
     }
   }
-  return opts;
+  return options;
 }

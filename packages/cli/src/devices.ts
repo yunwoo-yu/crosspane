@@ -5,14 +5,15 @@ export interface Viewport {
   height: number;
 }
 
-export function resolveDevice(name: string): Viewport {
-  const preset = devices[name];
+/** Playwright 기기 프리셋 이름을 CSS 픽셀 뷰포트로 해석한다 */
+export function resolveDeviceViewport(deviceName: string): Viewport {
+  const preset = devices[deviceName];
   if (!preset) {
-    const known = Object.keys(devices)
-      .filter((d) => /iPhone|Pixel|Galaxy|iPad/.test(d))
+    const examples = Object.keys(devices)
+      .filter((name) => /iPhone|Pixel|Galaxy|iPad/.test(name))
       .slice(0, 20)
       .join(', ');
-    throw new Error(`Unknown device "${name}". Examples: ${known}`);
+    throw new Error(`Unknown device "${deviceName}". Examples: ${examples}`);
   }
   return { width: preset.viewport.width, height: preset.viewport.height };
 }

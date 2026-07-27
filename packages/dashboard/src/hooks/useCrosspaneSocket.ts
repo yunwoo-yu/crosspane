@@ -1,36 +1,106 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MAX_LOGS, RECONNECT_DELAY_MS } from '../constants';
-import type {
-  ClientMessage,
-  EngineName,
-  EngineState,
-  HelloMessage,
-  LogEntry,
-  ServerMessage,
+import {
+  type ClientCommand,
+  ENGINE_NAMES_BY_CODE,
+  type EngineName,
+  type EngineState,
+  type FrameListener,
+  type HelloEvent,
+  type LogEntry,
+  type ServerEvent,
 } from '../types';
 
-export interface CrosspaneSocket {
+export interface CrosspaneConnection {
   connected: boolean;
-  hello: HelloMessage | null;
-  engines: Partial<Record<EngineName, EngineState>>;
+  hello: HelloEvent | null;
+  engineStates: Partial<Record<EngineName, EngineState>>;
   logs: LogEntry[];
-  send: (msg: ClientMessage) => void;
+  sendCommand: (command: ClientCommand) => void;
   clearLogs: () => void;
+  /**
+   * 엔진의 프레임 스트림을 구독한다. 프레임은 React 상태를 거치지 않고
+   * 구독자(canvas)에 직접 전달된다 — 고프레임에서 리렌더 비용을 없애기 위함.
+   * 반환값은 구독 해제 함수. 전달된 ImageBitmap은 콜백 밖으로 유출하면 안 된다(호출 후 close됨).
+   */
+  subscribeToFrames: (engine: EngineName, listener: FrameListener) => () => void;
 }
 
-export function useCrosspaneSocket(): CrosspaneSocket {
-  const wsRef = useRef<WebSocket | null>(null);
+export function useCrosspaneSocket(): CrosspaneConnection {
+  const socketRef = useRef<WebSocket | null>(null);
   const logIdRef = useRef(0);
+  const frameListenersRef = useRef(new Map<EngineName, Set<FrameListener>>());
   const [connected, setConnected] = useState(false);
-  const [hello, setHello] = useState<HelloMessage | null>(null);
-  const [engines, setEngines] = useState<Partial<Record<EngineName, EngineState>>>({});
+  const [hello, setHello] = useState<HelloEvent | null>(null);
+  const [engineStates, setEngineStates] = useState<Partial<Record<EngineName, EngineState>>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   // 로그가 무한히 쌓이면 리렌더 비용이 커지므로 최근 MAX_LOGS개만 유지한다
-  const pushLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
+  const appendLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
     setLogs((prev) => {
       const next = [...prev, { ...entry, id: logIdRef.current++ }];
       return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
+    });
+  }, []);
+
+  const handleServerEvent = useCallback(
+    (event: ServerEvent) => {
+      switch (event.type) {
+        case 'hello':
+          setHello(event);
+          setEngineStates(
+            Object.fromEntries(event.engines.map((engine) => [engine, { status: 'starting' }])),
+          );
+          break;
+        case 'engine-status':
+          setEngineStates((prev) => ({
+            ...prev,
+            [event.engine]: { status: event.status, detail: event.detail },
+          }));
+          break;
+        case 'console':
+          appendLog({
+            engine: event.engine,
+            kind: 'console',
+            level: event.level,
+            text: event.text,
+            ts: event.ts,
+          });
+          break;
+        case 'pageerror':
+          appendLog({
+            engine: event.engine,
+            kind: 'pageerror',
+            level: 'error',
+            text: event.message,
+            ts: event.ts,
+          });
+          break;
+        case 'requestfailed':
+          appendLog({
+            engine: event.engine,
+            kind: 'requestfailed',
+            level: 'error',
+            text: `${event.url} — ${event.error}`,
+            ts: event.ts,
+          });
+          break;
+      }
+    },
+    [appendLog],
+  );
+
+  const handleFramePacket = useCallback((packet: ArrayBuffer) => {
+    const bytes = new Uint8Array(packet);
+    const engine = ENGINE_NAMES_BY_CODE[bytes[0]];
+    if (!engine) return;
+    const listeners = frameListenersRef.current.get(engine);
+    if (!listeners || listeners.size === 0) return;
+    const jpegBlob = new Blob([bytes.subarray(1)], { type: 'image/jpeg' });
+    // createImageBitmap은 디코딩을 메인 스레드 밖에서 수행한다
+    void createImageBitmap(jpegBlob).then((frame) => {
+      for (const listener of listeners) listener(frame);
+      frame.close();
     });
   }, []);
 
@@ -40,60 +110,20 @@ export function useCrosspaneSocket(): CrosspaneSocket {
 
     const connect = (): void => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${location.host}/ws`);
-      wsRef.current = ws;
-      ws.onopen = () => setConnected(true);
+      const socket = new WebSocket(`${proto}://${location.host}/ws`);
+      socket.binaryType = 'arraybuffer';
+      socketRef.current = socket;
+      socket.onopen = () => setConnected(true);
       // CLI 재시작 등으로 끊기면 자동 재접속한다
-      ws.onclose = () => {
+      socket.onclose = () => {
         setConnected(false);
         if (!disposed) retryTimer = window.setTimeout(connect, RECONNECT_DELAY_MS);
       };
-      ws.onmessage = (ev: MessageEvent<string>) => {
-        const msg = JSON.parse(ev.data) as ServerMessage;
-        switch (msg.type) {
-          case 'hello':
-            setHello(msg);
-            setEngines(Object.fromEntries(msg.engines.map((e) => [e, { status: 'starting' }])));
-            break;
-          case 'frame':
-            setEngines((prev) => ({
-              ...prev,
-              [msg.engine]: { ...prev[msg.engine], status: 'ready', frame: msg.data },
-            }));
-            break;
-          case 'engine-status':
-            setEngines((prev) => ({
-              ...prev,
-              [msg.engine]: { ...prev[msg.engine], status: msg.status, detail: msg.detail },
-            }));
-            break;
-          case 'console':
-            pushLog({
-              engine: msg.engine,
-              kind: 'console',
-              level: msg.level,
-              text: msg.text,
-              ts: msg.ts,
-            });
-            break;
-          case 'pageerror':
-            pushLog({
-              engine: msg.engine,
-              kind: 'pageerror',
-              level: 'error',
-              text: msg.message,
-              ts: msg.ts,
-            });
-            break;
-          case 'requestfailed':
-            pushLog({
-              engine: msg.engine,
-              kind: 'requestfailed',
-              level: 'error',
-              text: `${msg.url} — ${msg.error}`,
-              ts: msg.ts,
-            });
-            break;
+      socket.onmessage = (ev: MessageEvent<string | ArrayBuffer>) => {
+        if (typeof ev.data === 'string') {
+          handleServerEvent(JSON.parse(ev.data) as ServerEvent);
+        } else {
+          handleFramePacket(ev.data);
         }
       };
     };
@@ -102,16 +132,29 @@ export function useCrosspaneSocket(): CrosspaneSocket {
     return () => {
       disposed = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
-      wsRef.current?.close();
+      socketRef.current?.close();
     };
-  }, [pushLog]);
+  }, [handleServerEvent, handleFramePacket]);
 
-  const send = useCallback((msg: ClientMessage) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  const sendCommand = useCallback((command: ClientCommand) => {
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
   }, []);
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
-  return { connected, hello, engines, logs, send, clearLogs };
+  const subscribeToFrames = useCallback((engine: EngineName, listener: FrameListener) => {
+    const listenersByEngine = frameListenersRef.current;
+    let listeners = listenersByEngine.get(engine);
+    if (!listeners) {
+      listeners = new Set();
+      listenersByEngine.set(engine, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }, []);
+
+  return { connected, hello, engineStates, logs, sendCommand, clearLogs, subscribeToFrames };
 }

@@ -148,7 +148,7 @@ body {
   min-height: 0;
 }
 
-.pane-screen img {
+.pane-screen canvas {
   height: 100%;
   width: auto;
   max-width: 100%;

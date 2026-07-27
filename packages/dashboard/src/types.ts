@@ -2,7 +2,10 @@ export type EngineName = 'chromium' | 'webkit' | 'firefox';
 
 export type EngineStatus = 'starting' | 'ready' | 'error';
 
-export interface HelloMessage {
+/** 바이너리 프레임 패킷의 1바이트 엔진 식별자 → 엔진 이름 (cli protocol.ts와 동기화) */
+export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = ['chromium', 'webkit', 'firefox'];
+
+export interface HelloEvent {
   type: 'hello';
   url: string;
   device: string;
@@ -10,15 +13,16 @@ export interface HelloMessage {
   viewport: { width: number; height: number };
 }
 
-export type ServerMessage =
-  | HelloMessage
-  | { type: 'frame'; engine: EngineName; data: string }
+/** 서버 → 대시보드 JSON 이벤트 (프레임 제외 — 프레임은 바이너리 패킷) */
+export type ServerEvent =
+  | HelloEvent
   | { type: 'console'; engine: EngineName; level: string; text: string; ts: number }
   | { type: 'pageerror'; engine: EngineName; message: string; ts: number }
   | { type: 'requestfailed'; engine: EngineName; url: string; error: string; ts: number }
   | { type: 'engine-status'; engine: EngineName; status: EngineStatus; detail?: string };
 
-export type ClientMessage =
+/** 대시보드 → 서버 입력 커맨드. 모든 엔진에 미러링된다 */
+export type ClientCommand =
   | { type: 'click'; x: number; y: number }
   | { type: 'scroll'; deltaY: number }
   | { type: 'keypress'; key: string }
@@ -26,7 +30,6 @@ export type ClientMessage =
   | { type: 'navigate'; url: string };
 
 export interface EngineState {
-  frame?: string;
   status: EngineStatus;
   detail?: string;
 }
@@ -39,3 +42,5 @@ export interface LogEntry {
   text: string;
   ts: number;
 }
+
+export type FrameListener = (frame: ImageBitmap) => void;

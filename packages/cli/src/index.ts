@@ -1,68 +1,67 @@
 #!/usr/bin/env node
-import { HELP, parseArgs } from './args.js';
-import { resolveDevice } from './devices.js';
+import { HELP_TEXT, parseCliArguments } from './args.js';
+import { resolveDeviceViewport } from './devices.js';
 import type { EngineName, EngineStatus } from './protocol.js';
-import { startServer } from './server.js';
+import { startDashboardServer } from './server.js';
 import { EngineSession, type SessionEvents } from './session.js';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.length === 0 || argv.includes('-h') || argv.includes('--help')) {
-    console.log(HELP);
+    console.log(HELP_TEXT);
     process.exit(argv.length === 0 ? 1 : 0);
   }
 
-  const opts = parseArgs(argv);
-  const viewport = resolveDevice(opts.device);
+  const options = parseCliArguments(argv);
+  const viewport = resolveDeviceViewport(options.device);
 
   const sessions = new Map<EngineName, EngineSession>();
-  const server = await startServer({
-    port: opts.port,
+  const server = await startDashboardServer({
+    port: options.port,
     sessions,
     hello: () => ({
       type: 'hello',
-      url: opts.url,
-      device: opts.device,
-      engines: opts.engines,
+      url: options.url,
+      device: options.device,
+      engines: options.engines,
       viewport,
     }),
   });
 
-  const events: SessionEvents = {
-    onFrame: (engine, data) => server.broadcast({ type: 'frame', engine, data }),
+  const sessionEvents: SessionEvents = {
+    onFrame: (engine, jpeg) => server.broadcastFrame(engine, jpeg),
     onConsole: (engine, level, text) =>
-      server.broadcast({ type: 'console', engine, level, text, ts: Date.now() }),
+      server.broadcastEvent({ type: 'console', engine, level, text, ts: Date.now() }),
     onPageError: (engine, message) =>
-      server.broadcast({ type: 'pageerror', engine, message, ts: Date.now() }),
+      server.broadcastEvent({ type: 'pageerror', engine, message, ts: Date.now() }),
     onRequestFailed: (engine, url, error) =>
-      server.broadcast({ type: 'requestfailed', engine, url, error, ts: Date.now() }),
+      server.broadcastEvent({ type: 'requestfailed', engine, url, error, ts: Date.now() }),
     onStatus: (engine: EngineName, status: EngineStatus, detail?: string) =>
-      server.broadcast({ type: 'engine-status', engine, status, detail }),
+      server.broadcastEvent({ type: 'engine-status', engine, status, detail }),
   };
 
-  console.log(`crosspane dashboard → http://localhost:${opts.port}`);
-  console.log(`target: ${opts.url}  device: ${opts.device}  engines: ${opts.engines.join(', ')}`);
+  console.log(`crosspane dashboard → http://localhost:${server.port}`);
+  console.log(
+    `target: ${options.url}  device: ${options.device}  engines: ${options.engines.join(', ')}`,
+  );
 
-  const results = await Promise.allSettled(
-    opts.engines.map(async (engine) => {
-      const session = await EngineSession.create(
+  const launchResults = await Promise.allSettled(
+    options.engines.map(async (engine) => {
+      const session = await EngineSession.launch(
         engine,
-        {
-          url: opts.url,
-          device: opts.device,
-          fps: opts.fps,
-          injectScriptPath: opts.injectScriptPath,
-        },
-        events,
+        { url: options.url, device: options.device, injectScriptPath: options.injectScriptPath },
+        sessionEvents,
       );
       sessions.set(engine, session);
       console.log(`  ✓ ${engine} ready`);
     }),
   );
-  for (const [i, result] of results.entries()) {
+  for (const [index, result] of launchResults.entries()) {
     if (result.status === 'rejected') {
-      console.error(`  ✗ ${opts.engines[i]} failed: ${String(result.reason)}`);
-      console.error(`    (missing browser? run: pnpm exec playwright install ${opts.engines[i]})`);
+      console.error(`  ✗ ${options.engines[index]} failed: ${String(result.reason)}`);
+      console.error(
+        `    (missing browser? run: pnpm exec playwright install ${options.engines[index]})`,
+      );
     }
   }
   if (sessions.size === 0) {
@@ -72,7 +71,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (): Promise<void> => {
     console.log('\nshutting down…');
-    await Promise.allSettled([...sessions.values()].map((s) => s.close()));
+    await Promise.allSettled([...sessions.values()].map((session) => session.dispose()));
     server.close();
     process.exit(0);
   };
