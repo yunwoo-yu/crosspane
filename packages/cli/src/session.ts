@@ -24,9 +24,13 @@ const NAVIGATION_TIMEOUT_MS = 30_000;
 const SCREENSHOT_TIMEOUT_MS = 5_000;
 const MIN_FRAME_INTERVAL_MS = 100;
 const MIN_IDLE_MS = 50;
+// 입력 직후에는 이 간격(≈10fps)으로 캡처해서 반응이 빨리 보이게 한다
+const BOOST_INTERVAL_MS = 100;
+const BOOST_DURATION_MS = 1_500;
 
 export class EngineSession {
   private closed = false;
+  private boostUntil = 0;
 
   private constructor(
     readonly engine: EngineName,
@@ -99,9 +103,15 @@ export class EngineSession {
           // 내비게이션/리로드 중에는 스크린샷이 일시적으로 실패할 수 있다 — 루프는 유지
         }
         const elapsed = Date.now() - started;
-        await new Promise((r) => setTimeout(r, Math.max(interval - elapsed, MIN_IDLE_MS)));
+        const target = Date.now() < this.boostUntil ? BOOST_INTERVAL_MS : interval;
+        await new Promise((r) => setTimeout(r, Math.max(target - elapsed, MIN_IDLE_MS)));
       }
     })();
+  }
+
+  /** 입력 직후 일정 시간 캡처 주기를 올린다 (평소에는 저fps로 리소스 절약) */
+  boost(): void {
+    this.boostUntil = Date.now() + BOOST_DURATION_MS;
   }
 
   /** 대시보드가 보내는 0~1 정규화 좌표를 실제 뷰포트 픽셀 좌표로 환산해 클릭한다 */
@@ -109,8 +119,15 @@ export class EngineSession {
     await this.page.mouse.click(nx * this.viewport.width, ny * this.viewport.height);
   }
 
+  /**
+   * mouse.wheel은 WebKit 모바일 컨텍스트에서 무시되고, 엔진마다 스크롤
+   * 애니메이션 속도가 달라 위치가 어긋난다. 세 엔진이 항상 같은 픽셀만큼
+   * 움직이도록 JS scrollBy를 주입해 즉시 스크롤한다.
+   */
   async scroll(deltaY: number): Promise<void> {
-    await this.page.mouse.wheel(0, deltaY);
+    await this.page.evaluate((dy) => {
+      (globalThis as unknown as { scrollBy: (x: number, y: number) => void }).scrollBy(0, dy);
+    }, deltaY);
   }
 
   async keypress(key: string): Promise<void> {

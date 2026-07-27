@@ -1,4 +1,5 @@
-import { ENGINE_LABEL } from '../constants';
+import { useEffect, useRef } from 'react';
+import { ENGINE_LABEL, WHEEL_FLUSH_MS } from '../constants';
 import type { ClientMessage, EngineName, EngineState } from '../types';
 
 interface EnginePaneProps {
@@ -9,6 +10,39 @@ interface EnginePaneProps {
 }
 
 export function EnginePane({ engine, state, errorCount, onSend }: EnginePaneProps) {
+  const screenRef = useRef<HTMLDivElement | null>(null);
+  const onSendRef = useRef(onSend);
+  onSendRef.current = onSend;
+
+  // React의 onWheel은 passive라 preventDefault가 불가능하다.
+  // 네이티브 non-passive 리스너로 대시보드 자체 스크롤을 막고(미러링 전용),
+  // 델타를 WHEEL_FLUSH_MS 동안 모아 하나의 메시지로 보낸다.
+  useEffect(() => {
+    const el = screenRef.current;
+    if (!el) return;
+    let accum = 0;
+    let timer: number | null = null;
+
+    const onWheel = (e: WheelEvent): void => {
+      e.preventDefault();
+      accum += e.deltaY;
+      if (timer === null) {
+        timer = window.setTimeout(() => {
+          const deltaY = Math.round(accum);
+          accum = 0;
+          timer = null;
+          if (deltaY !== 0) onSendRef.current({ type: 'scroll', deltaY });
+        }, WHEEL_FLUSH_MS);
+      }
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
+
   return (
     <section className="pane">
       <div className="pane-head">
@@ -16,7 +50,7 @@ export function EnginePane({ engine, state, errorCount, onSend }: EnginePaneProp
         <span className="pane-title">{ENGINE_LABEL[engine]}</span>
         {errorCount > 0 && <span className="err-badge">{errorCount}</span>}
       </div>
-      <div className="pane-screen">
+      <div className="pane-screen" ref={screenRef}>
         {state?.frame ? (
           <img
             src={`data:image/jpeg;base64,${state.frame}`}
@@ -32,7 +66,6 @@ export function EnginePane({ engine, state, errorCount, onSend }: EnginePaneProp
                 y: (e.clientY - rect.top) / rect.height,
               });
             }}
-            onWheel={(e) => onSend({ type: 'scroll', deltaY: e.deltaY })}
           />
         ) : (
           <div className="placeholder">

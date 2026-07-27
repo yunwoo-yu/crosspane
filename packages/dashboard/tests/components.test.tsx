@@ -66,6 +66,30 @@ describe('EnginePane', () => {
     expect(onSend).toHaveBeenCalledWith({ type: 'click', x: 0.5, y: 0.25 });
   });
 
+  it('휠 델타를 모아 하나의 scroll 메시지로 보낸다', () => {
+    vi.useFakeTimers();
+    const onSend = vi.fn();
+    render(
+      <EnginePane
+        engine="chromium"
+        state={{ status: 'ready', frame: 'abc' }}
+        errorCount={0}
+        onSend={onSend}
+      />,
+    );
+    const container = screen.getByAltText('chromium').closest('.pane-screen');
+    if (!container) throw new Error('pane-screen not found');
+
+    fireEvent.wheel(container, { deltaY: 30 });
+    fireEvent.wheel(container, { deltaY: 40 });
+    expect(onSend).not.toHaveBeenCalled(); // 플러시 전에는 전송하지 않는다
+
+    vi.advanceTimersByTime(200);
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith({ type: 'scroll', deltaY: 70 });
+    vi.useRealTimers();
+  });
+
   it('프레임이 없으면 placeholder, 에러면 실패 사유를 보여준다', () => {
     const onSend = vi.fn();
     const { rerender } = render(

@@ -42,8 +42,16 @@ async function dispatch(
   sessions: ReadonlyMap<EngineName, EngineSession>,
   msg: ClientMessage,
 ): Promise<void> {
-  await Promise.allSettled([...sessions.values()].map((session) => applyInput(session, msg)));
+  await Promise.allSettled(
+    [...sessions.values()].map((session) => {
+      session.boost();
+      return applyInput(session, msg);
+    }),
+  );
 }
+
+// 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
+const HISTORY_LIMIT = 300;
 
 export function startServer(opts: ServerOptions): Promise<AppServer> {
   const dashboardDir = defaultDashboardDir();
@@ -53,10 +61,28 @@ export function startServer(opts: ServerOptions): Promise<AppServer> {
   });
 
   const wss = new WebSocketServer({ server, path: '/ws' });
+  // http 서버의 EADDRINUSE 등이 wss로도 전파되는데, 핸들러가 없으면
+  // unhandled 'error'로 프로세스가 크래시한다. 처리는 server.once('error')가 담당.
+  wss.on('error', () => {});
+
+  // 접속 전에 발생한 콘솔/에러/네트워크 이벤트와 마지막 엔진 상태를
+  // 새 클라이언트에게 재전송하기 위한 버퍼
+  const history: ServerMessage[] = [];
+  const lastStatus = new Map<EngineName, ServerMessage>();
+  const record = (msg: ServerMessage): void => {
+    if (msg.type === 'console' || msg.type === 'pageerror' || msg.type === 'requestfailed') {
+      history.push(msg);
+      if (history.length > HISTORY_LIMIT) history.shift();
+    } else if (msg.type === 'engine-status') {
+      lastStatus.set(msg.engine, msg);
+    }
+  };
 
   wss.on('connection', (ws) => {
     // 새 클라이언트에게 현재 세션 구성(타깃 URL, 기기, 엔진 목록)을 먼저 알려준다
     ws.send(JSON.stringify(opts.hello()));
+    for (const status of lastStatus.values()) ws.send(JSON.stringify(status));
+    for (const msg of history) ws.send(JSON.stringify(msg));
     ws.on('message', (raw) => {
       try {
         const msg = JSON.parse(String(raw)) as ClientMessage;
@@ -68,11 +94,19 @@ export function startServer(opts: ServerOptions): Promise<AppServer> {
   });
 
   return new Promise((resolve, reject) => {
-    server.once('error', reject);
+    server.once('error', (err) => {
+      const isAddrInUse = (err as NodeJS.ErrnoException).code === 'EADDRINUSE';
+      reject(
+        isAddrInUse
+          ? new Error(`Port ${opts.port} is already in use — try a different --port`)
+          : err,
+      );
+    });
     server.listen(opts.port, () => {
       resolve({
         port: (server.address() as AddressInfo).port,
         broadcast(msg: ServerMessage) {
+          record(msg);
           const payload = JSON.stringify(msg);
           for (const client of wss.clients) {
             if (client.readyState === WebSocket.OPEN) client.send(payload);

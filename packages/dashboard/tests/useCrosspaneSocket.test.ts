@@ -128,4 +128,17 @@ describe('useCrosspaneSocket', () => {
     unmount();
     expect(closeSpy).toHaveBeenCalled();
   });
+
+  it('연결이 끊기면 자동으로 재접속한다', () => {
+    vi.useFakeTimers();
+    renderHook(() => useCrosspaneSocket());
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    act(() => FakeWebSocket.instances[0].close()); // 서버 측 종료 시뮬레이션
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    vi.useRealTimers();
+  });
 });

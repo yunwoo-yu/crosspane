@@ -136,19 +136,23 @@ body {
   padding: 1px 7px;
 }
 
+/* 스크린샷 전체가 항상 보이도록 맞추고(레터박스), 로컬 스크롤은 막는다 —
+   휠은 엔진 미러링 전용이다 */
 .pane-screen {
   flex: 1;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  overflow: auto;
+  overflow: hidden;
   background: #000;
   min-height: 0;
 }
 
 .pane-screen img {
+  height: 100%;
+  width: auto;
   max-width: 100%;
-  height: auto;
+  object-fit: contain;
   cursor: pointer;
   user-select: none;
   touch-action: none;

@@ -15,6 +15,7 @@ function fakeSession() {
     keypress: vi.fn(async () => {}),
     reload: vi.fn(async () => {}),
     navigate: vi.fn(async () => {}),
+    boost: vi.fn(),
   };
 }
 
@@ -136,6 +137,32 @@ describe('startServer', () => {
     const [m1, m2] = await received;
     expect(m1).toEqual({ type: 'frame', engine: 'chromium', data: 'abc' });
     expect(m2).toEqual({ type: 'frame', engine: 'chromium', data: 'abc' });
+  });
+
+  it('접속 전에 발생한 로그를 새 클라이언트에 재전송한다', async () => {
+    server = await startServer({ port: 0, hello, sessions: new Map() });
+    // 클라이언트가 없을 때 발생한 이벤트
+    server.broadcast({
+      type: 'console',
+      engine: 'chromium',
+      level: 'log',
+      text: 'early-log',
+      ts: 1,
+    });
+    server.broadcast({ type: 'engine-status', engine: 'chromium', status: 'ready' });
+
+    const client = await TestClient.connect(server.port);
+    clients.push(client);
+    expect(await client.next()).toMatchObject({ type: 'hello' });
+    expect(await client.next()).toMatchObject({ type: 'engine-status', status: 'ready' });
+    expect(await client.next()).toMatchObject({ type: 'console', text: 'early-log' });
+  });
+
+  it('사용 중인 포트면 명확한 에러로 실패한다', async () => {
+    server = await startServer({ port: 0, hello, sessions: new Map() });
+    await expect(startServer({ port: server.port, hello, sessions: new Map() })).rejects.toThrow(
+      /already in use/,
+    );
   });
 
   it('CROSSPANE_DASHBOARD_DIR로 대시보드 정적 파일을 서빙한다', async () => {
