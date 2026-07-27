@@ -135,20 +135,28 @@ describe('EnginePane', () => {
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'click', x: 0.5, y: 0.25 });
   });
 
-  it('휠 델타를 모아 하나의 scroll 커맨드로 보낸다', () => {
+  it('휠 델타를 모아 하나의 scroll 커맨드로 보내고, 로컬 에코로 즉시 이동시킨다', () => {
     vi.useFakeTimers();
     const onSendCommand = vi.fn();
-    const { view } = renderEnginePane({ onSendCommand });
+    const { view, emitFrame } = renderEnginePane({ onSendCommand });
+    emitFrame(); // canvas 크기(프레임 크기) 확보
     const paneScreen = view.container.querySelector('.pane-screen');
-    if (!paneScreen) throw new Error('pane-screen not found');
+    const canvas = view.container.querySelector('canvas');
+    if (!paneScreen || !canvas) throw new Error('pane elements not found');
 
     fireEvent.wheel(paneScreen, { deltaY: 30 });
     fireEvent.wheel(paneScreen, { deltaY: 40 });
     expect(onSendCommand).not.toHaveBeenCalled(); // 플러시 전에는 전송하지 않는다
+    // 서버 응답을 기다리지 않고 canvas가 즉시 이동한다 (로컬 에코)
+    expect(canvas.style.transform).toContain('translateY');
 
     vi.advanceTimersByTime(200);
     expect(onSendCommand).toHaveBeenCalledTimes(1);
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 70 });
+
+    // 새 프레임이 도착하면 에코가 해제된다
+    emitFrame();
+    expect(canvas.style.transform).toBe('');
     vi.useRealTimers();
   });
 

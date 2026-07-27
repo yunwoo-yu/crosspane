@@ -11,11 +11,17 @@ Examples:
   crosspane :3000 --device "iPhone 15" --inject ./bridge-mock.js
 
 Options:
-  --engines <list>   Comma-separated engines (default: chromium,webkit,firefox)
-  --device <name>    Playwright device preset (default: "iPhone 15")
-  --port <n>         Dashboard port (default: 7788)
-  --inject <path>    JS file injected into every page before load (bridge mocks etc.)
-  -h, --help         Show this help
+  --engines <list>     Comma-separated engines (default: chromium,webkit,firefox)
+  --device <name>      Playwright device preset (default: "iPhone 15")
+  --port <n>           Dashboard port (default: 7788)
+  --inject <path>      JS file injected into every page before load (bridge mocks etc.)
+  --user-agent <ua>    Exact UA for every engine (reproduce your app's custom webview UA)
+  --preset-ua          Use Playwright's browser preset UA instead of webview UA emulation
+  -h, --help           Show this help
+
+By default crosspane emulates deployed webview environments: Chromium gets a real
+Android WebView UA (with the "wv" token) and WebKit gets a real WKWebView UA
+(no Safari token) with service workers blocked, matching production behavior.
 `;
 
 export interface CliOptions {
@@ -24,6 +30,10 @@ export interface CliOptions {
   device: string;
   port: number;
   injectScriptPath?: string;
+  /** 모든 엔진에 그대로 적용할 커스텀 UA (실제 앱의 웹뷰 UA 재현용) */
+  customUserAgent?: string;
+  /** 웹뷰 환경 에뮬레이션(UA/서비스워커) 사용 여부 — 기본 켜짐 */
+  emulateWebview: boolean;
 }
 
 const SUPPORTED_ENGINES: readonly EngineName[] = ['chromium', 'webkit', 'firefox'];
@@ -67,14 +77,23 @@ export function parseCliArguments(argv: string[]): CliOptions {
     engines: [...DEFAULT_OPTIONS.engines],
     device: DEFAULT_OPTIONS.device,
     port: DEFAULT_OPTIONS.port,
+    emulateWebview: true,
   };
 
   while (args.length > 0) {
     const flag = args.shift();
     if (flag === undefined) break;
+    // 값이 없는 불리언 플래그
+    if (flag === '--preset-ua') {
+      options.emulateWebview = false;
+      continue;
+    }
     const value = args.shift();
     if (value === undefined) throw new Error(`Missing value for ${flag}`);
     switch (flag) {
+      case '--user-agent':
+        options.customUserAgent = value;
+        break;
       case '--engines':
         options.engines = parseEngineList(value);
         break;

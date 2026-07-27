@@ -34,6 +34,32 @@ export interface SessionOptions {
   url: string;
   device: string;
   injectScriptPath?: string;
+  /** 모든 엔진에 그대로 적용할 커스텀 UA (실제 앱의 웹뷰 UA 재현용) */
+  customUserAgent?: string;
+  /** 웹뷰 환경 에뮬레이션 — UA를 실배포 웹뷰와 동일하게, WKWebView는 SW 차단 */
+  emulateWebview: boolean;
+}
+
+/**
+ * 실배포 웹뷰의 UA를 재현한다. UA 스니핑으로 분기하는 앱 코드가
+ * 프로덕션과 동일하게 동작하도록 하기 위함이다.
+ * - Android WebView: "; wv)" 토큰 + "Version/4.0"이 식별 포인트
+ * - iOS WKWebView: Safari 브라우저와 달리 "Version/x Safari/x" 토큰이 없다
+ * - Firefox: 대응되는 웹뷰가 없으므로 프리셋 유지
+ */
+export function buildWebviewUserAgent(
+  engine: EngineName,
+  presetUserAgent: string,
+): string | undefined {
+  if (engine === 'chromium') {
+    const chromeVersion = /Chrome\/([\d.]+)/.exec(presetUserAgent)?.[1] ?? '131.0.0.0';
+    return `Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/${chromeVersion} Mobile Safari/537.36`;
+  }
+  if (engine === 'webkit') {
+    const webkitVersion = /AppleWebKit\/([\d.]+)/.exec(presetUserAgent)?.[1] ?? '605.1.15';
+    return `Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/${webkitVersion} (KHTML, like Gecko) Mobile/15E148`;
+  }
+  return undefined;
 }
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -42,7 +68,7 @@ const JPEG_QUALITY = 60;
 // 폴링 캡처 주기: 평소에는 낮게 유지하고(변화 없는 프레임은 어차피 스킵),
 // 입력 직후 ACTIVITY_WINDOW_MS 동안은 빠르게 돌려 반응이 즉시 보이게 한다
 const IDLE_CAPTURE_INTERVAL_MS = 400;
-const ACTIVE_CAPTURE_INTERVAL_MS = 120;
+const ACTIVE_CAPTURE_INTERVAL_MS = 75;
 const ACTIVITY_WINDOW_MS = 2_000;
 
 export class EngineSession {
@@ -67,11 +93,20 @@ export class EngineSession {
     const devicePreset = devices[options.device];
     if (!devicePreset) throw new Error(`Unknown device "${options.device}"`);
 
+    const userAgent =
+      options.customUserAgent ??
+      (options.emulateWebview ? buildWebviewUserAgent(engine, devicePreset.userAgent) : undefined);
+
     const browser = await launchers[engine].launch();
     const context = await browser.newContext({
       ...devicePreset,
       // Firefox는 모바일 에뮬레이션(isMobile/hasTouch)을 지원하지 않아 옵션을 제거해야 launch가 성공한다
       ...(engine === 'firefox' ? { isMobile: false, hasTouch: false } : {}),
+      ...(userAgent ? { userAgent } : {}),
+      // 실제 WKWebView는 App-Bound Domains 설정 없이는 서비스워커를 지원하지 않는다
+      ...(engine === 'webkit' && options.emulateWebview
+        ? { serviceWorkers: 'block' as const }
+        : {}),
     });
 
     if (options.injectScriptPath) {

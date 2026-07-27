@@ -16,14 +16,24 @@ describe('resolveTargetUrl', () => {
 });
 
 describe('parseCliArguments', () => {
-  it('타깃만 주면 기본값이 채워진다', () => {
+  it('타깃만 주면 기본값이 채워진다 (웹뷰 에뮬레이션 기본 켜짐)', () => {
     const options = parseCliArguments([':3000']);
     expect(options).toEqual({
       url: 'http://localhost:3000',
       engines: ['chromium', 'webkit', 'firefox'],
       device: 'iPhone 15',
       port: 7788,
+      emulateWebview: true,
     });
+  });
+
+  it('--user-agent와 --preset-ua를 반영한다', () => {
+    expect(parseCliArguments([':3000', '--user-agent', 'MyApp/1.0']).customUserAgent).toBe(
+      'MyApp/1.0',
+    );
+    expect(parseCliArguments([':3000', '--preset-ua']).emulateWebview).toBe(false);
+    // 값이 없는 플래그 뒤의 옵션도 정상 파싱된다
+    expect(parseCliArguments([':3000', '--preset-ua', '--port', '9000']).port).toBe(9000);
   });
 
   it('--engines를 파싱한다', () => {

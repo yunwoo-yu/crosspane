@@ -53,7 +53,13 @@ async function main(): Promise<void> {
     options.engines.map(async (engine) => {
       const session = await EngineSession.launch(
         engine,
-        { url: options.url, device: options.device, injectScriptPath: options.injectScriptPath },
+        {
+          url: options.url,
+          device: options.device,
+          injectScriptPath: options.injectScriptPath,
+          customUserAgent: options.customUserAgent,
+          emulateWebview: options.emulateWebview,
+        },
         sessionEvents,
       );
       sessions.set(engine, session);

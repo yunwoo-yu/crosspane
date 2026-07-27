@@ -35,6 +35,10 @@ node packages/cli/dist/index.js :3000
 ## Features
 
 - **3 real engines**: not viewport spoofing — actual Chromium/WebKit/Firefox render your page
+- **Webview environment emulation (default)**: Chromium runs with a real Android WebView
+  UA (`; wv)` token), WebKit runs with a real WKWebView UA (no Safari token) and service
+  worker registration blocked — so UA-sniffing app code behaves like production. Pass your
+  app's exact UA with `--user-agent`, or opt out with `--preset-ua`
 - **Mirrored interaction**: click/scroll on any pane replays on every engine
 - **Per-engine console**: `console.*`, uncaught errors (with stack), failed network requests — filterable by engine
 - **HMR friendly**: engines are real browsers pointed at your dev server, so hot reload just works
@@ -46,10 +50,12 @@ node packages/cli/dist/index.js :3000
 ```
 crosspane <url | :port> [options]
 
---engines <list>   chromium,webkit,firefox (default: all)
---device <name>    Playwright device preset (default: "iPhone 15")
---port <n>         dashboard port (default: 7788)
---inject <path>    JS injected into every page before load
+--engines <list>     chromium,webkit,firefox (default: all)
+--device <name>      Playwright device preset (default: "iPhone 15")
+--port <n>           dashboard port (default: 7788)
+--inject <path>      JS injected into every page before load
+--user-agent <ua>    exact UA for every engine (reproduce your app's webview UA)
+--preset-ua          use Playwright preset UA instead of webview UA emulation
 ```
 
 ## How it works

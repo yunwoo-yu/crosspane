@@ -40,6 +40,9 @@ export function EnginePane({
   onSendCommandRef.current = onSendCommand;
   const [hasFrame, setHasFrame] = useState(false);
 
+  // 서버 프레임이 도착하기 전까지 스크롤을 즉시 보여주기 위한 로컬 에코 누적치 (엔진 CSS px)
+  const pendingScrollPxRef = useRef(0);
+
   // 프레임은 React 상태를 거치지 않고 canvas에 직접 그린다 — 리렌더 비용 0
   useEffect(
     () =>
@@ -51,6 +54,9 @@ export function EnginePane({
           canvas.height = frame.height;
         }
         canvas.getContext('2d')?.drawImage(frame, 0, 0);
+        // 새 프레임은 (거의) 최신 스크롤 위치를 반영하므로 로컬 에코를 해제한다
+        pendingScrollPxRef.current = 0;
+        canvas.style.transform = '';
         setHasFrame(true); // 같은 값이면 React가 리렌더를 생략하므로 매 프레임 호출해도 무해
       }),
     [engine, subscribeToFrames],
@@ -59,15 +65,28 @@ export function EnginePane({
   // React의 onWheel은 passive라 preventDefault가 불가능하다.
   // 네이티브 non-passive 리스너로 대시보드 자체 스크롤을 막고(미러링 전용),
   // 델타를 WHEEL_COALESCE_MS 동안 모아 하나의 커맨드로 보낸다.
+  // 동시에 로컬 에코: 서버 왕복(수백 ms)을 기다리지 않고 canvas를 CSS transform으로
+  // 즉시 이동시켜 60fps 반응을 만들고, 새 프레임이 오면 실제 화면으로 스냅한다.
   useEffect(() => {
     const screen = screenRef.current;
     if (!screen) return;
     let accumulatedDeltaY = 0;
     let flushTimer: number | null = null;
 
+    const applyLocalEcho = (): void => {
+      const canvas = canvasRef.current;
+      if (!canvas || canvas.height === 0) return;
+      // deltaY(엔진 CSS px) → 표시 px 환산. 화면 밖 영역은 아직 없으므로 이동량을 한 화면으로 제한
+      const clamped = Math.max(-canvas.height, Math.min(canvas.height, pendingScrollPxRef.current));
+      const displayScale = canvas.clientHeight / canvas.height;
+      canvas.style.transform = `translateY(${-clamped * displayScale}px)`;
+    };
+
     const handleWheel = (event: WheelEvent): void => {
       event.preventDefault();
       accumulatedDeltaY += event.deltaY;
+      pendingScrollPxRef.current += event.deltaY;
+      applyLocalEcho();
       if (flushTimer === null) {
         flushTimer = window.setTimeout(() => {
           const deltaY = Math.round(accumulatedDeltaY);

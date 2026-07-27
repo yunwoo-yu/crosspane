@@ -17,6 +17,7 @@ export {
   startDashboardServer,
 } from './server.js';
 export {
+  buildWebviewUserAgent,
   EngineSession,
   isAbortedRequestError,
   type SessionEvents,
