@@ -22,7 +22,7 @@ pnpm smoke        # E2E 스모크: 실제 서버+chromium 기동 → 프레임/�
 CLAUDE.md                      ← 공통 명령어/규칙 (항상 로드)
 packages/*/CLAUDE.md           ← 도메인 모듈 맵 (해당 디렉터리 작업 시 로드)
 .claude/rules/                 ← 불변 규칙 (paths: 매칭 파일을 건드릴 때만 로드)
-├── protocol-sync.md             프로토콜 이중화·프레임 패킷·엔진 추가 절차
+├── protocol-sync.md             프로토콜 단일 소스·프레임 패킷·엔진 추가 절차
 ├── cli/{frame-pipeline, input-mirroring, real-devices}.md
 └── dashboard/{frame-rendering, testing-jsdom}.md
 ```

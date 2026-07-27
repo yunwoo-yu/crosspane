@@ -7,6 +7,7 @@ export {
 } from './android-emulator.js';
 export { type CliOptions, parseCliArguments, resolveTargetUrl } from './args.js';
 export { resolveDeviceViewport, type Viewport } from './devices.js';
+export { encodeFramePacket } from './frame-packet.js';
 export {
   chooseSimulatorDevice,
   IosSimulatorSession,
@@ -19,7 +20,6 @@ export {
   ENGINE_NAMES_BY_CODE,
   type EngineName,
   type EngineStatus,
-  encodeFramePacket,
   FRAME_HEADER_BYTES,
   type HelloEvent,
   type LogLevel,

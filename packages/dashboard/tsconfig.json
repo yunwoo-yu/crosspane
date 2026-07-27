@@ -9,7 +9,10 @@
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "crosspane/protocol": ["../cli/src/protocol.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../cli/src/protocol.ts"]
 }

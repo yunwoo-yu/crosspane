@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINE_CODES, encodeFramePacket, FRAME_HEADER_BYTES } from '../src/protocol';
+import { encodeFramePacket } from '../src/frame-packet';
+import { ENGINE_CODES, FRAME_HEADER_BYTES } from '../src/protocol';
 
 describe('encodeFramePacket', () => {
   it('[엔진코드 u8][scrollY int32LE][JPEG] 형식으로 인코딩한다', () => {

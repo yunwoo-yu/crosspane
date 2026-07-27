@@ -11,6 +11,9 @@ export type EngineStatus = 'starting' | 'ready' | 'error';
  * 프레임 바이너리 패킷: [엔진코드 u8][scrollY int32LE, 모르면 -1][JPEG 원본].
  * - base64(+33% 크기)와 JSON 파싱 비용을 제거
  * - scrollY는 대시보드의 로컬 에코(스크롤 예측)를 실제 위치로 보정하는 데 쓴다
+ *
+ * ⚠ 이 파일은 대시보드(브라우저)가 직접 import하는 단일 소스다 —
+ * Node 전용 API(Buffer 등)를 추가하지 말 것 (인코더는 frame-packet.ts)
  */
 export const ENGINE_CODES: Record<EngineName, number> = {
   chromium: 0,
@@ -30,13 +33,6 @@ export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = [
 
 export const FRAME_HEADER_BYTES = 5;
 export const SCROLL_Y_UNKNOWN = -1;
-
-export function encodeFramePacket(engine: EngineName, jpeg: Buffer, scrollY: number): Buffer {
-  const header = Buffer.alloc(FRAME_HEADER_BYTES);
-  header.writeUInt8(ENGINE_CODES[engine], 0);
-  header.writeInt32LE(Math.round(scrollY), 1);
-  return Buffer.concat([header, jpeg]);
-}
 
 export interface HelloEvent {
   type: 'hello';

@@ -1,13 +1,8 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
-import {
-  type ClientCommand,
-  type EngineName,
-  encodeFramePacket,
-  type HelloEvent,
-  type ServerEvent,
-} from './protocol.js';
+import { encodeFramePacket } from './frame-packet.js';
+import type { ClientCommand, EngineName, HelloEvent, ServerEvent } from './protocol.js';
 import type { InputTarget } from './session.js';
 import { resolveDashboardDir, serveDashboardFile } from './static.js';
 

@@ -8,7 +8,7 @@
 - `components/Toolbar.tsx` — back/forward/reload, URL 어긋남 재동기화 버튼
 - `components/ConsolePanel.tsx` — 엔진 필터 + 내비게이션 구분선 타임라인
 - `log-utils.ts` — 배지 카운트/desync 감지/URL 표시용 순수 함수
-- `types.ts` — cli `protocol.ts`의 수동 미러 (동기화 규칙: `.claude/rules/protocol-sync.md`)
+- `types.ts` — 프로토콜은 `crosspane/protocol`(cli 단일 소스) 재수출 + UI 전용 타입
 
 ## 불변 규칙 위치
 
