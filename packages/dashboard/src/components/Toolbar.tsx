@@ -38,9 +38,10 @@ export function Toolbar({
     if (hello) setUrlInput(hello.url);
   }, [hello]);
 
-  // 실무 QA 동선: 클릭으로 페이지를 옮겨 다니면 주소창이 현재 위치를 따라간다
+  // 실무 QA 동선: 클릭으로 페이지를 옮겨 다니면 주소창이 현재 위치를 따라간다.
+  // 에러 페이지 내부 URL(chrome-error:// 등)은 사용자가 갈 곳이 아니므로 제외
   useEffect(() => {
-    if (!editing && syncTargetUrl) setUrlInput(syncTargetUrl);
+    if (!editing && syncTargetUrl?.startsWith('http')) setUrlInput(syncTargetUrl);
   }, [syncTargetUrl, editing]);
 
   return (
@@ -50,7 +51,7 @@ export function Toolbar({
         {connected ? 'connected' : 'disconnected'}
       </span>
       {/* 엔진 pane 토글 — 클릭으로 pane 추가/제거. 실기기 pane은 부팅에 시간이 걸린다 */}
-      <fieldset className="m-0 flex items-center gap-1 border-0 p-0" aria-label="engine panes">
+      <fieldset className="m-0 flex items-center gap-1.5 border-0 p-0" aria-label="engine panes">
         {(hello?.engines ?? []).map((engine) => {
           const status = engineStates[engine]?.status ?? 'stopped';
           const active = status !== 'stopped';

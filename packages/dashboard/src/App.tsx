@@ -176,6 +176,7 @@ export default function App() {
           <Button
             variant={bottomTab === 'console' ? 'active' : 'ghost'}
             size="icon"
+            className="px-2.5"
             onClick={() => setBottomTab('console')}
           >
             Console
