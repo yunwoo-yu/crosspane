@@ -5,6 +5,7 @@ import {
   ENGINE_NAMES_BY_CODE,
   type EngineName,
   type EngineState,
+  FRAME_FLAG_FULL_PAGE,
   FRAME_HEADER_BYTES,
   type FrameListener,
   type HelloEvent,
@@ -82,13 +83,16 @@ export function useCrosspaneSocket(): CrosspaneConnection {
   );
 
   /** 디코딩된 프레임(스냅샷/비디오 공통)을 구독자에게 전달하고 close한다 */
-  const dispatchFrame = useCallback((engine: EngineName, frame: ImageBitmap, scrollY: number) => {
-    const listeners = frameListenersRef.current.get(engine);
-    if (listeners && listeners.size > 0) {
-      for (const listener of listeners) listener(frame, scrollY);
-    }
-    frame.close();
-  }, []);
+  const dispatchFrame = useCallback(
+    (engine: EngineName, frame: ImageBitmap, scrollY: number, fullPage = false) => {
+      const listeners = frameListenersRef.current.get(engine);
+      if (listeners && listeners.size > 0) {
+        for (const listener of listeners) listener(frame, scrollY, fullPage);
+      }
+      frame.close();
+    },
+    [],
+  );
 
   // 실시간 비디오 스트림(H.264) — 디코드 결과는 스냅샷 프레임과 같은 경로로 흐른다
   const { pushVideoChunk, resetPipeline } = useVideoStreams((engine, frame) =>
@@ -195,11 +199,14 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       // 구독자가 없는 프레임은 디코딩 자체를 생략한다 (숨김 pane 비용 0)
       const listeners = frameListenersRef.current.get(engine);
       if (!listeners || listeners.size === 0) return;
-      // 헤더의 scrollY: 이 프레임이 반영하는 실제 스크롤 위치 (로컬 에코 보정용)
-      const scrollY = new DataView(packet).getInt32(2, true);
+      // 헤더: flags(bit0=풀페이지) + scrollY(이 프레임이 반영하는 실제 스크롤 위치)
+      const fullPage = (bytes[2] & FRAME_FLAG_FULL_PAGE) !== 0;
+      const scrollY = new DataView(packet).getInt32(3, true);
       const jpegBlob = new Blob([bytes.subarray(FRAME_HEADER_BYTES)], { type: 'image/jpeg' });
       // createImageBitmap은 디코딩을 메인 스레드 밖에서 수행한다
-      void createImageBitmap(jpegBlob).then((frame) => dispatchFrame(engine, frame, scrollY));
+      void createImageBitmap(jpegBlob).then((frame) =>
+        dispatchFrame(engine, frame, scrollY, fullPage),
+      );
     },
     [pushVideoChunk, dispatchFrame],
   );

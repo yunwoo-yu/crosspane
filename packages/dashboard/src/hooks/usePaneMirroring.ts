@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { ScrollEcho } from '../scroll-echo';
+import { PaneScreen } from '../pane-screen';
 import { createScrollStreamer, type ScrollStreamer } from '../scroll-streamer';
 import type { ClientCommand, EngineName, FrameListener } from '../types';
 import { useFrameChannel } from './useFrameChannel';
@@ -9,6 +9,8 @@ import { useWheelMirroring } from './useWheelMirroring';
 
 export interface PaneMirroringOptions {
   engine: EngineName;
+  /** 엔진 뷰포트 (CSS px) — 풀페이지 프레임의 표시 크롭 높이 계산용 */
+  viewport: { width: number; height: number };
   /** 숨김 상태(다른 pane 포커스 중)면 프레임 구독을 끊는다 */
   visible: boolean;
   /** 입력 미러링 불가 pane — 입력 핸들러를 붙이지 않는다 */
@@ -24,6 +26,7 @@ export interface PaneMirroringOptions {
  */
 export function usePaneMirroring({
   engine,
+  viewport,
   visible,
   viewOnly,
   subscribeToFrames,
@@ -33,17 +36,19 @@ export function usePaneMirroring({
   const screenRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const keyInputRef = useRef<HTMLInputElement | null>(null);
-  const echoRef = useRef<ScrollEcho | null>(null);
-  echoRef.current ??= new ScrollEcho();
+  const screenStateRef = useRef<PaneScreen | null>(null);
+  screenStateRef.current ??= new PaneScreen(viewport);
   const sendCommandRef = useRef(sendCommand);
   sendCommandRef.current = sendCommand;
   const stableSendRef = useRef((command: ClientCommand) => sendCommandRef.current(command));
-  // 휠/드래그 공용 스크롤 스트리머 — 로컬 에코 즉시 반영 + 코얼레싱 전송
+  // 휠/드래그 공용 스크롤 스트리머 — 로컬 즉시 반영 + 코얼레싱 전송
   const streamerRef = useRef<ScrollStreamer | null>(null);
   streamerRef.current ??= createScrollStreamer({
     sendCommand: stableSendRef.current,
-    echo: echoRef.current,
-    getCanvas: () => canvasRef.current,
+    applyLocal: (deltaY, now) => {
+      const canvas = canvasRef.current;
+      if (canvas) screenStateRef.current?.scrollBy(canvas, deltaY, now);
+    },
   });
 
   const hasFrame = useFrameChannel({
@@ -51,7 +56,7 @@ export function usePaneMirroring({
     visible,
     subscribeToFrames,
     canvasRef,
-    echo: echoRef.current,
+    screen: screenStateRef.current,
   });
   useWheelMirroring({
     enabled: !viewOnly,

@@ -10,7 +10,7 @@ export interface DashboardServer {
   /** 실제로 바인딩된 포트. options.port에 0을 주면 OS가 할당한 임의 포트가 들어온다 */
   port: number;
   broadcastEvent(event: ServerEvent): void;
-  broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number): void;
+  broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags?: number): void;
   /** 실시간 비디오 스트림 조각 — 캐시하지 않는다 (늦은 접속자는 스트림 재시작으로 키프레임을 받는다) */
   broadcastVideoChunk(engine: EngineName, chunk: Buffer): void;
   close(): void;
@@ -153,28 +153,6 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
       }
       return;
     }
-    // headed 리더 창의 입력 릴레이 — 발신 엔진을 제외한 모두에게 재생한다
-    const mirrorMatch = /^\/mirror\/([a-z-]+)\/event$/.exec(pathname);
-    if (mirrorMatch && req.method === 'POST') {
-      const sourceEngine = mirrorMatch[1] as EngineName;
-      let body = '';
-      req.on('data', (chunk) => {
-        body += chunk;
-      });
-      req.on('end', () => {
-        try {
-          const command = JSON.parse(body) as MirrorCommand;
-          const followers = new Map(
-            [...options.sessions].filter(([engine]) => engine !== sourceEngine),
-          );
-          void mirrorCommandToSessions(followers, command);
-        } catch {
-          // 잘못된 페이로드 무시
-        }
-        res.writeHead(204).end();
-      });
-      return;
-    }
     void serveDashboardFile(dashboardDir, req, res);
   });
 
@@ -303,8 +281,8 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
           recordForReplay(event);
           sendToAllClients(JSON.stringify(event));
         },
-        broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number) {
-          const packet = encodeFramePacket(engine, jpeg, scrollY);
+        broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags = 0) {
+          const packet = encodeFramePacket(engine, jpeg, scrollY, flags);
           lastFramePacketByEngine.set(engine, packet);
           sendToAllClients(packet);
         },

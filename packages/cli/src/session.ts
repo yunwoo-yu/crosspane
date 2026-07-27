@@ -16,6 +16,7 @@ import {
   type BrowserEngineName,
   type EngineName,
   type EngineStatus,
+  FRAME_FLAG_FULL_PAGE,
   type LogLevel,
   SCROLL_Y_UNKNOWN,
 } from './protocol.js';
@@ -24,7 +25,7 @@ const launchers = { chromium, webkit, firefox } as const;
 
 export interface SessionEvents {
   /** scrollY: 프레임 캡처 시점의 세로 스크롤 위치(CSS px). 알 수 없으면 SCROLL_Y_UNKNOWN */
-  onFrame(engine: EngineName, jpeg: Buffer, scrollY: number): void;
+  onFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags?: number): void;
   onConsole(engine: EngineName, level: LogLevel, text: string): void;
   onPageError(engine: EngineName, message: string): void;
   onRequestFailed(engine: EngineName, url: string, error: string): void;
@@ -98,38 +99,6 @@ export interface SessionOptions {
   emulateWebview: boolean;
   /** 저장된 로그인 세션(storageState)을 무시하고 깨끗하게 시작 */
   freshSession?: boolean;
-  /** 실창 모드 — 캡처 없이 진짜 브라우저 창을 띄운다 (렌더링 지연 0) */
-  headed?: boolean;
-  /** 리더 창의 입력을 서버로 릴레이할 엔드포인트 (headed 리더에만 주입) */
-  mirrorCaptureUrl?: string;
-}
-
-/**
- * headed 리더 창에 주입되는 입력 캡처 — 사용자가 실창에서 직접 조작한 클릭/휠/키를
- * sendBeacon(단순 요청, 프리플라이트 없음)으로 서버에 릴레이해 나머지 엔진에 미러링한다.
- */
-function buildMirrorCaptureScript(endpoint: string): string {
-  return `(() => {
-  const post = (cmd) => {
-    try { navigator.sendBeacon(${JSON.stringify(endpoint)}, JSON.stringify(cmd)); } catch {}
-  };
-  addEventListener('click', (e) => {
-    post({ type: 'click', x: e.clientX / innerWidth, y: e.clientY / innerHeight });
-  }, true);
-  let acc = 0, timer = null;
-  addEventListener('wheel', (e) => {
-    acc += e.deltaY;
-    if (timer === null) timer = setTimeout(() => {
-      post({ type: 'scroll', deltaY: Math.round(acc) }); acc = 0; timer = null;
-    }, 33);
-  }, { passive: true, capture: true });
-  const SPECIAL = ['Enter','Backspace','Delete','Tab','Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
-  addEventListener('keydown', (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
-    if (SPECIAL.includes(e.key)) post({ type: 'keypress', key: e.key });
-    else if (e.key.length === 1) post({ type: 'type', text: e.key });
-  }, true);
-})();`;
 }
 
 /**
@@ -167,7 +136,9 @@ export function buildWebviewUserAgent(
 const NAVIGATION_TIMEOUT_MS = 30_000;
 // 네트워크 상세의 응답 바디 프리뷰 상한 (WS 페이로드 보호)
 const BODY_PREVIEW_LIMIT = 16_000;
-const SCREENSHOT_TIMEOUT_MS = 5_000;
+const SCREENSHOT_TIMEOUT_MS = 8_000;
+// 풀페이지 캡처 상한 (CSS px) — 이보다 긴 페이지는 뷰포트 캡처로 폴백
+const MAX_FULL_PAGE_CSS_PX = 5_000;
 const JPEG_QUALITY = 60;
 // 폴링 캡처 주기: 평소에는 낮게 유지하고(변화 없는 프레임은 어차피 스킵),
 // 입력 직후 ACTIVITY_WINDOW_MS 동안은 빠르게 돌려 반응이 즉시 보이게 한다
@@ -216,7 +187,6 @@ export class EngineSession {
     const browser = await launchers[engine].launch({
       handleSIGINT: false,
       handleSIGTERM: false,
-      headless: options.headed !== true,
     });
     const contextOptions = {
       ...devicePreset,
@@ -244,10 +214,6 @@ export class EngineSession {
     if (options.injectScriptPath) {
       const script = await readFile(options.injectScriptPath, 'utf-8');
       await context.addInitScript({ content: script });
-    }
-    if (options.mirrorCaptureUrl) {
-      // 리더 실창의 조작을 나머지 엔진에 미러링 (headed 모드)
-      await context.addInitScript({ content: buildMirrorCaptureScript(options.mirrorCaptureUrl) });
     }
 
     const page = await context.newPage();
@@ -410,20 +376,34 @@ export class EngineSession {
 
   private async captureAndEmitFrame(events: SessionEvents): Promise<void> {
     try {
-      // 캡처 직전의 스크롤 위치 — 대시보드가 로컬 에코를 실제 위치로 보정하는 데 쓴다
-      const scrollY = await this.page
-        .evaluate(() => (globalThis as unknown as { scrollY: number }).scrollY)
-        .catch(() => SCROLL_Y_UNKNOWN);
+      // 캡처 직전의 스크롤 위치/페이지 높이 — 풀페이지 여부 판단 + 로컬 팬 보정용
+      const [scrollY, pageHeight] = await this.page
+        .evaluate(() => {
+          const g = globalThis as unknown as {
+            scrollY: number;
+            document: { documentElement: { scrollHeight: number } };
+          };
+          return [g.scrollY, g.document.documentElement.scrollHeight] as const;
+        })
+        .catch(() => [SCROLL_Y_UNKNOWN, 0] as const);
+      // 폴링 엔진(WebKit/Firefox)의 이원 전략:
+      // - 입력 활성 중: 풀페이지 프레임 → 대시보드가 로컬 크롭 팬 (스크롤 60fps, 빈 영역 0)
+      // - 유휴: 뷰포트 프레임 → sticky/fixed 요소까지 정확한 실제 화면
+      //   (풀페이지 캡처는 sticky를 문서 위치로 찍는다 — 멈추면 즉시 정확 화면으로 수렴)
+      // 과도하게 긴 페이지는 캡처 비용 폭증 → 뷰포트 모드로 폴백
+      const active = Date.now() < this.activeUntil;
+      const fullPage = active && pageHeight > 0 && pageHeight <= MAX_FULL_PAGE_CSS_PX;
       const jpeg = await this.page.screenshot({
         type: 'jpeg',
         quality: JPEG_QUALITY,
         scale: 'css', // DPR 배율 제거 — 위 startCdpScreencast의 maxWidth 주석 참고
+        fullPage,
         timeout: SCREENSHOT_TIMEOUT_MS,
       });
       // 변화 없는 프레임은 전송하지 않는다 — 유휴 상태에서 트래픽이 0이 된다
       if (this.lastFrame?.equals(jpeg)) return;
       this.lastFrame = jpeg;
-      events.onFrame(this.engine, jpeg, scrollY);
+      events.onFrame(this.engine, jpeg, scrollY, fullPage ? FRAME_FLAG_FULL_PAGE : 0);
     } catch {
       // 내비게이션/리로드 중에는 스크린샷이 일시적으로 실패할 수 있다 — 루프는 유지
     }

@@ -8,11 +8,17 @@ import {
 } from './protocol.js';
 
 /** 프레임(스냅샷) 패킷 인코더 — Buffer를 쓰므로 Node 전용 (규약은 protocol.ts 참조) */
-export function encodeFramePacket(engine: EngineName, jpeg: Buffer, scrollY: number): Buffer {
+export function encodeFramePacket(
+  engine: EngineName,
+  jpeg: Buffer,
+  scrollY: number,
+  flags = 0,
+): Buffer {
   const header = Buffer.alloc(FRAME_HEADER_BYTES);
   header.writeUInt8(PACKET_TYPE_FRAME, 0);
   header.writeUInt8(ENGINE_CODES[engine], 1);
-  header.writeInt32LE(Math.round(scrollY), 2);
+  header.writeUInt8(flags, 2);
+  header.writeInt32LE(Math.round(scrollY), 3);
   return Buffer.concat([header, jpeg]);
 }
 

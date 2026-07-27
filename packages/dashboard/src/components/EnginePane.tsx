@@ -7,6 +7,8 @@ import { Button } from './ui/button';
 
 interface EnginePaneProps {
   engine: EngineName;
+  /** 엔진 뷰포트 (CSS px) — hello에서 전달 */
+  viewport: { width: number; height: number };
   state: EngineState | undefined;
   errorCount: number;
   /** 엔진 간 URL이 어긋난 상태 — URL 표시를 경고색으로 바꾼다 */
@@ -30,6 +32,7 @@ interface EnginePaneProps {
  */
 export function EnginePane({
   engine,
+  viewport,
   state,
   errorCount,
   urlDesynced,
@@ -44,6 +47,7 @@ export function EnginePane({
   const { screenRef, keyInputRef, attachCanvas, hasFrame, canvasHandlers, keyInputHandlers } =
     usePaneMirroring({
       engine,
+      viewport,
       visible,
       viewOnly,
       subscribeToFrames,

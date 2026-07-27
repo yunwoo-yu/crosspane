@@ -33,11 +33,14 @@ export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = [
 ];
 
 // 바이너리 패킷 규약: 첫 바이트 = 패킷 타입
-// FRAME: [type u8][engine u8][scrollY i32LE][JPEG] — 스냅샷 프레임
+// FRAME: [type u8][engine u8][flags u8][scrollY i32LE][JPEG] — 스냅샷 프레임
+//   flags bit0(FULL_PAGE): JPEG가 뷰포트가 아니라 페이지 전체 — 대시보드가
+//   로컬에서 잘라 그려 스크롤을 60fps로 팬한다 (WebKit/Firefox 경로)
 // VIDEO: [type u8][engine u8][H.264 Annex-B bytes] — 실시간 비디오 스트림 조각
 export const PACKET_TYPE_FRAME = 1;
 export const PACKET_TYPE_VIDEO = 2;
-export const FRAME_HEADER_BYTES = 6;
+export const FRAME_FLAG_FULL_PAGE = 1;
+export const FRAME_HEADER_BYTES = 7;
 export const VIDEO_HEADER_BYTES = 2;
 export const SCROLL_Y_UNKNOWN = -1;
 

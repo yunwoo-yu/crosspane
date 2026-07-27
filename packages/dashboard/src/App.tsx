@@ -149,6 +149,7 @@ export default function App() {
           >
             <EnginePane
               engine={engine}
+              viewport={hello?.viewport ?? { width: 390, height: 659 }}
               visible={!focusedEngine || focusedEngine === engine}
               state={engineStates[engine]}
               errorCount={errorCountFor(engine)}

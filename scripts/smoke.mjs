@@ -70,7 +70,7 @@ for (let attempt = 0; ; attempt++) {
 
 const checks = {
   helloWithChromium: false, // 세션 구성 브로드캐스트
-  jpegFramePacket: false, // 바이너리 프레임 (패킷 v2: [type=1][engine=0][scrollY][JPEG])
+  jpegFramePacket: false, // 바이너리 프레임 (패킷 v3: [type=1][engine=0][flags][scrollY][JPEG])
   consoleCaptured: false, // 페이지 콘솔 로그 수집
   frameAfterInput: false, // 입력(스크롤) 후 새 프레임 = 미러링+활동 부스트
 };
@@ -91,7 +91,7 @@ ws.onmessage = (event) => {
     }
   } else {
     const bytes = new Uint8Array(event.data);
-    if (bytes[0] === 1 && bytes[1] === 0 && bytes[6] === 0xff && bytes[7] === 0xd8) {
+    if (bytes[0] === 1 && bytes[1] === 0 && bytes[7] === 0xff && bytes[8] === 0xd8) {
       frameCount += 1;
       checks.jpegFramePacket = true;
       if (inputSent && frameCount > 1) checks.frameAfterInput = true;

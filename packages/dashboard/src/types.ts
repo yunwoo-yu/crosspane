@@ -10,6 +10,7 @@ export type {
 } from 'crosspane/protocol';
 export {
   ENGINE_NAMES_BY_CODE,
+  FRAME_FLAG_FULL_PAGE,
   FRAME_HEADER_BYTES,
   PACKET_TYPE_FRAME,
   PACKET_TYPE_VIDEO,
@@ -54,4 +55,4 @@ export interface NetworkEntry {
 }
 
 /** scrollY: 프레임 캡처 시점의 스크롤 위치(CSS px), 모르면 음수 */
-export type FrameListener = (frame: ImageBitmap, scrollY: number) => void;
+export type FrameListener = (frame: ImageBitmap, scrollY: number, fullPage?: boolean) => void;

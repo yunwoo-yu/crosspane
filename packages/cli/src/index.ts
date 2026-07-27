@@ -103,7 +103,6 @@ async function main(): Promise<void> {
     customUserAgent: options.customUserAgent,
     emulateWebview: options.emulateWebview,
     freshSession: options.freshSession,
-    headed: options.headed,
   };
 
   /** pane 라이프사이클 컨트롤러 — 기동 시 자동 시작과 대시보드의 start/stop이 공유 */
@@ -122,16 +121,9 @@ async function main(): Promise<void> {
             controlUrl: `http://localhost:${server.port}/shell/ios-sim`,
           });
         } else {
-          // headed 모드: 리더(chromium) 실창의 조작을 나머지에 미러링한다
-          const isLeader = options.headed && engine === 'chromium';
           session = await EngineSession.launch(
             engine as BrowserEngineName,
-            {
-              ...browserLaunchOptions,
-              ...(isLeader
-                ? { mirrorCaptureUrl: `http://localhost:${server.port}/mirror/chromium/event` }
-                : {}),
-            },
+            browserLaunchOptions,
             sessionEvents,
           );
         }
@@ -214,7 +206,7 @@ async function main(): Promise<void> {
   });
 
   const sessionEvents: SessionEvents = {
-    onFrame: (engine, jpeg, scrollY) => server.broadcastFrame(engine, jpeg, scrollY),
+    onFrame: (engine, jpeg, scrollY, flags) => server.broadcastFrame(engine, jpeg, scrollY, flags),
     onConsole: (engine, level, text) =>
       server.broadcastEvent({ type: 'console', engine, level, text, ts: Date.now() }),
     onPageError: (engine, message) =>

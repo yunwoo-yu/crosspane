@@ -25,7 +25,8 @@ describe('encodeFramePacket', () => {
 
     expect(packet[0]).toBe(PACKET_TYPE_FRAME);
     expect(packet[1]).toBe(ENGINE_CODES.webkit);
-    expect(packet.readInt32LE(2)).toBe(1234);
+    expect(packet[2]).toBe(0); // flags 기본값
+    expect(packet.readInt32LE(3)).toBe(1234);
     expect(packet.subarray(FRAME_HEADER_BYTES)).toEqual(jpeg);
   });
 
@@ -33,6 +34,6 @@ describe('encodeFramePacket', () => {
     const packet = encodeFramePacket('ios-sim', Buffer.from([1]), -1);
     expect(packet[0]).toBe(PACKET_TYPE_FRAME);
     expect(packet[1]).toBe(ENGINE_CODES['ios-sim']);
-    expect(packet.readInt32LE(2)).toBe(-1);
+    expect(packet.readInt32LE(3)).toBe(-1);
   });
 });

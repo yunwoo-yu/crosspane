@@ -41,6 +41,7 @@ function renderEnginePane(overrides: {
         currentUrl: overrides.currentUrl,
       }}
       errorCount={overrides.errorCount ?? 0}
+      viewport={{ width: 100, height: 200 }}
       urlDesynced={overrides.urlDesynced ?? false}
       viewOnly={overrides.viewOnly ?? false}
       focused={overrides.focused ?? false}
