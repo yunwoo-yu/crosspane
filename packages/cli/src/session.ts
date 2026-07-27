@@ -1,13 +1,7 @@
-import {
-  chromium,
-  webkit,
-  firefox,
-  devices,
-  type Browser,
-  type Page,
-} from 'playwright';
 import { readFile } from 'node:fs/promises';
-import type { EngineName, LogLevel } from './protocol.js';
+import { type Browser, chromium, devices, firefox, type Page, webkit } from 'playwright';
+import type { Viewport } from './devices.js';
+import type { EngineName, EngineStatus, LogLevel } from './protocol.js';
 
 const launchers = { chromium, webkit, firefox } as const;
 
@@ -16,7 +10,7 @@ export interface SessionEvents {
   onConsole(engine: EngineName, level: LogLevel, text: string): void;
   onPageError(engine: EngineName, message: string): void;
   onRequestFailed(engine: EngineName, url: string, error: string): void;
-  onStatus(engine: EngineName, status: 'starting' | 'ready' | 'error', detail?: string): void;
+  onStatus(engine: EngineName, status: EngineStatus, detail?: string): void;
 }
 
 export interface SessionOptions {
@@ -26,27 +20,19 @@ export interface SessionOptions {
   injectScriptPath?: string;
 }
 
-export function resolveDevice(name: string): { width: number; height: number } {
-  const preset = devices[name];
-  if (!preset) {
-    const known = Object.keys(devices)
-      .filter((d) => /iPhone|Pixel|Galaxy|iPad/.test(d))
-      .slice(0, 20)
-      .join(', ');
-    throw new Error(`Unknown device "${name}". Examples: ${known}`);
-  }
-  return { width: preset.viewport.width, height: preset.viewport.height };
-}
+const NAVIGATION_TIMEOUT_MS = 30_000;
+const SCREENSHOT_TIMEOUT_MS = 5_000;
+const MIN_FRAME_INTERVAL_MS = 100;
+const MIN_IDLE_MS = 50;
 
 export class EngineSession {
   private closed = false;
-  private capturing = false;
 
   private constructor(
     readonly engine: EngineName,
     private readonly browser: Browser,
     private readonly page: Page,
-    private readonly viewport: { width: number; height: number },
+    private readonly viewport: Viewport,
   ) {}
 
   static async create(
@@ -79,7 +65,10 @@ export class EngineSession {
 
     const session = new EngineSession(engine, browser, page, preset.viewport);
     try {
-      await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page.goto(opts.url, {
+        waitUntil: 'domcontentloaded',
+        timeout: NAVIGATION_TIMEOUT_MS,
+      });
       events.onStatus(engine, 'ready');
     } catch (err) {
       events.onStatus(engine, 'error', String(err));
@@ -89,19 +78,22 @@ export class EngineSession {
   }
 
   private startCaptureLoop(fps: number, events: SessionEvents): void {
-    const interval = Math.max(1000 / fps, 100);
-    this.capturing = true;
+    const interval = Math.max(1000 / fps, MIN_FRAME_INTERVAL_MS);
     void (async () => {
       while (!this.closed) {
         const started = Date.now();
         try {
-          const buf = await this.page.screenshot({ type: 'jpeg', quality: 60, timeout: 5_000 });
+          const buf = await this.page.screenshot({
+            type: 'jpeg',
+            quality: 60,
+            timeout: SCREENSHOT_TIMEOUT_MS,
+          });
           events.onFrame(this.engine, buf.toString('base64'));
         } catch {
           // Transient during navigation/reload — keep the loop alive.
         }
         const elapsed = Date.now() - started;
-        await new Promise((r) => setTimeout(r, Math.max(interval - elapsed, 50)));
+        await new Promise((r) => setTimeout(r, Math.max(interval - elapsed, MIN_IDLE_MS)));
       }
     })();
   }
@@ -128,6 +120,6 @@ export class EngineSession {
 
   async close(): Promise<void> {
     this.closed = true;
-    await this.browser.close().catch(() => {});
+    await this.browser.close().catch(() => undefined);
   }
 }

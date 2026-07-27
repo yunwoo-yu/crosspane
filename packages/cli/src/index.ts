@@ -1,91 +1,18 @@
 #!/usr/bin/env node
-import { EngineSession, resolveDevice } from './session.js';
+import { HELP, parseArgs } from './args.js';
+import { resolveDevice } from './devices.js';
+import type { EngineName, EngineStatus } from './protocol.js';
 import { startServer } from './server.js';
-import type { EngineName, ServerMessage } from './protocol.js';
-
-const HELP = `crosspane — preview one URL across Chromium, WebKit and Firefox in a single dashboard
-
-Usage:
-  crosspane <url | :port> [options]
-
-Examples:
-  crosspane :3000
-  crosspane http://localhost:5173 --engines chromium,webkit
-  crosspane :3000 --device "iPhone 15" --inject ./bridge-mock.js
-
-Options:
-  --engines <list>   Comma-separated engines (default: chromium,webkit,firefox)
-  --device <name>    Playwright device preset (default: "iPhone 15")
-  --port <n>         Dashboard port (default: 7788)
-  --fps <n>          Capture frames per second (default: 4)
-  --inject <path>    JS file injected into every page before load (bridge mocks etc.)
-  -h, --help         Show this help
-`;
-
-interface CliOptions {
-  url: string;
-  engines: EngineName[];
-  device: string;
-  port: number;
-  fps: number;
-  injectScriptPath?: string;
-}
-
-function parseArgs(argv: string[]): CliOptions {
-  const args = [...argv];
-  if (args.length === 0 || args.includes('-h') || args.includes('--help')) {
-    console.log(HELP);
-    process.exit(args.length === 0 ? 1 : 0);
-  }
-
-  const target = args.shift()!;
-  const url = /^:?\d+$/.test(target)
-    ? `http://localhost:${target.replace(':', '')}`
-    : target;
-
-  const opts: CliOptions = {
-    url,
-    engines: ['chromium', 'webkit', 'firefox'],
-    device: 'iPhone 15',
-    port: 7788,
-    fps: 4,
-  };
-
-  while (args.length > 0) {
-    const flag = args.shift()!;
-    const value = args.shift();
-    if (value === undefined) throw new Error(`Missing value for ${flag}`);
-    switch (flag) {
-      case '--engines': {
-        const engines = value.split(',').map((e) => e.trim()) as EngineName[];
-        const valid: EngineName[] = ['chromium', 'webkit', 'firefox'];
-        for (const e of engines) {
-          if (!valid.includes(e)) throw new Error(`Unknown engine "${e}" (valid: ${valid.join(', ')})`);
-        }
-        opts.engines = engines;
-        break;
-      }
-      case '--device':
-        opts.device = value;
-        break;
-      case '--port':
-        opts.port = Number(value);
-        break;
-      case '--fps':
-        opts.fps = Number(value);
-        break;
-      case '--inject':
-        opts.injectScriptPath = value;
-        break;
-      default:
-        throw new Error(`Unknown option ${flag}`);
-    }
-  }
-  return opts;
-}
+import { EngineSession, type SessionEvents } from './session.js';
 
 async function main(): Promise<void> {
-  const opts = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || argv.includes('-h') || argv.includes('--help')) {
+    console.log(HELP);
+    process.exit(argv.length === 0 ? 1 : 0);
+  }
+
+  const opts = parseArgs(argv);
   const viewport = resolveDevice(opts.device);
 
   const sessions = new Map<EngineName, EngineSession>();
@@ -101,17 +28,16 @@ async function main(): Promise<void> {
     }),
   });
 
-  const events = {
-    onFrame: (engine: EngineName, data: string) =>
-      server.broadcast({ type: 'frame', engine, data }),
-    onConsole: (engine: EngineName, level: string, text: string) =>
+  const events: SessionEvents = {
+    onFrame: (engine, data) => server.broadcast({ type: 'frame', engine, data }),
+    onConsole: (engine, level, text) =>
       server.broadcast({ type: 'console', engine, level, text, ts: Date.now() }),
-    onPageError: (engine: EngineName, message: string) =>
+    onPageError: (engine, message) =>
       server.broadcast({ type: 'pageerror', engine, message, ts: Date.now() }),
-    onRequestFailed: (engine: EngineName, url: string, error: string) =>
+    onRequestFailed: (engine, url, error) =>
       server.broadcast({ type: 'requestfailed', engine, url, error, ts: Date.now() }),
-    onStatus: (engine: EngineName, status: 'starting' | 'ready' | 'error', detail?: string) =>
-      server.broadcast({ type: 'engine-status', engine, status, detail } satisfies ServerMessage),
+    onStatus: (engine: EngineName, status: EngineStatus, detail?: string) =>
+      server.broadcast({ type: 'engine-status', engine, status, detail }),
   };
 
   console.log(`crosspane dashboard → http://localhost:${opts.port}`);
@@ -121,16 +47,21 @@ async function main(): Promise<void> {
     opts.engines.map(async (engine) => {
       const session = await EngineSession.create(
         engine,
-        { url: opts.url, device: opts.device, fps: opts.fps, injectScriptPath: opts.injectScriptPath },
+        {
+          url: opts.url,
+          device: opts.device,
+          fps: opts.fps,
+          injectScriptPath: opts.injectScriptPath,
+        },
         events,
       );
       sessions.set(engine, session);
       console.log(`  ✓ ${engine} ready`);
     }),
   );
-  for (const [i, r] of results.entries()) {
-    if (r.status === 'rejected') {
-      console.error(`  ✗ ${opts.engines[i]} failed: ${r.reason}`);
+  for (const [i, result] of results.entries()) {
+    if (result.status === 'rejected') {
+      console.error(`  ✗ ${opts.engines[i]} failed: ${String(result.reason)}`);
       console.error(`    (missing browser? run: pnpm exec playwright install ${opts.engines[i]})`);
     }
   }
@@ -145,11 +76,11 @@ async function main(): Promise<void> {
     server.close();
     process.exit(0);
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
 }
 
-main().catch((err) => {
+main().catch((err: unknown) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });
