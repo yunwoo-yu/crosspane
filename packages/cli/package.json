@@ -1,6 +1,6 @@
 {
   "name": "crosspane",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One dashboard to preview your local dev server across Chromium, WebKit and Firefox with webview-style device frames, mirrored interactions and per-engine console logs.",
   "license": "MIT",
   "author": "yunwoo-yu",
