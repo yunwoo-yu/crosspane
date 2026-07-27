@@ -44,3 +44,15 @@ paths:
   고정 주기 폴링으로 되돌리면 입력 지연이 주기만큼 다시 생긴다 (250ms 폴링 시절 실측 ~1초)
 - 캡처 루프는 `capture-loop.ts` 공용 — `markActivity()`가 `wake()`를 불러 입력 직후
   즉시 캡처한다. wake 경로를 끊으면 화면 반영이 폴링 간격만큼 늦어진다
+
+## iOS 셸 프레임 스트리밍 (전부 실측)
+
+- 셸이 `takeSnapshot`(공개 API)으로 자체 캡처해 `/shell/:engine/frame`으로 push한다 —
+  simctl 스크린샷 폴링(왕복 수백 ms)으로 되돌리지 말 것
+- **drawHierarchy로 바꾸지 말 것**: WK 컴포지터의 비동기 서피스를 찍어 스크롤 중에도
+  프레임의 80%가 동일 바이트였다 (takeSnapshot은 WebKit이 직접 렌더)
+- **UIView.animate로 스크롤을 애니메이션하지 말 것**: 모델값이 즉시 최종으로 바뀌어
+  스트림에 1프레임만 잡힌다 — 모델값을 30Hz Timer로 직접 스텝한다
+- fps 상한 ~5Hz는 takeSnapshot의 콘텐츠 갱신 케이던스 한계다. Simulator.app 창을
+  붙여도 동일(실측) — 진짜 30fps는 IOSurface 접근(idb) 필요, 옵션 의존성 로드맵
+- 프레임의 scrollY는 프레임 픽셀 단위(contentOffset × pixelsPerPoint)로 보낸다

@@ -234,6 +234,21 @@ export class IosSimulatorSession implements InputTarget {
     return this.commandQueue.splice(0, this.commandQueue.length);
   }
 
+  private shellFrameCount = 0;
+
+  /**
+   * 셸이 자체 캡처(takeSnapshot)해 push한 프레임 — simctl 스크린샷(회당 수백 ms)을
+   * 대체하는 ~15fps 스트림. 안정적으로 흐르기 시작하면 simctl 폴링을 중단한다.
+   * scrollY는 프레임 픽셀 단위 — 대시보드 로컬 에코가 iOS pane에도 걸린다.
+   */
+  handleShellFrame(jpeg: Buffer, scrollY: number): void {
+    if (jpeg.length === 0) return;
+    this.shellFrameCount += 1;
+    if (this.shellFrameCount > 10) this.captureLoop?.stop();
+    this.markActivity();
+    this.events?.onFrame(ENGINE, jpeg, scrollY);
+  }
+
   /** 셸앱이 POST한 이벤트(콘솔/에러/내비게이션)를 세션 이벤트로 변환 */
   handleShellEvent(payload: unknown): void {
     if (!this.events || typeof payload !== 'object' || payload === null) return;

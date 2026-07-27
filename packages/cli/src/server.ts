@@ -21,11 +21,13 @@ export interface PaneController {
   stopEngine(engine: EngineName): Promise<void>;
 }
 
-/** 시뮬레이터 셸앱과의 HTTP 브릿지 — 명령 롱폴 / 이벤트 수신 */
+/** 시뮬레이터 셸앱과의 HTTP 브릿지 — 명령 롱폴 / 이벤트·프레임 수신 */
 export interface ShellBridge {
   /** 명령이 생길 때까지(또는 타임아웃까지) 대기 후 반환 — 입력 지연을 폴링 주기에서 분리한다 */
   waitForCommands(engine: EngineName): Promise<unknown[]>;
   handleEvent(engine: EngineName, payload: unknown): void;
+  /** 셸이 자체 캡처해 push한 프레임(JPEG) — simctl 폴링을 대체한다 */
+  handleFrame(engine: EngineName, jpeg: Buffer, scrollY: number): void;
 }
 
 export interface DashboardServerOptions {
@@ -99,9 +101,25 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
 
   const httpServer = http.createServer((req, res) => {
     // 셸앱 브릿지: 시뮬레이터의 localhost == 호스트라 같은 서버로 통신한다
-    const shellMatch = /^\/shell\/([a-z-]+)\/(commands|event)$/.exec(req.url ?? '');
+    const [pathname, query] = (req.url ?? '').split('?');
+    const shellMatch = /^\/shell\/([a-z-]+)\/(commands|event|frame)$/.exec(pathname);
     if (shellMatch && options.shellBridge) {
       const engine = shellMatch[1] as EngineName;
+      if (shellMatch[2] === 'frame') {
+        // 셸 push 프레임 — 바이너리 JPEG body + scrollY 쿼리(프레임 픽셀 단위)
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk: Buffer) => chunks.push(chunk));
+        req.on('end', () => {
+          const scrollY = Number(new URLSearchParams(query).get('scrollY') ?? Number.NaN);
+          options.shellBridge?.handleFrame(
+            engine,
+            Buffer.concat(chunks),
+            Number.isFinite(scrollY) ? scrollY : -1,
+          );
+          res.writeHead(204).end();
+        });
+        return;
+      }
       if (shellMatch[2] === 'commands') {
         // 롱폴: 명령이 생기면 즉시, 없으면 브릿지의 타임아웃까지 대기 후 빈 배열 응답
         void options.shellBridge.waitForCommands(engine).then((commands) => {

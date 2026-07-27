@@ -137,6 +137,10 @@ async function main(): Promise<void> {
         const session = sessions.get(engine);
         if (session instanceof IosSimulatorSession) session.handleShellEvent(payload);
       },
+      handleFrame(engine, jpeg, scrollY) {
+        const session = sessions.get(engine);
+        if (session instanceof IosSimulatorSession) session.handleShellFrame(jpeg, scrollY);
+      },
     },
     hello: () => ({
       type: 'hello',

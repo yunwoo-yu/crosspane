@@ -142,6 +142,38 @@ describe('startDashboardServer', () => {
     }
   });
 
+  it('셸 프레임 POST가 브릿지로 전달되고 scrollY 쿼리를 파싱한다', async () => {
+    const handleFrame = vi.fn();
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+      shellBridge: {
+        waitForCommands: async () => [],
+        handleEvent: () => {},
+        handleFrame,
+      },
+    });
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xee]);
+    const response = await fetch(
+      `http://localhost:${server.port}/shell/ios-sim/frame?scrollY=372`,
+      {
+        method: 'POST',
+        body: jpeg,
+      },
+    );
+    expect(response.status).toBe(204);
+    expect(handleFrame).toHaveBeenCalledWith('ios-sim', jpeg, 372);
+
+    // scrollY 없으면 -1 (미상)
+    await fetch(`http://localhost:${server.port}/shell/ios-sim/frame`, {
+      method: 'POST',
+      body: jpeg,
+    });
+    expect(handleFrame).toHaveBeenLastCalledWith('ios-sim', jpeg, -1);
+  });
+
   it('접속하면 hello를 먼저 보낸다', async () => {
     server = await startDashboardServer({
       port: 0,

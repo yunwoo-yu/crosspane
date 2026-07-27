@@ -14,6 +14,13 @@ let controlBase = env["CROSSPANE_CONTROL"] ?? ""
 
 final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate {
   var webView: WKWebView!
+  // 프레임 스트리밍: 변화 없으면 idle로 느려지고, 명령이 오면 즉시 fast로 복귀
+  private let frameIntervalFast: TimeInterval = 1.0 / 15.0
+  private let frameIntervalIdle: TimeInterval = 0.5
+  private var frameInterval: TimeInterval = 1.0 / 15.0
+  private var lastFrameHash = 0
+  private var unchangedFrames = 0
+
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -69,6 +76,59 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
       webView.load(URLRequest(url: url))
     }
     pollCommands()
+    streamFrames()
+  }
+
+  // MARK: 프레임 스트리밍 (앱 → 호스트) — simctl 스크린샷 폴링 대체
+  // takeSnapshot은 공개 API이며 인프로세스라 왕복이 없다 (simctl은 회당 수백 ms)
+
+  private func streamFrames() {
+    let scheduleNext = { (interval: TimeInterval) in
+      DispatchQueue.main.asyncAfter(deadline: .now() + interval) { self.streamFrames() }
+    }
+    // drawHierarchy는 WK 컴포지터의 비동기 서피스를 찍어 스크롤 중에도 80%가
+    // 동일 프레임(실측) — WebKit이 직접 렌더하는 takeSnapshot을 저해상도로 쓴다
+    let config = WKSnapshotConfiguration()
+    // 헤드리스 시뮬레이터는 컴포지터가 게을러 false면 캐시 서피스를 반환한다(실측) —
+    // true로 대기 중인 변경을 강제 렌더시켜야 스크롤 중간 프레임이 잡힌다
+    config.afterScreenUpdates = true
+    config.snapshotWidth = NSNumber(value: Double(webView.bounds.width) / 2)
+    webView.takeSnapshot(with: config) { image, _ in
+      guard let image else { return scheduleNext(self.frameInterval) }
+      // 스크롤 위치를 프레임 픽셀 단위로 환산해 동봉한다 (대시보드 로컬 에코용)
+      let pixelsPerPoint = (image.size.width * image.scale) / max(1, self.webView.bounds.width)
+      let scrollY = Int(self.webView.scrollView.contentOffset.y * pixelsPerPoint)
+      DispatchQueue.global(qos: .userInitiated).async {
+        autoreleasepool {
+        guard let jpeg = image.jpegData(compressionQuality: 0.5) else {
+          return scheduleNext(self.frameInterval)
+        }
+        let hash = jpeg.hashValue
+        DispatchQueue.main.async {
+          if hash == self.lastFrameHash {
+            // 변화 없음 — 연속되면 idle 간격으로 CPU를 아낀다
+            self.unchangedFrames += 1
+            if self.unchangedFrames > 10 { self.frameInterval = self.frameIntervalIdle }
+            return scheduleNext(self.frameInterval)
+          }
+          self.lastFrameHash = hash
+          self.unchangedFrames = 0
+          self.frameInterval = self.frameIntervalFast
+          self.postFrame(jpeg, scrollY: scrollY)
+          scheduleNext(self.frameInterval)
+          }
+        }
+      }
+    }
+  }
+
+  private func postFrame(_ jpeg: Data, scrollY: Int) {
+    guard let url = URL(string: controlBase + "/frame?scrollY=\(scrollY)") else { return }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.httpBody = jpeg
+    request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+    URLSession.shared.dataTask(with: request).resume()
   }
 
   // MARK: 이벤트 릴레이 (앱 → 호스트)
@@ -112,6 +172,8 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
   }
 
   private func execute(_ command: [String: Any]) {
+    // 입력이 오면 스트리밍을 즉시 fast로 (반응 지연 방지)
+    frameInterval = frameIntervalFast
     switch command["type"] as? String ?? "" {
     case "click":
       let x = command["x"] as? Double ?? 0
@@ -135,8 +197,9 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
         self.postEvent(["kind": "console", "level": "debug", "text": "[shell] click → " + summary])
       }
     case "scroll":
-      let deltaY = command["deltaY"] as? Double ?? 0
-      webView.evaluateJavaScript("window.scrollBy(0, \(deltaY));")
+      // JS scrollBy가 아니라 진짜 네이티브 스크롤 경로(UIScrollView) — 공개 API
+      let deltaY = CGFloat(command["deltaY"] as? Double ?? 0)
+      setNativeScroll(y: webView.scrollView.contentOffset.y + deltaY, animated: false)
     case "drag":
       // 합성 터치는 WKWebView 네이티브 스크롤을 움직이지 못한다 —
       // 세로 위주 드래그는 scrollBy로 재현하고, 그 외(캐러셀 등)는 pointer 시퀀스로 전달
@@ -144,15 +207,22 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
       let fromY = command["fromY"] as? Double ?? 0
       let toX = command["toX"] as? Double ?? 0
       let toY = command["toY"] as? Double ?? 0
+      let deltaXPt = CGFloat(toX - fromX) * webView.bounds.width
+      let deltaYPt = CGFloat(toY - fromY) * webView.bounds.height
+      if abs(deltaYPt) > abs(deltaXPt) * 1.5 {
+        // 세로 드래그 = 네이티브 스크롤 감속 재현. UIView.animate는 모델값을 즉시
+        // 최종으로 바꿔 스트림에 1프레임만 잡힌다(실측) — 모델값을 직접 스텝한다
+        let durationMs = command["durationMs"] as? Double ?? 200
+        animateNativeScroll(
+          to: webView.scrollView.contentOffset.y - deltaYPt,
+          duration: min(0.5, max(0.2, durationMs / 1000 + 0.15)))
+        return
+      }
       let js = """
         (function () {
           const fx = \(fromX) * screen.width, fy = \(fromY) * screen.height;
           const tx = \(toX) * screen.width, ty = \(toY) * screen.height;
           const dx = tx - fx, dy = ty - fy;
-          if (Math.abs(dy) > Math.abs(dx) * 1.5) {
-            window.scrollBy(0, -dy);
-            return;
-          }
           const el = document.elementFromPoint(fx, fy) || document.body;
           const opts = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true });
           el.dispatchEvent(new PointerEvent('pointerdown', opts(fx, fy)));
@@ -200,6 +270,31 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
     case "forward": webView.goForward()
     default: break
     }
+  }
+
+  private var scrollAnimationTimer: Timer?
+
+  /** ease-out 스텝 애니메이션 — 매 스텝이 모델 변경이라 프레임 스트림에 그대로 잡힌다 */
+  private func animateNativeScroll(to targetY: CGFloat, duration: TimeInterval) {
+    scrollAnimationTimer?.invalidate()
+    let startY = webView.scrollView.contentOffset.y
+    let startTime = Date()
+    scrollAnimationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) {
+      timer in
+      let progress = min(1, Date().timeIntervalSince(startTime) / duration)
+      let eased = 1 - pow(1 - progress, 2)
+      self.setNativeScroll(y: startY + (targetY - startY) * CGFloat(eased), animated: false)
+      if progress >= 1 { timer.invalidate() }
+    }
+  }
+
+  /** contentOffset 클램프 + 적용 — 상하 바운스 범위를 넘지 않게 */
+  private func setNativeScroll(y: CGFloat, animated: Bool) {
+    let sv = webView.scrollView
+    let minY = -sv.adjustedContentInset.top
+    let maxY = max(minY, sv.contentSize.height - sv.bounds.height + sv.adjustedContentInset.bottom)
+    let clamped = max(minY, min(maxY, y))
+    sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: clamped), animated: animated)
   }
 }
 
