@@ -10,8 +10,10 @@ export function useWheelMirroring(options: {
   enabled: boolean;
   screenRef: RefObject<HTMLDivElement | null>;
   streamer: ScrollStreamer;
+  /** 표시 px → 엔진(프레임) px 환산 — 드래그 제스처와 단위를 통일한다 */
+  getCanvas: () => HTMLCanvasElement | null;
 }): void {
-  const { enabled, screenRef, streamer } = options;
+  const { enabled, screenRef, streamer, getCanvas } = options;
 
   useEffect(() => {
     if (!enabled) return;
@@ -19,11 +21,13 @@ export function useWheelMirroring(options: {
     if (!screen) return;
     const handleWheel = (event: WheelEvent): void => {
       event.preventDefault();
-      streamer.add(event.deltaY, Date.now());
+      const canvas = getCanvas();
+      const scale = canvas && canvas.clientHeight > 0 ? canvas.height / canvas.clientHeight : 1;
+      streamer.add(event.deltaY * scale, Date.now());
     };
     screen.addEventListener('wheel', handleWheel, { passive: false });
     return () => {
       screen.removeEventListener('wheel', handleWheel);
     };
-  }, [enabled, screenRef, streamer]);
+  }, [enabled, screenRef, streamer, getCanvas]);
 }

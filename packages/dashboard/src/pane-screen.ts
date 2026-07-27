@@ -17,7 +17,12 @@ export class PaneScreen {
   private lastInputTs = 0;
   private readonly echo = new ScrollEcho();
 
-  constructor(private readonly viewportCss: { width: number; height: number }) {}
+  constructor(
+    private readonly viewportCss: { width: number; height: number },
+    /** 로컬 에코(transform 예측) 사용 여부 — 실기기 pane은 네이티브 스크롤+스트림이
+        피드백이라 에코를 켜면 단위 불일치로 화면이 밀린다 (실측 깨짐) */
+    private readonly localEcho = true,
+  ) {}
 
   /** 유휴 판정 — 입력이 멈춘 뒤에는 엔진의 실제 스크롤 위치로 수렴한다 */
   private static readonly INPUT_IDLE_MS = 400;
@@ -37,7 +42,7 @@ export class PaneScreen {
         canvas.height = frame.height;
       }
       canvas.getContext('2d')?.drawImage(frame, 0, 0);
-      applyEchoOffset(canvas, this.echo.reconcileFrame(scrollY, now));
+      applyEchoOffset(canvas, this.localEcho ? this.echo.reconcileFrame(scrollY, now) : 0);
       return;
     }
 
@@ -74,6 +79,7 @@ export class PaneScreen {
       this.redrawCrop(canvas);
       return;
     }
+    if (!this.localEcho) return; // 실기기: 스트림이 곧 피드백
     applyEchoOffset(canvas, this.echo.addWheelDelta(deltaY, now));
   }
 

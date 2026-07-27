@@ -20,6 +20,8 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
   private var frameInterval: TimeInterval = 1.0 / 15.0
   private var lastFrameHash = 0
   private var unchangedFrames = 0
+  // 스트림 프레임의 px/pt 비율 — 대시보드 스크롤 델타(프레임 px)를 pt로 환산한다
+  private var lastPixelsPerPoint: CGFloat = 1
 
 
   override func viewDidLoad() {
@@ -97,6 +99,7 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
       guard let image else { return scheduleNext(self.frameInterval) }
       // 스크롤 위치를 프레임 픽셀 단위로 환산해 동봉한다 (대시보드 로컬 에코용)
       let pixelsPerPoint = (image.size.width * image.scale) / max(1, self.webView.bounds.width)
+      self.lastPixelsPerPoint = max(0.1, pixelsPerPoint)
       let scrollY = Int(self.webView.scrollView.contentOffset.y * pixelsPerPoint)
       DispatchQueue.global(qos: .userInitiated).async {
         autoreleasepool {
@@ -197,8 +200,9 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
         self.postEvent(["kind": "console", "level": "debug", "text": "[shell] click → " + summary])
       }
     case "scroll":
-      // JS scrollBy가 아니라 진짜 네이티브 스크롤 경로(UIScrollView) — 공개 API
-      let deltaY = CGFloat(command["deltaY"] as? Double ?? 0)
+      // JS scrollBy가 아니라 진짜 네이티브 스크롤 경로(UIScrollView) — 공개 API.
+      // 델타는 대시보드 프레임 px 단위 → pt로 환산
+      let deltaY = CGFloat(command["deltaY"] as? Double ?? 0) / lastPixelsPerPoint
       setNativeScroll(y: webView.scrollView.contentOffset.y + deltaY, animated: false)
     case "drag":
       // 합성 터치는 WKWebView 네이티브 스크롤을 움직이지 못한다 —

@@ -37,7 +37,9 @@ export function usePaneMirroring({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const keyInputRef = useRef<HTMLInputElement | null>(null);
   const screenStateRef = useRef<PaneScreen | null>(null);
-  screenStateRef.current ??= new PaneScreen(viewport);
+  // 실기기 pane은 로컬 에코 금지 — 네이티브 스크롤+스트림이 피드백 (단위 불일치 방지)
+  const localEcho = engine === 'chromium' || engine === 'webkit' || engine === 'firefox';
+  screenStateRef.current ??= new PaneScreen(viewport, localEcho);
   const sendCommandRef = useRef(sendCommand);
   sendCommandRef.current = sendCommand;
   const stableSendRef = useRef((command: ClientCommand) => sendCommandRef.current(command));
@@ -65,6 +67,7 @@ export function usePaneMirroring({
     enabled: !viewOnly,
     screenRef,
     streamer: streamerRef.current,
+    getCanvas: () => canvasRef.current,
   });
   const canvasHandlers = usePointerGestures({
     enabled: !viewOnly,

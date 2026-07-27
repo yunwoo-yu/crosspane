@@ -256,14 +256,17 @@ export class AndroidEmulatorSession implements InputTarget {
   private pendingScrollPx = 0;
 
   async scrollBy(deltaY: number): Promise<void> {
-    this.pendingScrollPx += toSwipeDistance(deltaY, this.screen.height);
+    // 대시보드가 프레임(=기기) 픽셀 단위로 보낸다 — 추가 스케일 없이 그대로, 상한만
+    const limit = this.screen.height * 0.6;
+    this.pendingScrollPx += Math.max(-limit, Math.min(limit, deltaY));
     const distance = Math.trunc(this.pendingScrollPx);
     if (Math.abs(distance) < MIN_SWIPE_PX) return;
     this.pendingScrollPx -= distance;
     const x = Math.round(this.screen.width / 2);
     const startY = Math.round(this.screen.height / 2 + distance / 2);
     const endY = startY - distance;
-    this.runInputCommand(['input', 'swipe', x, startY, x, endY, 80]);
+    // duration을 짧게 주면 fling으로 해석돼 관성이 과하게 붙는다 — 드래그로 해석되는 길이
+    this.runInputCommand(['input', 'swipe', x, startY, x, endY, 140]);
   }
 
   async pressKey(key: string): Promise<void> {
