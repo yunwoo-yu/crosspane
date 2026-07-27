@@ -29,7 +29,7 @@ export function ConsolePanel({ logs, engines }: ConsolePanelProps) {
   }, [visible]);
 
   return (
-    <section className="console">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="console-head">
         <span>console</span>
         <div className="filters">
@@ -65,6 +65,6 @@ export function ConsolePanel({ logs, engines }: ConsolePanelProps) {
         )}
         <div ref={endRef} />
       </div>
-    </section>
+    </div>
   );
 }

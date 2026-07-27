@@ -319,6 +319,30 @@ describe('startDashboardServer', () => {
     expect(raced).toBe('silence');
   });
 
+  it('network 이벤트도 히스토리로 재전송된다 (별도 버퍼)', async () => {
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
+    server.broadcastEvent({
+      type: 'network',
+      engine: 'chromium',
+      method: 'GET',
+      url: 'http://a/api',
+      status: 200,
+      resourceType: 'fetch',
+      durationMs: 5,
+      ts: 1,
+    });
+
+    const client = await TestClient.connect(server.port);
+    clients.push(client);
+    expect(await client.nextEvent()).toMatchObject({ type: 'hello' });
+    expect(await client.nextEvent()).toMatchObject({ type: 'network', status: 200 });
+  });
+
   it('사용 중인 포트면 명확한 에러로 실패한다', async () => {
     server = await startDashboardServer({
       port: 0,

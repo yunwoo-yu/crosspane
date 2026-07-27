@@ -33,5 +33,16 @@ export interface LogEntry {
   ts: number;
 }
 
+export interface NetworkEntry {
+  id: number;
+  engine: EngineName;
+  method: string;
+  url: string;
+  status: number;
+  resourceType: string;
+  durationMs: number;
+  ts: number;
+}
+
 /** scrollY: 프레임 캡처 시점의 스크롤 위치(CSS px), 모르면 음수 */
 export type FrameListener = (frame: ImageBitmap, scrollY: number) => void;

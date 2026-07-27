@@ -188,7 +188,7 @@ body {
 }
 
 .console {
-  flex: 0 0 220px;
+  flex: 0 0 250px;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border);

@@ -28,6 +28,8 @@ export interface DashboardServerOptions {
 
 // 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
 const EVENT_HISTORY_LIMIT = 300;
+// 네트워크 이벤트는 양이 많아 콘솔 히스토리를 밀어내지 않도록 별도 버퍼를 쓴다
+const NETWORK_HISTORY_LIMIT = 600;
 
 /** 미러링 대상 입력 커맨드 (pane 제어 커맨드 제외) */
 type MirrorCommand = Exclude<ClientCommand, { type: 'start-engine' } | { type: 'stop-engine' }>;
@@ -85,6 +87,7 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
   // 접속 전에 발생한 콘솔/에러/네트워크 이벤트와 마지막 엔진 상태를
   // 새 클라이언트에게 재전송하기 위한 버퍼
   const eventHistory: ServerEvent[] = [];
+  const networkHistory: ServerEvent[] = [];
   const lastStatusByEngine = new Map<EngineName, ServerEvent>();
   const lastNavigationByEngine = new Map<EngineName, ServerEvent>();
   // 변화가 없으면 프레임이 다시 오지 않으므로(스크린캐스트/변화감지 스킵),
@@ -98,6 +101,10 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
       case 'httperror':
         eventHistory.push(event);
         if (eventHistory.length > EVENT_HISTORY_LIMIT) eventHistory.shift();
+        break;
+      case 'network':
+        networkHistory.push(event);
+        if (networkHistory.length > NETWORK_HISTORY_LIMIT) networkHistory.shift();
         break;
       case 'engine-status':
         lastStatusByEngine.set(event.engine, event);
@@ -121,6 +128,7 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     client.send(JSON.stringify(options.hello()));
     for (const status of lastStatusByEngine.values()) client.send(JSON.stringify(status));
     for (const event of eventHistory) client.send(JSON.stringify(event));
+    for (const event of networkHistory) client.send(JSON.stringify(event));
     // 히스토리 이후에 보내야 새 클라이언트의 에러 배지가 과거 로그로 오염되지 않는다
     for (const navigation of lastNavigationByEngine.values()) {
       client.send(JSON.stringify(navigation));

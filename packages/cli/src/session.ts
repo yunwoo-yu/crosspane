@@ -29,6 +29,16 @@ export interface SessionEvents {
   onPageError(engine: EngineName, message: string): void;
   onRequestFailed(engine: EngineName, url: string, error: string): void;
   onHttpError(engine: EngineName, url: string, status: number): void;
+  onNetwork(
+    engine: EngineName,
+    entry: {
+      method: string;
+      url: string;
+      status: number;
+      resourceType: string;
+      durationMs: number;
+    },
+  ): void;
   onStatus(engine: EngineName, status: EngineStatus, detail?: string): void;
   onNavigation(engine: EngineName, url: string): void;
 }
@@ -194,6 +204,22 @@ export class EngineSession {
       if (response.status() >= 400) {
         events.onHttpError(engine, response.url(), response.status());
       }
+      // 네트워크 패널: 전체 응답을 수집해 엔진 간 상태/속도를 비교한다.
+      // durationMs는 응답 완료 시점에 확정되므로 finished를 기다린다
+      const request = response.request();
+      void response
+        .finished()
+        .catch(() => undefined)
+        .then(() => {
+          const timing = request.timing();
+          events.onNetwork(engine, {
+            method: request.method(),
+            url: response.url(),
+            status: response.status(),
+            resourceType: request.resourceType(),
+            durationMs: timing.responseEnd >= 0 ? Math.round(timing.responseEnd) : -1,
+          });
+        });
     });
     let lastNavigatedUrl = '';
     page.on('framenavigated', (frame) => {

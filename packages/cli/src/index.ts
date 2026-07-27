@@ -128,6 +128,8 @@ async function main(): Promise<void> {
       server.broadcastEvent({ type: 'requestfailed', engine, url, error, ts: Date.now() }),
     onHttpError: (engine, url, status) =>
       server.broadcastEvent({ type: 'httperror', engine, url, status, ts: Date.now() }),
+    onNetwork: (engine, entry) =>
+      server.broadcastEvent({ type: 'network', engine, ...entry, ts: Date.now() }),
     onStatus: (engine: EngineName, status: EngineStatus, detail?: string) =>
       server.broadcastEvent({ type: 'engine-status', engine, status, detail }),
     onNavigation: (engine, url) =>

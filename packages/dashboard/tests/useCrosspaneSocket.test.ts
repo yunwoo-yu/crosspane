@@ -147,6 +147,30 @@ describe('useCrosspaneSocket', () => {
     expect(result.current.logs[0]).toMatchObject({ kind: 'navigation', engine: 'chromium' });
   });
 
+  it('network 이벤트가 networkEntries로 쌓이고 clearLogs로 함께 비워진다', () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => {
+      socket.receiveEvent({
+        type: 'network',
+        engine: 'chromium',
+        method: 'GET',
+        url: 'http://localhost:3000/api/me',
+        status: 200,
+        resourceType: 'fetch',
+        durationMs: 12,
+        ts: 1,
+      });
+    });
+
+    expect(result.current.networkEntries).toHaveLength(1);
+    expect(result.current.networkEntries[0]).toMatchObject({ status: 200, method: 'GET' });
+
+    act(() => result.current.clearLogs());
+    expect(result.current.networkEntries).toHaveLength(0);
+  });
+
   it('httperror 이벤트가 상태코드와 함께 에러 로그로 쌓인다', () => {
     const { result } = renderHook(() => useCrosspaneSocket());
     const socket = FakeWebSocket.instances[0];

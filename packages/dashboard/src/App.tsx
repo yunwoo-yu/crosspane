@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ConsolePanel } from './components/ConsolePanel';
 import { EnginePane } from './components/EnginePane';
+import { NetworkPanel } from './components/NetworkPanel';
 import { Toolbar } from './components/Toolbar';
+import { Button } from './components/ui/button';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
 import { countErrorsSinceLastNavigation, detectUrlDesync } from './log-utils';
 import type { EngineName } from './types';
 
 export default function App() {
-  const { connected, hello, engineStates, logs, sendCommand, clearLogs, subscribeToFrames } =
-    useCrosspaneSocket();
+  const {
+    connected,
+    hello,
+    engineStates,
+    logs,
+    networkEntries,
+    sendCommand,
+    clearLogs,
+    subscribeToFrames,
+  } = useCrosspaneSocket();
+  const [bottomTab, setBottomTab] = useState<'console' | 'network'>('console');
 
   const errorCountFor = useCallback(
     (engine: EngineName) => countErrorsSinceLastNavigation(logs, engine),
@@ -80,7 +91,31 @@ export default function App() {
         ))}
       </main>
 
-      <ConsolePanel logs={logs} engines={engineNames} />
+      <section className="console">
+        <div className="flex items-center gap-1 border-line border-b px-3 py-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={bottomTab === 'console' ? 'border-accent text-fg' : ''}
+            onClick={() => setBottomTab('console')}
+          >
+            Console
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={bottomTab === 'network' ? 'border-accent text-fg' : ''}
+            onClick={() => setBottomTab('network')}
+          >
+            Network
+          </Button>
+        </div>
+        {bottomTab === 'console' ? (
+          <ConsolePanel logs={logs} engines={engineNames} />
+        ) : (
+          <NetworkPanel entries={networkEntries} engines={engineNames} />
+        )}
+      </section>
     </div>
   );
 }

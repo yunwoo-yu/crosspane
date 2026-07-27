@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MAX_LOGS, RECONNECT_DELAY_MS } from '../constants';
+import { MAX_LOGS, MAX_NETWORK_ENTRIES, RECONNECT_DELAY_MS } from '../constants';
 import {
   type ClientCommand,
   ENGINE_NAMES_BY_CODE,
@@ -9,6 +9,7 @@ import {
   type FrameListener,
   type HelloEvent,
   type LogEntry,
+  type NetworkEntry,
   type ServerEvent,
 } from '../types';
 
@@ -17,6 +18,7 @@ export interface CrosspaneConnection {
   hello: HelloEvent | null;
   engineStates: Partial<Record<EngineName, EngineState>>;
   logs: LogEntry[];
+  networkEntries: NetworkEntry[];
   sendCommand: (command: ClientCommand) => void;
   clearLogs: () => void;
   /**
@@ -35,6 +37,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
   const [hello, setHello] = useState<HelloEvent | null>(null);
   const [engineStates, setEngineStates] = useState<Partial<Record<EngineName, EngineState>>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [networkEntries, setNetworkEntries] = useState<NetworkEntry[]>([]);
 
   // 로그가 무한히 쌓이면 리렌더 비용이 커지므로 최근 MAX_LOGS개만 유지한다
   const appendLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
@@ -74,6 +77,12 @@ export function useCrosspaneSocket(): CrosspaneConnection {
             level: 'info',
             text: event.url,
             ts: event.ts,
+          });
+          break;
+        case 'network':
+          setNetworkEntries((prev) => {
+            const next = [...prev, { ...event, id: logIdRef.current++ }];
+            return next.length > MAX_NETWORK_ENTRIES ? next.slice(-MAX_NETWORK_ENTRIES) : next;
           });
           break;
         case 'httperror':
@@ -170,7 +179,10 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
   }, []);
 
-  const clearLogs = useCallback(() => setLogs([]), []);
+  const clearLogs = useCallback(() => {
+    setLogs([]);
+    setNetworkEntries([]);
+  }, []);
 
   const subscribeToFrames = useCallback((engine: EngineName, listener: FrameListener) => {
     const listenersByEngine = frameListenersRef.current;
@@ -185,5 +197,14 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     };
   }, []);
 
-  return { connected, hello, engineStates, logs, sendCommand, clearLogs, subscribeToFrames };
+  return {
+    connected,
+    hello,
+    engineStates,
+    logs,
+    networkEntries,
+    sendCommand,
+    clearLogs,
+    subscribeToFrames,
+  };
 }

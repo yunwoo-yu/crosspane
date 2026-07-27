@@ -53,7 +53,18 @@ export type ServerEvent =
   | { type: 'requestfailed'; engine: EngineName; url: string; error: string; ts: number }
   | { type: 'engine-status'; engine: EngineName; status: EngineStatus; detail?: string }
   | { type: 'navigation'; engine: EngineName; url: string; ts: number }
-  | { type: 'httperror'; engine: EngineName; url: string; status: number; ts: number };
+  | { type: 'httperror'; engine: EngineName; url: string; status: number; ts: number }
+  | {
+      /** 네트워크 패널용 전체 응답 수집 — 엔진 간 같은 요청의 상태/속도 비교가 목적 */
+      type: 'network';
+      engine: EngineName;
+      method: string;
+      url: string;
+      status: number;
+      resourceType: string;
+      durationMs: number;
+      ts: number;
+    };
 
 /** 대시보드 → 서버 커맨드. 입력 계열은 모든 엔진에 미러링, engine 제어는 서버가 처리 */
 export type ClientCommand =
