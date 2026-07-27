@@ -15,12 +15,20 @@ paths:
 - 어댑터 실동작은 CI에서 검증 불가 — 순수 로직(기기 선택/경로/환산)만 유닛테스트,
   동작 변경 시 로컬에서 실제 기동으로 확인할 것
 
-## iOS (simctl)
+## iOS (simctl + WKWebView 셸)
 
-- **Safari 선실행 → openurl 순서를 바꾸지 말 것**: 헤드리스 부팅 직후
+- 1순위는 셸앱(`shell/main.swift`, 진짜 WKWebView 컴포넌트 + 입력/콘솔),
+  실패 시 Safari view-only 폴백 — 폴백 경로를 지우지 말 것
+- 셸 클릭 좌표는 **screen.width/height 매핑 유지** — clientHeight/innerHeight로
+  바꾸면 iOS 100vh 문제로 어긋난다 (실측: 중앙 클릭이 BODY에 떨어짐)
+- 셸 빌드는 소스 해시로 ~/.crosspane/shell에 캐시 — Swift 소스 수정만으로 재빌드됨
+- 시뮬레이터의 localhost == 호스트 맥 — 컨트롤 브릿지가 이 가정 위에 있다
+- **Safari 폴백: 선실행 → openurl 순서를 바꾸지 말 것**: 헤드리스 부팅 직후
   openurl은 타임아웃된다 (`launch com.apple.mobilesafari` 후에만 안정)
 - Xcode 탐지는 `resolveDeveloperDir()` 경유 — `xcode-select` 설정을 요구하지 말 것
   (DEVELOPER_DIR 우회가 의도된 설계)
+- 알려진 한계: 일부 페이지에서 window error가 "Script error."로 마스킹됨(WebKit),
+  IME/네이티브 키보드 입력은 미지원 (execCommand insertText 근사)
 
 ## Android (adb)
 

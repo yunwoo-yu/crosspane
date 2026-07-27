@@ -42,7 +42,7 @@ export interface SessionEvents {
       bodyTruncated?: boolean;
     },
   ): void;
-  onStatus(engine: EngineName, status: EngineStatus, detail?: string): void;
+  onStatus(engine: EngineName, status: EngineStatus, detail?: string, viewOnly?: boolean): void;
   onNavigation(engine: EngineName, url: string): void;
 }
 

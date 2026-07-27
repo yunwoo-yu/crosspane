@@ -51,7 +51,14 @@ export type ServerEvent =
   | { type: 'console'; engine: EngineName; level: LogLevel; text: string; ts: number }
   | { type: 'pageerror'; engine: EngineName; message: string; ts: number }
   | { type: 'requestfailed'; engine: EngineName; url: string; error: string; ts: number }
-  | { type: 'engine-status'; engine: EngineName; status: EngineStatus; detail?: string }
+  | {
+      type: 'engine-status';
+      engine: EngineName;
+      status: EngineStatus;
+      detail?: string;
+      /** 세션이 기동하며 입력 가능 여부가 확정되면 갱신 (셸 성공 시 ios-sim이 인터랙티브로) */
+      viewOnly?: boolean;
+    }
   | { type: 'navigation'; engine: EngineName; url: string; ts: number }
   | { type: 'httperror'; engine: EngineName; url: string; status: number; ts: number }
   | {

@@ -59,7 +59,12 @@ export function useCrosspaneSocket(): CrosspaneConnection {
         case 'engine-status':
           setEngineStates((prev) => ({
             ...prev,
-            [event.engine]: { ...prev[event.engine], status: event.status, detail: event.detail },
+            [event.engine]: {
+              ...prev[event.engine],
+              status: event.status,
+              detail: event.detail,
+              viewOnly: event.viewOnly ?? prev[event.engine]?.viewOnly,
+            },
           }));
           break;
         case 'navigation':

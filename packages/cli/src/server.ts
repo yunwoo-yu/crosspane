@@ -19,11 +19,18 @@ export interface PaneController {
   stopEngine(engine: EngineName): Promise<void>;
 }
 
+/** 시뮬레이터 셸앱과의 HTTP 브릿지 — 명령 드레인 / 이벤트 수신 */
+export interface ShellBridge {
+  drainCommands(engine: EngineName): unknown[];
+  handleEvent(engine: EngineName, payload: unknown): void;
+}
+
 export interface DashboardServerOptions {
   port: number;
   hello: () => HelloEvent;
   sessions: ReadonlyMap<EngineName, InputTarget>;
   paneController: PaneController;
+  shellBridge?: ShellBridge;
 }
 
 // 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
@@ -76,6 +83,29 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
   const dashboardDir = resolveDashboardDir();
 
   const httpServer = http.createServer((req, res) => {
+    // 셸앱 브릿지: 시뮬레이터의 localhost == 호스트라 같은 서버로 통신한다
+    const shellMatch = /^\/shell\/([a-z-]+)\/(commands|event)$/.exec(req.url ?? '');
+    if (shellMatch && options.shellBridge) {
+      const engine = shellMatch[1] as EngineName;
+      if (shellMatch[2] === 'commands') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(options.shellBridge.drainCommands(engine)));
+      } else {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk;
+        });
+        req.on('end', () => {
+          try {
+            options.shellBridge?.handleEvent(engine, JSON.parse(body));
+          } catch {
+            // 잘못된 페이로드 무시
+          }
+          res.writeHead(204).end();
+        });
+      }
+      return;
+    }
     void serveDashboardFile(dashboardDir, req, res);
   });
 

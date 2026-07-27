@@ -27,7 +27,10 @@ export default function App() {
   );
 
   const engineNames = hello?.engines ?? [];
-  const viewOnlyEngines = hello?.viewOnlyEngines ?? [];
+  const helloViewOnly = hello?.viewOnlyEngines ?? [];
+  // 세션이 확정한 값(셸 성공 시 ios-sim 인터랙티브) > hello의 초기 가정
+  const isViewOnly = (engine: EngineName) =>
+    engineStates[engine]?.viewOnly ?? helloViewOnly.includes(engine);
   // 포커스 모드: 한 pane만 크게. Esc로 해제
   const [focusedEngine, setFocusedEngine] = useState<EngineName | null>(null);
   useEffect(() => {
@@ -40,13 +43,11 @@ export default function App() {
   // view-only 엔진(iOS 시뮬레이터)은 클릭을 따라가지 못해 URL이 뒤처지는 게 정상 —
   // desync 판단은 미러링되는 엔진끼리만 한다
   const mirroredStates = Object.fromEntries(
-    Object.entries(engineStates).filter(
-      ([engine]) => !viewOnlyEngines.includes(engine as EngineName),
-    ),
+    Object.entries(engineStates).filter(([engine]) => !isViewOnly(engine as EngineName)),
   );
   const urlDesynced = detectUrlDesync(mirroredStates);
   const syncTargetUrl = engineNames
-    .filter((engine) => !viewOnlyEngines.includes(engine))
+    .filter((engine) => !isViewOnly(engine))
     .map((engine) => engineStates[engine]?.currentUrl)
     .find((url) => Boolean(url));
 
@@ -79,7 +80,7 @@ export default function App() {
               state={engineStates[engine]}
               errorCount={errorCountFor(engine)}
               urlDesynced={urlDesynced}
-              viewOnly={viewOnlyEngines.includes(engine)}
+              viewOnly={isViewOnly(engine)}
               focused={focusedEngine === engine}
               onToggleFocus={() =>
                 setFocusedEngine((current) => (current === engine ? null : engine))

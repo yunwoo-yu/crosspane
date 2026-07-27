@@ -82,10 +82,18 @@ describe('useCrosspaneSocket', () => {
     act(() => {
       socket.receiveEvent(helloEvent);
       socket.receiveEvent({ type: 'engine-status', engine: 'chromium', status: 'ready' });
+      // 셸 성공 시 ios-sim이 인터랙티브로 전환되는 동적 viewOnly
+      socket.receiveEvent({
+        type: 'engine-status',
+        engine: 'webkit',
+        status: 'ready',
+        viewOnly: false,
+      });
     });
 
     expect(result.current.engineStates.chromium?.status).toBe('ready');
-    expect(result.current.engineStates.webkit?.status).toBe('starting');
+    expect(result.current.engineStates.chromium?.viewOnly).toBeUndefined();
+    expect(result.current.engineStates.webkit?.viewOnly).toBe(false);
   });
 
   it('바이너리 프레임 패킷이 구독자에게 ImageBitmap으로 전달된다', async () => {

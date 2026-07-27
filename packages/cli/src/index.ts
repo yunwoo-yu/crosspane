@@ -76,6 +76,7 @@ async function main(): Promise<void> {
         } else if (engine === 'ios-sim') {
           session = await IosSimulatorSession.launch(options.url, sessionEvents, {
             runtime: options.iosRuntime,
+            controlUrl: `http://localhost:${server.port}/shell/ios-sim`,
           });
         } else {
           session = await EngineSession.launch(
@@ -110,6 +111,17 @@ async function main(): Promise<void> {
     port: options.port,
     sessions,
     paneController,
+    // 시뮬레이터 셸앱 브릿지 — 세션이 셸 모드일 때만 실동작한다
+    shellBridge: {
+      drainCommands(engine) {
+        const session = sessions.get(engine);
+        return session instanceof IosSimulatorSession ? session.drainShellCommands() : [];
+      },
+      handleEvent(engine, payload) {
+        const session = sessions.get(engine);
+        if (session instanceof IosSimulatorSession) session.handleShellEvent(payload);
+      },
+    },
     hello: () => ({
       type: 'hello',
       url: options.url,
@@ -132,8 +144,8 @@ async function main(): Promise<void> {
       server.broadcastEvent({ type: 'httperror', engine, url, status, ts: Date.now() }),
     onNetwork: (engine, entry) =>
       server.broadcastEvent({ type: 'network', engine, ...entry, ts: Date.now() }),
-    onStatus: (engine: EngineName, status: EngineStatus, detail?: string) =>
-      server.broadcastEvent({ type: 'engine-status', engine, status, detail }),
+    onStatus: (engine: EngineName, status: EngineStatus, detail?: string, viewOnly?: boolean) =>
+      server.broadcastEvent({ type: 'engine-status', engine, status, detail, viewOnly }),
     onNavigation: (engine, url) =>
       server.broadcastEvent({ type: 'navigation', engine, url, ts: Date.now() }),
   };

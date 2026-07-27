@@ -40,7 +40,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "shell"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node ./scripts/bundle-dashboard.mjs",

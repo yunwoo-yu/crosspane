@@ -20,6 +20,8 @@ import type { EngineName, EngineStatus } from 'crosspane/protocol';
 export interface EngineState {
   status: EngineStatus;
   detail?: string;
+  /** 세션 기동 후 확정된 입력 가능 여부 (hello의 정적 목록을 덮어씀) */
+  viewOnly?: boolean;
   /** 마지막 내비게이션 기준 현재 URL — 엔진 간 어긋남(desync) 감지에 쓴다 */
   currentUrl?: string;
 }

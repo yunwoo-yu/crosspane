@@ -32,6 +32,7 @@ export {
   type DashboardServer,
   type DashboardServerOptions,
   type PaneController,
+  type ShellBridge,
   startDashboardServer,
 } from './server.js';
 export {

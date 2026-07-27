@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { InputTarget, SessionEvents } from './session.js';
 
@@ -16,6 +18,53 @@ const ACTIVE_CAPTURE_INTERVAL_MS = 600;
 const ACTIVITY_WINDOW_MS = 5_000;
 
 const XCODE_DEVELOPER_DIR = '/Applications/Xcode.app/Contents/Developer';
+const SHELL_BUNDLE_ID = 'dev.crosspane.shell';
+
+/** 셸앱 Swift 소스 위치 — dist/../shell (모노레포/배포 패키지 동일 상대경로) */
+function shellSourceDir(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '../shell');
+}
+
+/**
+ * WKWebView 셸앱을 컴파일해 캐시한다 (~/.crosspane/shell/<소스해시>).
+ * 셸이 있으면 ios-sim pane이 Safari 브라우저가 아니라 진짜 웹뷰 "컴포넌트"가 되고,
+ * 콘솔 릴레이와 입력 미러링(클릭/스크롤/타이핑)이 가능해진다.
+ */
+export async function ensureShellApp(developerDir: string): Promise<string> {
+  const sourceDir = shellSourceDir();
+  const mainSwift = join(sourceDir, 'main.swift');
+  const infoPlist = join(sourceDir, 'Info.plist');
+  const source = await readFile(mainSwift, 'utf-8');
+  const plist = await readFile(infoPlist, 'utf-8');
+  const hash = createHash('sha256').update(source).update(plist).digest('hex').slice(0, 12);
+
+  const appDir = join(homedir(), '.crosspane', 'shell', hash, 'CrosspaneShell.app');
+  const binaryPath = join(appDir, 'CrosspaneShell');
+  if (existsSync(binaryPath)) return appDir;
+
+  await mkdir(appDir, { recursive: true });
+  await copyFile(infoPlist, join(appDir, 'Info.plist'));
+  const sdk = await execFileAsync('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-path'], {
+    env: { ...process.env, DEVELOPER_DIR: developerDir },
+    timeout: 30_000,
+  });
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
+  await execFileAsync(
+    'xcrun',
+    [
+      'swiftc',
+      '-sdk',
+      sdk.stdout.trim(),
+      '-target',
+      `${arch}-apple-ios15.0-simulator`,
+      mainSwift,
+      '-o',
+      binaryPath,
+    ],
+    { env: { ...process.env, DEVELOPER_DIR: developerDir }, timeout: 120_000 },
+  );
+  return appDir;
+}
 
 interface SimctlDevice {
   udid: string;
@@ -84,6 +133,10 @@ export class IosSimulatorSession implements InputTarget {
   private activeUntil = 0;
   private lastFrame: Buffer | null = null;
   private currentUrl: string;
+  /** shell = 진짜 WKWebView 컴포넌트 + 입력/콘솔 지원, safari = 브라우저 view-only 폴백 */
+  private mode: 'shell' | 'safari' = 'safari';
+  private readonly commandQueue: Record<string, unknown>[] = [];
+  private events: SessionEvents | null = null;
 
   private constructor(
     private readonly udid: string,
@@ -96,7 +149,7 @@ export class IosSimulatorSession implements InputTarget {
   static async launch(
     url: string,
     events: SessionEvents,
-    options: { runtime?: string } = {},
+    options: { runtime?: string; controlUrl?: string } = {},
   ): Promise<IosSimulatorSession> {
     events.onStatus(ENGINE, 'starting');
     const developerDir = resolveDeveloperDir();
@@ -118,18 +171,84 @@ export class IosSimulatorSession implements InputTarget {
     // 이미 부팅돼 있으면 boot가 149를 반환한다 — 무시
     await simctl(developerDir, ['boot', device.udid]).catch(() => undefined);
     await simctl(developerDir, ['bootstatus', device.udid, '-b'], BOOT_TIMEOUT_MS);
+
+    const session = new IosSimulatorSession(device.udid, developerDir, url);
+    session.events = events;
+    const runtimeLabel = device.runtime.replace(/-/g, ' ');
+
+    // 1순위: WKWebView 셸앱 (컴포넌트 레벨 + 입력/콘솔). 실패 시 Safari view-only 폴백
+    if (options.controlUrl) {
+      try {
+        const appDir = await ensureShellApp(developerDir);
+        await simctl(developerDir, ['install', device.udid, appDir]);
+        await simctl(developerDir, ['terminate', device.udid, SHELL_BUNDLE_ID]).catch(
+          () => undefined,
+        );
+        await execFileAsync('xcrun', ['simctl', 'launch', device.udid, SHELL_BUNDLE_ID], {
+          env: {
+            ...process.env,
+            DEVELOPER_DIR: developerDir,
+            SIMCTL_CHILD_CROSSPANE_URL: url,
+            SIMCTL_CHILD_CROSSPANE_CONTROL: options.controlUrl,
+          },
+          timeout: 60_000,
+        });
+        session.mode = 'shell';
+        // 셸 모드는 입력 미러링이 가능하다 — view-only 해제
+        events.onStatus(ENGINE, 'ready', `${device.name} · WKWebView (${runtimeLabel})`, false);
+        session.startPolling(events);
+        return session;
+      } catch {
+        // 셸 빌드/설치 실패 — Safari 폴백으로 계속
+      }
+    }
+
     // 헤드리스 부팅 직후에는 openurl이 타임아웃된다 —
     // Safari를 먼저 실행해두면 openurl이 기존 프로세스로 전달돼 즉시 성공한다
     await simctl(developerDir, ['launch', device.udid, 'com.apple.mobilesafari']).catch(
       () => undefined,
     );
-
-    const session = new IosSimulatorSession(device.udid, developerDir, url);
     await session.openUrl(url);
-    events.onStatus(ENGINE, 'ready', `${device.name} (${device.runtime.replace(/-/g, ' ')})`);
+    events.onStatus(ENGINE, 'ready', `${device.name} · Safari (${runtimeLabel})`);
     events.onNavigation(ENGINE, url);
     session.startPolling(events);
     return session;
+  }
+
+  /** 서버의 /shell 브릿지가 호출 — 셸앱이 폴링으로 가져갈 명령을 드레인 */
+  drainShellCommands(): Record<string, unknown>[] {
+    return this.commandQueue.splice(0, this.commandQueue.length);
+  }
+
+  /** 셸앱이 POST한 이벤트(콘솔/에러/내비게이션)를 세션 이벤트로 변환 */
+  handleShellEvent(payload: unknown): void {
+    if (!this.events || typeof payload !== 'object' || payload === null) return;
+    const event = payload as { kind?: string; level?: string; text?: string; url?: string };
+    switch (event.kind) {
+      case 'console':
+        this.events.onConsole(
+          ENGINE,
+          event.level === 'warn' ? 'warning' : (event.level ?? 'log'),
+          event.text ?? '',
+        );
+        break;
+      case 'pageerror':
+        this.events.onPageError(ENGINE, event.text ?? 'unknown error');
+        break;
+      case 'navigation':
+        if (event.url && event.url !== this.currentUrl) {
+          this.currentUrl = event.url;
+          this.events.onNavigation(ENGINE, event.url);
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  private enqueue(command: Record<string, unknown>): void {
+    this.commandQueue.push(command);
+    this.markActivity();
   }
 
   /**
@@ -187,20 +306,41 @@ export class IosSimulatorSession implements InputTarget {
   }
 
   async navigate(url: string): Promise<void> {
+    this.currentUrl = url;
+    if (this.mode === 'shell') {
+      this.enqueue({ type: 'navigate', url });
+      return;
+    }
     await this.openUrl(url);
   }
 
   async reload(): Promise<void> {
+    if (this.mode === 'shell') {
+      this.enqueue({ type: 'reload' });
+      return;
+    }
     await this.openUrl(this.currentUrl);
   }
 
-  // 시뮬레이터에는 입력 주입 채널이 없다(idb/WebDriverAgent 필요) — view-only
-  async clickAt(): Promise<void> {}
-  async scrollBy(): Promise<void> {}
-  async pressKey(): Promise<void> {}
-  async typeText(): Promise<void> {}
-  async goBack(): Promise<void> {}
-  async goForward(): Promise<void> {}
+  // 셸 모드면 명령 큐로 미러링, Safari 폴백이면 view-only(no-op)
+  async clickAt(normalizedX: number, normalizedY: number): Promise<void> {
+    if (this.mode === 'shell') this.enqueue({ type: 'click', x: normalizedX, y: normalizedY });
+  }
+  async scrollBy(deltaY: number): Promise<void> {
+    if (this.mode === 'shell') this.enqueue({ type: 'scroll', deltaY });
+  }
+  async pressKey(key: string): Promise<void> {
+    if (this.mode === 'shell') this.enqueue({ type: 'keypress', key });
+  }
+  async typeText(text: string): Promise<void> {
+    if (this.mode === 'shell') this.enqueue({ type: 'type', text });
+  }
+  async goBack(): Promise<void> {
+    if (this.mode === 'shell') this.enqueue({ type: 'back' });
+  }
+  async goForward(): Promise<void> {
+    if (this.mode === 'shell') this.enqueue({ type: 'forward' });
+  }
 
   async dispose(): Promise<void> {
     this.disposed = true;

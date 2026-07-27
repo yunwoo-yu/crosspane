@@ -32,11 +32,14 @@ First run downloads the engine binaries. If a browser is missing, run
   UA (`; wv)` token), WebKit runs with a real WKWebView UA (no Safari token) and service
   worker registration blocked — so UA-sniffing app code behaves like production. Pass your
   app's exact UA with `--user-agent`, or opt out with `--preset-ua`
-- **Real-device panes (auto-detected)**: with Xcode installed, a REAL iOS Simulator pane
-  (Apple's actual iOS WebKit build, real iOS fonts/status bar) is added automatically
-  (view-only; follows navigate/reload/sync). With the Android SDK installed, a REAL
-  Android emulator pane running actual Android Chrome is added — fully interactive via
-  adb (tap/swipe/type/back are mirrored). A USB-connected Android phone works too.
+- **Real-device panes (auto-detected)**: with Xcode installed, crosspane compiles a tiny
+  **WKWebView shell app** into the iOS Simulator — not Safari, the actual webview
+  *component* your RN/hybrid app ships. Component-level behavior shows up exactly as in
+  production (e.g. `navigator.serviceWorker` being `undefined` killing a script), with
+  clicks/scroll/typing mirrored and console/errors relayed into the dashboard. Falls back
+  to Safari (view-only) if the shell can't be built. With the Android SDK installed, a
+  REAL Android emulator pane running actual Android Chrome is added — fully interactive
+  via adb. A USB-connected Android phone works too.
 - **Login session persistence**: each engine's cookies/storage are saved on exit and
   restored next run (`~/.crosspane/state/<origin>/`) — log into your app once, not on
   every launch in every engine. Start clean with `--fresh`
@@ -114,7 +117,6 @@ CI runs the full build and test suite on all three operating systems.
 - Engine panes approximate webview components (same engine, correct UA/constraints) —
   the real-device panes close most of the remaining gap; a WKWebView/WebView shell app
   for component-level parity is on the roadmap
-- iOS Simulator pane is view-only (no input injection channel without a shell app)
 - IME (e.g. Korean) composition input is not mirrored yet — ASCII typing works
 
 ## Roadmap
