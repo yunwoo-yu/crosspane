@@ -5,10 +5,12 @@ import { EnginePane } from './components/EnginePane';
 import { NetworkPanel } from './components/NetworkPanel';
 import { Toolbar } from './components/Toolbar';
 import { Button } from './components/ui/button';
+import { ToastStack, useToasts } from './components/ui/toast';
+import { ENGINE_SHORT_LABEL } from './constants';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
 import { countErrorsSinceLastNavigation, detectUrlDesync } from './log-utils';
 import { buildReportHtml, downloadReport } from './report-utils';
-import type { EngineName } from './types';
+import type { ClientCommand, EngineName } from './types';
 
 export default function App() {
   const {
@@ -22,6 +24,19 @@ export default function App() {
     subscribeToFrames,
   } = useCrosspaneSocket();
   const [bottomTab, setBottomTab] = useState<'console' | 'network' | 'diff'>('console');
+  const { toasts, showToast } = useToasts();
+  // pane 시작/중지에 즉각 피드백 — 실기기 부팅처럼 오래 걸리는 액션의 불안감 제거
+  const sendCommandWithFeedback = useCallback(
+    (command: ClientCommand) => {
+      if (command.type === 'start-engine') {
+        showToast(`${ENGINE_SHORT_LABEL[command.engine]} pane 시작 중…`);
+      } else if (command.type === 'stop-engine') {
+        showToast(`${ENGINE_SHORT_LABEL[command.engine]} pane을 닫았어요`);
+      }
+      sendCommand(command);
+    },
+    [sendCommand, showToast],
+  );
   // pane canvas 레지스트리 — diff/리포트가 최신 프레임(canvas)에 직접 접근한다
   const paneCanvasesRef = useRef(new Map<EngineName, HTMLCanvasElement>());
   const registerCanvas = useCallback((engine: EngineName, canvas: HTMLCanvasElement | null) => {
@@ -96,6 +111,8 @@ export default function App() {
     .map((engine) => engineStates[engine]?.currentUrl)
     .find((url) => Boolean(url));
 
+  const errorLogCount = logs.filter((log) => log.level === 'error').length;
+
   const exportReport = useCallback(() => {
     if (!hello) return;
     const html = buildReportHtml({
@@ -112,7 +129,8 @@ export default function App() {
       networkEntries,
     });
     downloadReport(html, hello.url);
-  }, [hello, engineNames, engineStates, logs, networkEntries]);
+    showToast('리포트를 저장했어요');
+  }, [hello, engineNames, engineStates, logs, networkEntries, showToast]);
 
   return (
     <div className="app">
@@ -122,7 +140,7 @@ export default function App() {
         engineStates={engineStates}
         urlDesynced={urlDesynced}
         syncTargetUrl={syncTargetUrl}
-        onSendCommand={sendCommand}
+        onSendCommand={sendCommandWithFeedback}
         onClearLogs={clearLogs}
         onExportReport={exportReport}
       />
@@ -136,8 +154,10 @@ export default function App() {
         }}
       >
         {activeEngines.length === 0 && (
-          <div className="flex items-center justify-center text-fg-muted text-sm">
-            실행 중인 pane 없음 — 상단 엔진 토글로 시작하세요
+          <div className="flex flex-col items-center justify-center gap-2 text-fg-muted">
+            <span className="text-2xl">🪟</span>
+            <span className="text-sm">실행 중인 pane이 없어요</span>
+            <span className="text-xs">상단의 엔진 토글을 눌러 시작해 보세요</span>
           </div>
         )}
         {activeEngines.map((engine) => (
@@ -156,7 +176,7 @@ export default function App() {
               onToggleFocus={() =>
                 setFocusedEngine((current) => (current === engine ? null : engine))
               }
-              onSendCommand={sendCommand}
+              onSendCommand={sendCommandWithFeedback}
               subscribeToFrames={subscribeToFrames}
               registerCanvas={registerCanvas}
             />
@@ -166,31 +186,33 @@ export default function App() {
 
       <section className="console" style={{ flexBasis: panelHeight }}>
         <div
-          className="h-1.5 shrink-0 cursor-row-resize bg-line/40 hover:bg-accent/60"
+          className="resize-handle"
           onPointerDown={startPanelResize}
           title="드래그로 패널 높이 조절"
         />
-        <div className="flex items-center gap-1 border-line border-b px-3 py-1">
+        <div className="flex items-center gap-1 border-line border-b px-3 pb-1.5">
           <Button
-            variant="ghost"
+            variant={bottomTab === 'console' ? 'active' : 'ghost'}
             size="icon"
-            className={bottomTab === 'console' ? 'border-accent text-fg' : ''}
             onClick={() => setBottomTab('console')}
           >
             Console
+            {errorLogCount > 0 && (
+              <span className="rounded-full bg-danger px-1.5 text-[10px] text-white leading-4">
+                {errorLogCount}
+              </span>
+            )}
           </Button>
           <Button
-            variant="ghost"
+            variant={bottomTab === 'network' ? 'active' : 'ghost'}
             size="icon"
-            className={bottomTab === 'network' ? 'border-accent text-fg' : ''}
             onClick={() => setBottomTab('network')}
           >
             Network
           </Button>
           <Button
-            variant="ghost"
+            variant={bottomTab === 'diff' ? 'active' : 'ghost'}
             size="icon"
-            className={bottomTab === 'diff' ? 'border-accent text-fg' : ''}
             onClick={() => setBottomTab('diff')}
           >
             Diff
@@ -202,6 +224,7 @@ export default function App() {
           <DiffPanel engines={activeEngines} getPaneCanvas={getPaneCanvas} />
         )}
       </section>
+      <ToastStack toasts={toasts} />
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { ENGINE_SHORT_LABEL } from '../constants';
-import { cn } from '../lib/cn';
 import { normalizeUrlInput } from '../log-utils';
 import type { ClientCommand, EngineName, EngineState, HelloEvent } from '../types';
 import { Button } from './ui/button';
@@ -51,9 +50,9 @@ export function Toolbar({
           return (
             <Button
               key={engine}
-              variant="ghost"
+              variant={active ? 'active' : 'ghost'}
               size="icon"
-              className={cn('gap-1.5', active && 'border-accent text-fg')}
+              className="gap-1.5"
               title={active ? `${engine} pane 중지 (리소스 반환)` : `${engine} pane 시작`}
               aria-pressed={active}
               onClick={() =>
@@ -94,23 +93,44 @@ export function Toolbar({
           ⚠ URL 어긋남 — 재동기화
         </Button>
       )}
-      <Button className="ml-auto" onClick={() => onSendCommand({ type: 'back' })} title="뒤로가기">
-        ←
-      </Button>
-      <Button onClick={() => onSendCommand({ type: 'forward' })} title="앞으로가기">
-        →
-      </Button>
-      <Button onClick={() => onSendCommand({ type: 'reload' })}>⟳ reload all</Button>
-      <Button variant="ghost" onClick={onClearLogs}>
-        clear logs
-      </Button>
-      <Button
-        variant="ghost"
-        title="스크린샷+로그+네트워크를 단일 HTML로 저장"
-        onClick={onExportReport}
-      >
-        ⤓ report
-      </Button>
+      <div className="ml-auto flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onSendCommand({ type: 'back' })}
+          title="뒤로가기"
+        >
+          ←
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onSendCommand({ type: 'forward' })}
+          title="앞으로가기"
+        >
+          →
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onSendCommand({ type: 'reload' })}
+          title="모든 엔진 새로고침"
+        >
+          ⟳
+        </Button>
+        <span className="mx-1 h-4 w-px bg-line" />
+        <Button variant="ghost" size="icon" onClick={onClearLogs}>
+          clear logs
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          title="스크린샷+로그+네트워크를 단일 HTML로 저장"
+          onClick={onExportReport}
+        >
+          ⤓ report
+        </Button>
+      </div>
     </header>
   );
 }

@@ -109,7 +109,7 @@ describe('Toolbar', () => {
     fireEvent.click(screen.getByTitle('앞으로가기'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'forward' });
 
-    fireEvent.click(screen.getByText('⟳ reload all'));
+    fireEvent.click(screen.getByTitle('모든 엔진 새로고침'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'reload' });
 
     fireEvent.click(screen.getByText('clear logs'));

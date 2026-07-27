@@ -49,18 +49,16 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
           aria-label="search requests"
         />
         <Button
-          variant="ghost"
+          variant={xhrOnly ? 'active' : 'ghost'}
           size="icon"
-          className={xhrOnly ? 'border-accent text-fg' : ''}
           onClick={() => setXhrOnly((v) => !v)}
           title="정적 리소스를 숨기고 XHR/fetch만 표시"
         >
           XHR/fetch
         </Button>
         <Button
-          variant="ghost"
+          variant={errorsOnly ? 'active' : 'ghost'}
           size="icon"
-          className={errorsOnly ? 'border-accent text-fg' : ''}
           onClick={() => setErrorsOnly((v) => !v)}
           title="4xx/5xx가 있는 요청만"
         >

@@ -246,7 +246,19 @@ export function EnginePane({
         />
         {!hasFrame && (
           <div className="placeholder">
-            {state?.status === 'error' ? `failed: ${state.detail ?? 'unknown'}` : 'starting…'}
+            {state?.status === 'error' ? (
+              `failed: ${state.detail ?? 'unknown'}`
+            ) : (
+              <>
+                <span className="spinner" aria-hidden="true" />
+                <span>starting…</span>
+                {(engine === 'android' || engine === 'ios-sim') && (
+                  <span className="text-[11px] text-fg-muted">
+                    실기기 부팅은 1~2분 정도 걸릴 수 있어요
+                  </span>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

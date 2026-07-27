@@ -46,23 +46,21 @@ export function ConsolePanel({ logs, engines }: ConsolePanelProps) {
           {(['all', ...engines] as EngineFilter[]).map((engine) => (
             <Button
               key={engine}
-              variant="ghost"
+              variant={engineFilter === engine ? 'active' : 'ghost'}
               size="icon"
-              className={engineFilter === engine ? 'border-accent text-fg' : ''}
               onClick={() => setEngineFilter(engine)}
             >
               {engine}
             </Button>
           ))}
         </div>
-        <span className="text-line">|</span>
+        <span className="h-4 w-px bg-line" />
         <div className="filters">
           {LEVELS.map((level) => (
             <Button
               key={level}
-              variant="ghost"
+              variant={levelFilter === level ? 'active' : 'ghost'}
               size="icon"
-              className={levelFilter === level ? 'border-accent text-fg' : ''}
               onClick={() => setLevelFilter(level)}
               title={level === 'warning' ? 'warning 이상' : level}
             >
