@@ -120,6 +120,42 @@ describe('useCrosspaneSocket', () => {
     expect(createImageBitmapMock).not.toHaveBeenCalled();
   });
 
+  it('navigation 이벤트가 현재 URL을 갱신하고 구분선 로그를 남긴다', () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => {
+      socket.receiveEvent(helloEvent);
+      socket.receiveEvent({
+        type: 'navigation',
+        engine: 'chromium',
+        url: 'http://localhost:3000/detail',
+        ts: 1,
+      });
+    });
+
+    expect(result.current.engineStates.chromium?.currentUrl).toBe('http://localhost:3000/detail');
+    expect(result.current.logs[0]).toMatchObject({ kind: 'navigation', engine: 'chromium' });
+  });
+
+  it('httperror 이벤트가 상태코드와 함께 에러 로그로 쌓인다', () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => {
+      socket.receiveEvent({
+        type: 'httperror',
+        engine: 'webkit',
+        url: 'http://localhost:3000/api/reservations',
+        status: 500,
+        ts: 1,
+      });
+    });
+
+    expect(result.current.logs[0]).toMatchObject({ kind: 'httperror', level: 'error' });
+    expect(result.current.logs[0].text).toContain('HTTP 500');
+  });
+
   it('console/pageerror/requestfailed가 로그로 쌓이고 clearLogs로 비운다', () => {
     const { result } = renderHook(() => useCrosspaneSocket());
     const socket = FakeWebSocket.instances[0];

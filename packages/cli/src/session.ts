@@ -10,7 +10,24 @@ export interface SessionEvents {
   onConsole(engine: EngineName, level: LogLevel, text: string): void;
   onPageError(engine: EngineName, message: string): void;
   onRequestFailed(engine: EngineName, url: string, error: string): void;
+  onHttpError(engine: EngineName, url: string, status: number): void;
   onStatus(engine: EngineName, status: EngineStatus, detail?: string): void;
+  onNavigation(engine: EngineName, url: string): void;
+}
+
+/**
+ * 내비게이션/prefetch 취소로 인한 요청 중단은 정상 동작이다 (예: Next.js가
+ * 페이지 이동 시 진행 중이던 prefetch를 끊는 경우). 이걸 에러로 보여주면
+ * 멀쩡한 앱에 에러 배지가 쌓여 진짜 에러가 묻힌다.
+ */
+const ABORTED_REQUEST_PATTERNS = [
+  /ERR_ABORTED/, // Chromium
+  /NS_BINDING_ABORTED|NS_ERROR_ABORT/, // Firefox
+  /cancell?ed/i, // WebKit
+];
+
+export function isAbortedRequestError(errorText: string): boolean {
+  return ABORTED_REQUEST_PATTERNS.some((pattern) => pattern.test(errorText));
 }
 
 export interface SessionOptions {
@@ -65,9 +82,25 @@ export class EngineSession {
     const page = await context.newPage();
     page.on('console', (msg) => events.onConsole(engine, msg.type(), msg.text()));
     page.on('pageerror', (err) => events.onPageError(engine, err.stack ?? err.message));
-    page.on('requestfailed', (req) =>
-      events.onRequestFailed(engine, req.url(), req.failure()?.errorText ?? 'failed'),
-    );
+    page.on('requestfailed', (req) => {
+      const errorText = req.failure()?.errorText ?? 'failed';
+      if (isAbortedRequestError(errorText)) return;
+      events.onRequestFailed(engine, req.url(), errorText);
+    });
+    // 실배포 웹뷰에서 터지는 문제 대부분은 API의 4xx/5xx 응답이다 —
+    // 네트워크 레벨 실패(requestfailed)만으로는 잡히지 않으므로 별도 수집
+    page.on('response', (response) => {
+      if (response.status() >= 400) {
+        events.onHttpError(engine, response.url(), response.status());
+      }
+    });
+    let lastNavigatedUrl = '';
+    page.on('framenavigated', (frame) => {
+      // 메인 프레임만 추적 (iframe 내비게이션 제외), 같은 URL 중복 통지 방지
+      if (frame !== page.mainFrame() || frame.url() === lastNavigatedUrl) return;
+      lastNavigatedUrl = frame.url();
+      events.onNavigation(engine, frame.url());
+    });
 
     const session = new EngineSession(engine, browser, page, devicePreset.viewport);
     try {
@@ -191,6 +224,19 @@ export class EngineSession {
 
   async pressKey(key: string): Promise<void> {
     await this.page.keyboard.press(key);
+  }
+
+  async typeText(text: string): Promise<void> {
+    await this.page.keyboard.type(text);
+  }
+
+  async goBack(): Promise<void> {
+    // 히스토리가 없으면 null 반환 — 에러 아님
+    await this.page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => null);
+  }
+
+  async goForward(): Promise<void> {
+    await this.page.goForward({ waitUntil: 'domcontentloaded' }).catch(() => null);
   }
 
   async reload(): Promise<void> {

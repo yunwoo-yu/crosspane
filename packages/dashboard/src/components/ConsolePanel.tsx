@@ -45,13 +45,22 @@ export function ConsolePanel({ logs, engines }: ConsolePanelProps) {
         </div>
       </div>
       <div className="console-body">
-        {visible.map((log) => (
-          <div key={log.id} className={`log-line ${levelClass(log.level)}`}>
-            <span className={`log-engine ${log.engine}`}>{log.engine}</span>
-            <span className="log-kind">{log.kind === 'console' ? log.level : log.kind}</span>
-            <span className="log-text">{log.text}</span>
-          </div>
-        ))}
+        {visible.map((log) =>
+          log.kind === 'navigation' ? (
+            // 페이지 이동/리로드 구분선 — 이후 로그가 어느 화면의 것인지 보여준다
+            <div key={log.id} className="log-line nav">
+              <span className={`log-engine ${log.engine}`}>{log.engine}</span>
+              <span className="log-kind">navigate</span>
+              <span className="log-text">→ {log.text}</span>
+            </div>
+          ) : (
+            <div key={log.id} className={`log-line ${levelClass(log.level)}`}>
+              <span className={`log-engine ${log.engine}`}>{log.engine}</span>
+              <span className="log-kind">{log.kind === 'console' ? log.level : log.kind}</span>
+              <span className="log-text">{log.text}</span>
+            </div>
+          ),
+        )}
         <div ref={endRef} />
       </div>
     </section>

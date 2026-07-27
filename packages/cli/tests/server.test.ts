@@ -13,6 +13,9 @@ function fakeSession() {
     clickAt: vi.fn(async () => {}),
     scrollBy: vi.fn(async () => {}),
     pressKey: vi.fn(async () => {}),
+    typeText: vi.fn(async () => {}),
+    goBack: vi.fn(async () => {}),
+    goForward: vi.fn(async () => {}),
     reload: vi.fn(async () => {}),
     navigate: vi.fn(async () => {}),
     markActivity: vi.fn(),
@@ -122,6 +125,15 @@ describe('startDashboardServer', () => {
       expect(b.scrollBy).toHaveBeenCalledWith(120);
       expect(a.markActivity).toHaveBeenCalled();
     });
+
+    client.sendCommand({ type: 'type', text: 'hello' });
+    client.sendCommand({ type: 'back' });
+    client.sendCommand({ type: 'forward' });
+    await vi.waitFor(() => {
+      expect(a.typeText).toHaveBeenCalledWith('hello');
+      expect(a.goBack).toHaveBeenCalled();
+      expect(a.goForward).toHaveBeenCalled();
+    });
   });
 
   it('잘못된 JSON을 받아도 죽지 않고 다음 커맨드를 처리한다', async () => {
@@ -198,6 +210,25 @@ describe('startDashboardServer', () => {
     expect(await client.nextEvent()).toMatchObject({ type: 'hello' });
     expect(await client.nextEvent()).toMatchObject({ type: 'engine-status', status: 'ready' });
     expect(await client.nextEvent()).toMatchObject({ type: 'console', text: 'early-log' });
+  });
+
+  it('마지막 내비게이션을 히스토리 로그 뒤에 재전송한다 (배지 오염 방지)', async () => {
+    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server.broadcastEvent({ type: 'navigation', engine: 'chromium', url: 'http://a/1', ts: 1 });
+    server.broadcastEvent({
+      type: 'pageerror',
+      engine: 'chromium',
+      message: 'old error',
+      ts: 2,
+    });
+    server.broadcastEvent({ type: 'navigation', engine: 'chromium', url: 'http://a/2', ts: 3 });
+
+    const client = await TestClient.connect(server.port);
+    clients.push(client);
+    expect(await client.nextEvent()).toMatchObject({ type: 'hello' });
+    expect(await client.nextEvent()).toMatchObject({ type: 'pageerror' });
+    // 마지막 내비게이션이 과거 에러 로그 뒤에 와야 새 클라이언트 배지가 0에서 시작한다
+    expect(await client.nextEvent()).toMatchObject({ type: 'navigation', url: 'http://a/2' });
   });
 
   it('사용 중인 포트면 명확한 에러로 실패한다', async () => {

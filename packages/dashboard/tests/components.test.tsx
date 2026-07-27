@@ -21,6 +21,8 @@ function renderEnginePane(overrides: {
   status?: 'starting' | 'ready' | 'error';
   detail?: string;
   errorCount?: number;
+  currentUrl?: string;
+  urlDesynced?: boolean;
 }) {
   let capturedListener: FrameListener | undefined;
   const subscribeToFrames = (_engine: EngineName, listener: FrameListener) => {
@@ -30,8 +32,13 @@ function renderEnginePane(overrides: {
   const view = render(
     <EnginePane
       engine="chromium"
-      state={{ status: overrides.status ?? 'ready', detail: overrides.detail }}
+      state={{
+        status: overrides.status ?? 'ready',
+        detail: overrides.detail,
+        currentUrl: overrides.currentUrl,
+      }}
       errorCount={overrides.errorCount ?? 0}
+      urlDesynced={overrides.urlDesynced ?? false}
       onSendCommand={overrides.onSendCommand ?? vi.fn()}
       subscribeToFrames={subscribeToFrames}
     />,
@@ -46,13 +53,15 @@ function renderEnginePane(overrides: {
 }
 
 describe('Toolbar', () => {
-  it('연결 상태·타깃 URL을 보여주고 reload/clear 버튼이 동작한다', () => {
+  it('연결 상태·타깃 URL을 보여주고 back/forward/reload/clear 버튼이 동작한다', () => {
     const onSendCommand = vi.fn();
     const onClearLogs = vi.fn();
     render(
       <Toolbar
         connected={true}
         hello={helloEvent}
+        urlDesynced={false}
+        syncTargetUrl={undefined}
         onSendCommand={onSendCommand}
         onClearLogs={onClearLogs}
       />,
@@ -60,12 +69,39 @@ describe('Toolbar', () => {
 
     expect(screen.getByText('connected')).toBeTruthy();
     expect(screen.getByText('http://localhost:3000')).toBeTruthy();
+    expect(screen.queryByText(/재동기화/)).toBeNull(); // 정상 상태에선 숨김
+
+    fireEvent.click(screen.getByTitle('뒤로가기'));
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'back' });
+
+    fireEvent.click(screen.getByTitle('앞으로가기'));
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'forward' });
 
     fireEvent.click(screen.getByText('⟳ reload all'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'reload' });
 
     fireEvent.click(screen.getByText('clear logs'));
     expect(onClearLogs).toHaveBeenCalled();
+  });
+
+  it('URL이 어긋나면 재동기화 버튼이 나타나고 기준 URL로 navigate를 보낸다', () => {
+    const onSendCommand = vi.fn();
+    render(
+      <Toolbar
+        connected={true}
+        hello={helloEvent}
+        urlDesynced={true}
+        syncTargetUrl="http://localhost:3000/?date=2026-08-03"
+        onSendCommand={onSendCommand}
+        onClearLogs={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(/재동기화/));
+    expect(onSendCommand).toHaveBeenCalledWith({
+      type: 'navigate',
+      url: 'http://localhost:3000/?date=2026-08-03',
+    });
   });
 });
 
@@ -114,6 +150,34 @@ describe('EnginePane', () => {
     expect(onSendCommand).toHaveBeenCalledTimes(1);
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 70 });
     vi.useRealTimers();
+  });
+
+  it('키 입력을 엔진으로 포워딩한다 (문자는 type, 특수키는 keypress)', () => {
+    const onSendCommand = vi.fn();
+    const { view } = renderEnginePane({ onSendCommand });
+    const paneScreen = view.container.querySelector('.pane-screen');
+    if (!paneScreen) throw new Error('pane-screen not found');
+
+    fireEvent.keyDown(paneScreen, { key: 'a' });
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'type', text: 'a' });
+
+    fireEvent.keyDown(paneScreen, { key: 'Enter' });
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'keypress', key: 'Enter' });
+
+    onSendCommand.mockClear();
+    fireEvent.keyDown(paneScreen, { key: 'r', metaKey: true }); // OS 단축키는 무시
+    fireEvent.keyDown(paneScreen, { key: 'Shift' }); // 단독 수정키도 무시
+    expect(onSendCommand).not.toHaveBeenCalled();
+  });
+
+  it('현재 URL을 path로 표시하고 desync면 경고 스타일을 붙인다', () => {
+    renderEnginePane({
+      currentUrl: 'http://localhost:3000/reservations/1?tab=info',
+      urlDesynced: true,
+    });
+    const url = screen.getByText('/reservations/1?tab=info');
+    expect(url.className).toContain('desynced');
+    expect(url.getAttribute('title')).toBe('http://localhost:3000/reservations/1?tab=info');
   });
 
   it('첫 프레임 전에는 placeholder, 에러면 실패 사유를 보여준다', () => {

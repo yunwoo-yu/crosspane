@@ -16,4 +16,9 @@ export {
   type DashboardServerOptions,
   startDashboardServer,
 } from './server.js';
-export { EngineSession, type SessionEvents, type SessionOptions } from './session.js';
+export {
+  EngineSession,
+  isAbortedRequestError,
+  type SessionEvents,
+  type SessionOptions,
+} from './session.js';

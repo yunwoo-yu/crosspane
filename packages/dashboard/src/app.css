@@ -127,13 +127,44 @@ body {
   background: var(--warn);
 }
 
-.err-badge {
+.pane-url {
   margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+.pane-url.desynced {
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.err-badge {
   background: var(--error);
   color: #fff;
   font-size: 11px;
   border-radius: 999px;
   padding: 1px 7px;
+}
+.pane-head .err-badge:first-of-type {
+  margin-left: auto;
+}
+.pane-url + .err-badge {
+  margin-left: 0;
+}
+
+.pane-screen:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.toolbar .sync-warning {
+  background: #3a2f1c;
+  color: var(--warn);
+  border-color: var(--warn);
 }
 
 /* 스크린샷 전체가 항상 보이도록 맞추고(레터박스), 로컬 스크롤은 막는다 —
@@ -222,6 +253,13 @@ body {
 }
 .log-line.warn {
   color: var(--warn);
+}
+.log-line.nav {
+  color: var(--accent);
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+  padding-top: 4px;
+  opacity: 0.85;
 }
 
 .log-engine {

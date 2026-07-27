@@ -36,8 +36,12 @@ async function main(): Promise<void> {
       server.broadcastEvent({ type: 'pageerror', engine, message, ts: Date.now() }),
     onRequestFailed: (engine, url, error) =>
       server.broadcastEvent({ type: 'requestfailed', engine, url, error, ts: Date.now() }),
+    onHttpError: (engine, url, status) =>
+      server.broadcastEvent({ type: 'httperror', engine, url, status, ts: Date.now() }),
     onStatus: (engine: EngineName, status: EngineStatus, detail?: string) =>
       server.broadcastEvent({ type: 'engine-status', engine, status, detail }),
+    onNavigation: (engine, url) =>
+      server.broadcastEvent({ type: 'navigation', engine, url, ts: Date.now() }),
   };
 
   console.log(`crosspane dashboard → http://localhost:${server.port}`);

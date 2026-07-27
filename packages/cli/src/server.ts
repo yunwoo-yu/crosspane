@@ -37,6 +37,12 @@ function applyCommandToSession(session: EngineSession, command: ClientCommand): 
       return session.scrollBy(command.deltaY);
     case 'keypress':
       return session.pressKey(command.key);
+    case 'type':
+      return session.typeText(command.text);
+    case 'back':
+      return session.goBack();
+    case 'forward':
+      return session.goForward();
     case 'reload':
       return session.reload();
     case 'navigate':
@@ -76,15 +82,27 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
   // 새 클라이언트에게 재전송하기 위한 버퍼
   const eventHistory: ServerEvent[] = [];
   const lastStatusByEngine = new Map<EngineName, ServerEvent>();
+  const lastNavigationByEngine = new Map<EngineName, ServerEvent>();
   // 변화가 없으면 프레임이 다시 오지 않으므로(스크린캐스트/변화감지 스킵),
   // 늦게 접속한 클라이언트를 위해 엔진별 마지막 프레임을 캐시한다
   const lastFramePacketByEngine = new Map<EngineName, Buffer>();
   const recordForReplay = (event: ServerEvent): void => {
-    if (event.type === 'console' || event.type === 'pageerror' || event.type === 'requestfailed') {
-      eventHistory.push(event);
-      if (eventHistory.length > EVENT_HISTORY_LIMIT) eventHistory.shift();
-    } else if (event.type === 'engine-status') {
-      lastStatusByEngine.set(event.engine, event);
+    switch (event.type) {
+      case 'console':
+      case 'pageerror':
+      case 'requestfailed':
+      case 'httperror':
+        eventHistory.push(event);
+        if (eventHistory.length > EVENT_HISTORY_LIMIT) eventHistory.shift();
+        break;
+      case 'engine-status':
+        lastStatusByEngine.set(event.engine, event);
+        break;
+      case 'navigation':
+        lastNavigationByEngine.set(event.engine, event);
+        break;
+      case 'hello':
+        break;
     }
   };
 
@@ -93,6 +111,10 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     client.send(JSON.stringify(options.hello()));
     for (const status of lastStatusByEngine.values()) client.send(JSON.stringify(status));
     for (const event of eventHistory) client.send(JSON.stringify(event));
+    // 히스토리 이후에 보내야 새 클라이언트의 에러 배지가 과거 로그로 오염되지 않는다
+    for (const navigation of lastNavigationByEngine.values()) {
+      client.send(JSON.stringify(navigation));
+    }
     for (const framePacket of lastFramePacketByEngine.values()) client.send(framePacket);
     client.on('message', (raw) => {
       try {

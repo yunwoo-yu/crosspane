@@ -1,19 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { ENGINE_LABEL, WHEEL_COALESCE_MS } from '../constants';
+import { toDisplayPath } from '../log-utils';
 import type { ClientCommand, EngineName, EngineState, FrameListener } from '../types';
 
 interface EnginePaneProps {
   engine: EngineName;
   state: EngineState | undefined;
   errorCount: number;
+  /** 엔진 간 URL이 어긋난 상태 — URL 표시를 경고색으로 바꾼다 */
+  urlDesynced: boolean;
   onSendCommand: (command: ClientCommand) => void;
   subscribeToFrames: (engine: EngineName, listener: FrameListener) => () => void;
 }
+
+/** 그대로 엔진에 전달할 특수 키 (나머지 단일 문자는 type 커맨드로 보낸다) */
+const FORWARDED_SPECIAL_KEYS = new Set([
+  'Enter',
+  'Backspace',
+  'Delete',
+  'Tab',
+  'Escape',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+]);
 
 export function EnginePane({
   engine,
   state,
   errorCount,
+  urlDesynced,
   onSendCommand,
   subscribeToFrames,
 }: EnginePaneProps) {
@@ -73,15 +90,41 @@ export function EnginePane({
       <div className="pane-head">
         <span className={`dot ${state?.status ?? 'starting'}`} />
         <span className="pane-title">{ENGINE_LABEL[engine]}</span>
+        {state?.currentUrl && (
+          <span className={`pane-url ${urlDesynced ? 'desynced' : ''}`} title={state.currentUrl}>
+            {toDisplayPath(state.currentUrl)}
+          </span>
+        )}
         {errorCount > 0 && <span className="err-badge">{errorCount}</span>}
       </div>
-      <div className="pane-screen" ref={screenRef}>
+      <div
+        className="pane-screen"
+        ref={screenRef}
+        // 원격 화면 위젯: 키 입력을 AT가 아니라 앱(엔진 미러링)이 처리한다
+        role="application"
+        aria-label={`${engine} screen`}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: 포커스를 받아야 키 입력을 엔진으로 포워딩할 수 있다
+        tabIndex={0}
+        onKeyDown={(event) => {
+          // OS/브라우저 단축키(cmd+r 등)는 대시보드에 남긴다
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
+          if (FORWARDED_SPECIAL_KEYS.has(event.key)) {
+            event.preventDefault();
+            onSendCommand({ type: 'keypress', key: event.key });
+          } else if (event.key.length === 1) {
+            event.preventDefault();
+            onSendCommand({ type: 'type', text: event.key });
+          }
+        }}
+      >
         <canvas
           ref={canvasRef}
           role="img"
           aria-label={engine}
           style={{ display: hasFrame ? 'block' : 'none' }}
           onPointerDown={(event) => {
+            // 클릭한 pane에 포커스를 줘서 이후 키 입력이 엔진으로 전달되게 한다
+            screenRef.current?.focus();
             // 화면에 표시된 canvas 크기 ≠ 실제 엔진 뷰포트 크기이므로
             // 0~1로 정규화한 좌표를 보내고 서버 쪽에서 뷰포트 픽셀로 환산한다
             const rect = event.currentTarget.getBoundingClientRect();

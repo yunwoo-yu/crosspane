@@ -55,8 +55,34 @@ export function useCrosspaneSocket(): CrosspaneConnection {
         case 'engine-status':
           setEngineStates((prev) => ({
             ...prev,
-            [event.engine]: { status: event.status, detail: event.detail },
+            [event.engine]: { ...prev[event.engine], status: event.status, detail: event.detail },
           }));
+          break;
+        case 'navigation':
+          setEngineStates((prev) => ({
+            ...prev,
+            [event.engine]: {
+              status: prev[event.engine]?.status ?? 'ready',
+              currentUrl: event.url,
+            },
+          }));
+          // 콘솔 타임라인에 구분선으로도 남긴다 — 리로드/이동 피드백 겸 로그 구간 구분
+          appendLog({
+            engine: event.engine,
+            kind: 'navigation',
+            level: 'info',
+            text: event.url,
+            ts: event.ts,
+          });
+          break;
+        case 'httperror':
+          appendLog({
+            engine: event.engine,
+            kind: 'httperror',
+            level: 'error',
+            text: `HTTP ${event.status} — ${event.url}`,
+            ts: event.ts,
+          });
           break;
         case 'console':
           appendLog({
