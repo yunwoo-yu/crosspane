@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -14,14 +15,17 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /**
- * 대시보드 정적 파일 위치.
- * CROSSPANE_DASHBOARD_DIR 환경변수가 있으면 최우선(테스트/커스텀 빌드용),
- * 없으면 모노레포 기준 상대경로(packages/dashboard/dist)를 쓴다.
- * npm 배포 시에는 빌드 단계에서 dist/public으로 복사해 이 경로를 대체할 예정.
+ * 대시보드 정적 파일 위치 (우선순위순):
+ * 1. CROSSPANE_DASHBOARD_DIR 환경변수 — 테스트/커스텀 빌드용
+ * 2. dist/public — npm 배포물에 번들된 빌드 (scripts/bundle-dashboard.mjs)
+ * 3. 모노레포 상대경로 — 저장소에서 직접 실행하는 개발 흐름
  */
 export function resolveDashboardDir(): string {
+  if (process.env.CROSSPANE_DASHBOARD_DIR) return process.env.CROSSPANE_DASHBOARD_DIR;
   const here = path.dirname(fileURLToPath(import.meta.url));
-  return process.env.CROSSPANE_DASHBOARD_DIR ?? path.resolve(here, '../../dashboard/dist');
+  const bundledDir = path.join(here, 'public');
+  if (existsSync(bundledDir)) return bundledDir;
+  return path.resolve(here, '../../dashboard/dist');
 }
 
 export async function serveDashboardFile(

@@ -39,11 +39,12 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node ./scripts/bundle-dashboard.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm run build && pnpm test"
   },
   "dependencies": {
     "playwright": "^1.49.0",
@@ -53,7 +54,8 @@
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "crosspane-dashboard": "workspace:*"
   },
   "engines": {
     "node": ">=20"
