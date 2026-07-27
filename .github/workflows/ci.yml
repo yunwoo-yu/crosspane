@@ -26,5 +26,8 @@ jobs:
       - name: Biome check
         run: pnpm exec biome ci .
 
+      - name: Test
+        run: pnpm test
+
       - name: Build
         run: pnpm build

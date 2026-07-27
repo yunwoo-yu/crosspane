@@ -41,7 +41,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsc -p tsconfig.json --watch"
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "playwright": "^1.49.0",
@@ -50,7 +52,8 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   },
   "engines": {
     "node": ">=20"
