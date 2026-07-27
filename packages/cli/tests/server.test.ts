@@ -174,19 +174,24 @@ describe('startDashboardServer', () => {
     expect(handleFrame).toHaveBeenLastCalledWith('ios-sim', jpeg, -1);
   });
 
-  it('클라이언트 수 변화를 알린다 (0명 = 캡처 정지 신호)', async () => {
-    const counts: number[] = [];
+  it('watch 신호로 시청 엔진 합집합을 통지한다 (0명 = 빈 집합)', async () => {
+    const snapshots: string[][] = [];
     server = await startDashboardServer({
       port: 0,
       hello,
       sessions: new Map(),
       paneController: fakeController(),
-      onClientCountChange: (count) => counts.push(count),
+      onWatchedEnginesChange: (watched) => snapshots.push([...watched].sort()),
     });
     const client = await TestClient.connect(server.port);
-    await vi.waitFor(() => expect(counts).toEqual([1]));
+    // watch 미전송 클라이언트는 전체 시청으로 간주된다
+    await vi.waitFor(() => expect(snapshots.at(-1)).toContain('chromium'));
+
+    client.sendCommand({ type: 'watch', engines: ['webkit'] });
+    await vi.waitFor(() => expect(snapshots.at(-1)).toEqual(['webkit']));
+
     client.ws.close();
-    await vi.waitFor(() => expect(counts).toEqual([1, 0]));
+    await vi.waitFor(() => expect(snapshots.at(-1)).toEqual([]));
   });
 
   it('접속하면 hello를 먼저 보낸다', async () => {

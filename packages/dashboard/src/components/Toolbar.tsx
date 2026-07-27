@@ -30,11 +30,18 @@ export function Toolbar({
   onExportReport,
 }: ToolbarProps) {
   const [urlInput, setUrlInput] = useState('');
+  // 입력 중에는 자동 갱신으로 타이핑을 덮어쓰지 않는다
+  const [editing, setEditing] = useState(false);
 
   // 최초 hello 도착 시 URL 바를 타깃 주소로 채운다
   useEffect(() => {
     if (hello) setUrlInput(hello.url);
   }, [hello]);
+
+  // 실무 QA 동선: 클릭으로 페이지를 옮겨 다니면 주소창이 현재 위치를 따라간다
+  useEffect(() => {
+    if (!editing && syncTargetUrl) setUrlInput(syncTargetUrl);
+  }, [syncTargetUrl, editing]);
 
   return (
     <header className="toolbar">
@@ -78,6 +85,8 @@ export function Toolbar({
           type="text"
           value={urlInput}
           onChange={(event) => setUrlInput(event.target.value)}
+          onFocus={() => setEditing(true)}
+          onBlur={() => setEditing(false)}
           placeholder=":3000 또는 URL"
           aria-label="navigate all engines"
           spellCheck={false}

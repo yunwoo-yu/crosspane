@@ -173,9 +173,10 @@ async function main(): Promise<void> {
         if (session instanceof AndroidEmulatorSession) session.restartVideoStream();
       }
     },
-    // 시청자 0명 = 캡처/스트림 전면 정지 (유휴 CPU ~0), 재접속 시 즉시 재개
-    onClientCountChange(count) {
-      for (const session of sessions.values()) session.setViewersActive?.(count > 0);
+    // pane별 시청 신호 — 아무도 안 보는 엔진(포커스 모드의 나머지, 클라이언트 0명 전체)은
+    // 캡처/스트림을 멈춘다. 다시 보이면 즉시 재개.
+    onWatchedEnginesChange(watched) {
+      for (const [engine, session] of sessions) session.setViewersActive?.(watched.has(engine));
     },
     // 시뮬레이터 셸앱 브릿지 — 세션이 셸 모드일 때만 실동작한다
     shellBridge: {

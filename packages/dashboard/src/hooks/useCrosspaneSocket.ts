@@ -204,6 +204,19 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     [pushVideoChunk, dispatchFrame],
   );
 
+  const sendCommand = useCallback((command: ClientCommand) => {
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
+  }, []);
+
+  /** 현재 프레임 구독 중인 엔진 목록을 서버에 알린다 — 안 보는 pane은 서버가 캡처를 끈다 */
+  const sendWatchedEngines = useCallback(() => {
+    const engines = [...frameListenersRef.current.entries()]
+      .filter(([, listeners]) => listeners.size > 0)
+      .map(([engine]) => engine);
+    sendCommand({ type: 'watch', engines });
+  }, [sendCommand]);
+
   useEffect(() => {
     let disposed = false;
     let retryTimer: number | null = null;
@@ -213,7 +226,11 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       const socket = new WebSocket(`${proto}://${location.host}/ws`);
       socket.binaryType = 'arraybuffer';
       socketRef.current = socket;
-      socket.onopen = () => setConnected(true);
+      socket.onopen = () => {
+        setConnected(true);
+        // 재접속 시 현재 시청 목록을 다시 알린다 (서버는 미전송 클라이언트를 전체 시청으로 간주)
+        sendWatchedEngines();
+      };
       // CLI 재시작 등으로 끊기면 자동 재접속한다
       socket.onclose = () => {
         setConnected(false);
@@ -235,12 +252,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       if (flushTimerRef.current !== null) window.clearTimeout(flushTimerRef.current);
       socketRef.current?.close();
     };
-  }, [handleServerEvent, handleBinaryPacket]);
-
-  const sendCommand = useCallback((command: ClientCommand) => {
-    const socket = socketRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
-  }, []);
+  }, [handleServerEvent, handleBinaryPacket, sendWatchedEngines]);
 
   const clearLogs = useCallback(() => {
     pendingLogsRef.current = [];
@@ -249,18 +261,23 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     setNetworkEntries([]);
   }, []);
 
-  const subscribeToFrames = useCallback((engine: EngineName, listener: FrameListener) => {
-    const listenersByEngine = frameListenersRef.current;
-    let listeners = listenersByEngine.get(engine);
-    if (!listeners) {
-      listeners = new Set();
-      listenersByEngine.set(engine, listeners);
-    }
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  }, []);
+  const subscribeToFrames = useCallback(
+    (engine: EngineName, listener: FrameListener) => {
+      const listenersByEngine = frameListenersRef.current;
+      let listeners = listenersByEngine.get(engine);
+      if (!listeners) {
+        listeners = new Set();
+        listenersByEngine.set(engine, listeners);
+      }
+      listeners.add(listener);
+      sendWatchedEngines();
+      return () => {
+        listeners.delete(listener);
+        sendWatchedEngines();
+      };
+    },
+    [sendWatchedEngines],
+  );
 
   return {
     connected,

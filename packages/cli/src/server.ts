@@ -40,8 +40,11 @@ export interface DashboardServerOptions {
   shellBridge?: ShellBridge;
   /** 새 대시보드 접속 시 호출 — 비디오 스트림을 키프레임부터 다시 시작시키는 용도 */
   onClientConnect?: () => void;
-  /** 접속 중인 대시보드 수 변화 — 0명이면 캡처를 멈춰 유휴 비용을 없앤다 */
-  onClientCountChange?: (count: number) => void;
+  /**
+   * 시청 중인 엔진 합집합 변화 — 아무도 안 보는 엔진은 캡처를 멈춘다.
+   * (클라이언트 0명이면 빈 집합, watch를 안 보내는 클라이언트는 전체 시청으로 간주)
+   */
+  onWatchedEnginesChange?: (watched: ReadonlySet<EngineName>) => void;
 }
 
 // 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
@@ -49,8 +52,13 @@ const EVENT_HISTORY_LIMIT = 300;
 // 네트워크 이벤트는 양이 많아 콘솔 히스토리를 밀어내지 않도록 별도 버퍼를 쓴다
 const NETWORK_HISTORY_LIMIT = 600;
 
-/** 미러링 대상 입력 커맨드 (pane 제어 커맨드 제외) */
-type MirrorCommand = Exclude<ClientCommand, { type: 'start-engine' } | { type: 'stop-engine' }>;
+/** 미러링 대상 입력 커맨드 (pane 제어/시청 신호 제외) */
+type MirrorCommand = Exclude<
+  ClientCommand,
+  { type: 'start-engine' } | { type: 'stop-engine' } | { type: 'watch' }
+>;
+
+const ALL_ENGINES: readonly EngineName[] = ['chromium', 'webkit', 'firefox', 'ios-sim', 'android'];
 
 /** 입력 커맨드 하나를 특정 엔진 세션에 재생한다 */
 function applyCommandToSession(session: InputTarget, command: MirrorCommand): Promise<void> {
@@ -192,6 +200,16 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     }
   };
 
+  // 클라이언트별 시청 엔진 (null = watch 미전송 클라이언트 → 전체 시청으로 간주)
+  const clientWatches = new Map<WebSocket, Set<EngineName> | null>();
+  const notifyWatchedEngines = (): void => {
+    const watched = new Set<EngineName>();
+    for (const engines of clientWatches.values()) {
+      for (const engine of engines ?? ALL_ENGINES) watched.add(engine);
+    }
+    options.onWatchedEnginesChange?.(watched);
+  };
+
   wss.on('connection', (client) => {
     // 새 클라이언트에게 현재 세션 구성(타깃 URL, 기기, 엔진 목록)을 먼저 알려준다
     client.send(JSON.stringify(options.hello()));
@@ -204,13 +222,20 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     }
     for (const framePacket of lastFramePacketByEngine.values()) client.send(framePacket);
     options.onClientConnect?.();
-    options.onClientCountChange?.(wss.clients.size);
-    client.on('close', () => options.onClientCountChange?.(wss.clients.size));
+    clientWatches.set(client, null);
+    notifyWatchedEngines();
+    client.on('close', () => {
+      clientWatches.delete(client);
+      notifyWatchedEngines();
+    });
     client.on('message', (raw) => {
       try {
         const command = JSON.parse(String(raw)) as ClientCommand;
         // pane 제어는 세션 미러링이 아니라 라이프사이클 컨트롤러가 처리한다
-        if (command.type === 'start-engine') {
+        if (command.type === 'watch') {
+          clientWatches.set(client, new Set(command.engines));
+          notifyWatchedEngines();
+        } else if (command.type === 'start-engine') {
           void options.paneController.startEngine(command.engine);
         } else if (command.type === 'stop-engine') {
           void options.paneController.stopEngine(command.engine);

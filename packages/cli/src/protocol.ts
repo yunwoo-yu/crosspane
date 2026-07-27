@@ -87,6 +87,8 @@ export type ServerEvent =
 export type ClientCommand =
   | { type: 'start-engine'; engine: EngineName }
   | { type: 'stop-engine'; engine: EngineName }
+  /** 이 클라이언트가 현재 화면에 그리는 엔진 목록 — 서버가 pane별로 캡처를 끈다 */
+  | { type: 'watch'; engines: EngineName[] }
   | { type: 'click'; x: number; y: number }
   /** 드래그/스와이프 — 좌표는 0~1 정규화, durationMs는 제스처 소요 시간 */
   | { type: 'drag'; fromX: number; fromY: number; toX: number; toY: number; durationMs: number }

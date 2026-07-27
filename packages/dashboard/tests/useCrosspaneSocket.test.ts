@@ -241,8 +241,10 @@ describe('useCrosspaneSocket', () => {
     expect(socket.sent).toHaveLength(0); // 아직 연결 전
 
     act(() => socket.open());
+    // 연결 직후에는 시청 엔진 목록(watch)이 먼저 전송된다
+    expect(socket.sent).toEqual([JSON.stringify({ type: 'watch', engines: [] })]);
     result.current.sendCommand({ type: 'reload' });
-    expect(socket.sent).toEqual([JSON.stringify({ type: 'reload' })]);
+    expect(socket.sent[1]).toBe(JSON.stringify({ type: 'reload' }));
     expect(result.current.connected).toBe(true);
   });
 
