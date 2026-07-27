@@ -23,6 +23,8 @@ export function EnginePane({ engine, state, errorCount, onSend }: EnginePaneProp
             alt={engine}
             draggable={false}
             onPointerDown={(e) => {
+              // 화면에 표시된 이미지 크기 ≠ 실제 엔진 뷰포트 크기이므로
+              // 0~1로 정규화한 좌표를 보내고 서버 쪽에서 뷰포트 픽셀로 환산한다
               const rect = e.currentTarget.getBoundingClientRect();
               onSend({
                 type: 'click',

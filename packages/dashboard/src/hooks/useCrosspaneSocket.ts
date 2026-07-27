@@ -26,6 +26,7 @@ export function useCrosspaneSocket(): CrosspaneSocket {
   const [engines, setEngines] = useState<Partial<Record<EngineName, EngineState>>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
+  // 로그가 무한히 쌓이면 리렌더 비용이 커지므로 최근 MAX_LOGS개만 유지한다
   const pushLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
     setLogs((prev) => {
       const next = [...prev, { ...entry, id: logIdRef.current++ }];

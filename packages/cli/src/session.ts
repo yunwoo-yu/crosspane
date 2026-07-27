@@ -47,7 +47,7 @@ export class EngineSession {
     const browser = await launchers[engine].launch();
     const context = await browser.newContext({
       ...preset,
-      // Firefox rejects mobile emulation options
+      // Firefox는 모바일 에뮬레이션(isMobile/hasTouch)을 지원하지 않아 옵션을 제거해야 launch가 성공한다
       ...(engine === 'firefox' ? { isMobile: false, hasTouch: false } : {}),
     });
 
@@ -77,6 +77,12 @@ export class EngineSession {
     return session;
   }
 
+  /**
+   * 프레임 캡처 루프. WebKit/Firefox는 CDP screencast 같은 스트리밍 API가 없어서
+   * screenshot() 폴링이 세 엔진을 동일하게 다룰 수 있는 유일한 방법이다.
+   * 캡처가 밀려도 겹치지 않도록 setInterval 대신 순차 루프를 쓰고,
+   * 캡처 소요 시간을 빼서 목표 fps에 맞춘다.
+   */
   private startCaptureLoop(fps: number, events: SessionEvents): void {
     const interval = Math.max(1000 / fps, MIN_FRAME_INTERVAL_MS);
     void (async () => {
@@ -90,7 +96,7 @@ export class EngineSession {
           });
           events.onFrame(this.engine, buf.toString('base64'));
         } catch {
-          // Transient during navigation/reload — keep the loop alive.
+          // 내비게이션/리로드 중에는 스크린샷이 일시적으로 실패할 수 있다 — 루프는 유지
         }
         const elapsed = Date.now() - started;
         await new Promise((r) => setTimeout(r, Math.max(interval - elapsed, MIN_IDLE_MS)));
@@ -98,6 +104,7 @@ export class EngineSession {
     })();
   }
 
+  /** 대시보드가 보내는 0~1 정규화 좌표를 실제 뷰포트 픽셀 좌표로 환산해 클릭한다 */
   async click(nx: number, ny: number): Promise<void> {
     await this.page.mouse.click(nx * this.viewport.width, ny * this.viewport.height);
   }

@@ -53,6 +53,7 @@ function parsePositiveNumber(flag: string, value: string): number {
   return n;
 }
 
+/** ":3000" / "3000" 같은 포트 축약형을 localhost URL로 확장한다 */
 export function normalizeTarget(target: string): string {
   return /^:?\d+$/.test(target) ? `http://localhost:${target.replace(':', '')}` : target;
 }
