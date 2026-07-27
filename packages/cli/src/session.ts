@@ -69,6 +69,8 @@ export interface InputTarget {
   reload(): Promise<void>;
   navigate(url: string): Promise<void>;
   markActivity(): void;
+  /** 연속 터치(네이티브 제스처) — 지원 어댑터만 구현 (Android motionevent) */
+  touchAt?(phase: 'down' | 'move' | 'up', normalizedX: number, normalizedY: number): Promise<void>;
   /** 대시보드 시청자 유무 — false면 캡처를 멈춰 유휴 CPU를 없앤다 (선택 구현) */
   setViewersActive?(active: boolean): void;
   dispose(): Promise<void>;

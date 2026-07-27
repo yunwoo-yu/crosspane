@@ -65,6 +65,8 @@ function applyCommandToSession(session: InputTarget, command: MirrorCommand): Pr
   switch (command.type) {
     case 'click':
       return session.clickAt(command.x, command.y);
+    case 'touch':
+      return session.touchAt?.(command.phase, command.x, command.y) ?? Promise.resolve();
     case 'drag':
       return session.dragBetween(
         command.fromX,
@@ -98,11 +100,12 @@ async function mirrorCommandToSessions(
   sessions: ReadonlyMap<EngineName, InputTarget>,
   command: MirrorCommand,
 ): Promise<void> {
-  // engine이 지정된 커맨드(pane 독립 스크롤/드래그)는 그 세션에만 재생한다
+  // engine 지정(pane 독립 스크롤/터치)은 그 세션에만, except는 그 세션만 제외하고 재생
   const targeted = 'engine' in command && command.engine ? command.engine : undefined;
+  const excluded = 'except' in command ? command.except : undefined;
   const targets = targeted
     ? [sessions.get(targeted)].filter((session): session is InputTarget => Boolean(session))
-    : [...sessions.values()];
+    : [...sessions].filter(([engine]) => engine !== excluded).map(([, session]) => session);
   await Promise.allSettled(
     targets.map((session) => {
       session.markActivity();

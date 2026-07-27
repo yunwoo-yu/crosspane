@@ -92,7 +92,10 @@ export type ClientCommand =
   | { type: 'stop-engine'; engine: EngineName }
   /** 이 클라이언트가 현재 화면에 그리는 엔진 목록 — 서버가 pane별로 캡처를 끈다 */
   | { type: 'watch'; engines: EngineName[] }
-  | { type: 'click'; x: number; y: number }
+  /** except: 이 엔진 제외 미러 (해당 pane은 네이티브 터치로 이미 처리된 경우) */
+  | { type: 'click'; x: number; y: number; except?: EngineName }
+  /** 연속 터치 스트림 — 실기기 pane에 손가락 제스처를 그대로 전달 (engine 필수) */
+  | { type: 'touch'; phase: 'down' | 'move' | 'up'; x: number; y: number; engine: EngineName }
   /** 드래그/스와이프 — 좌표는 0~1 정규화. engine 지정 시 그 pane만 (독립 제스처) */
   | {
       type: 'drag';

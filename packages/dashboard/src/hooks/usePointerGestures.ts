@@ -38,17 +38,72 @@ export function usePointerGestures(options: {
   enabled: boolean;
   onGesture: (command: ClientCommand) => void;
   streamer: ScrollStreamer;
+  /** 연속 터치 스트리밍 대상 엔진 (Android) — 제스처를 분류하지 않고 그대로 전달한다 */
+  touchStreamEngine?: 'android';
   /** 표시 px → 엔진 px 환산용 (1:1 손가락 추적) */
   getCanvas: () => HTMLCanvasElement | null;
   /** pointerdown 시 포커스를 줄 대상 (키 입력 라우팅) */
   focusTarget: React.RefObject<HTMLElement | null>;
 }) {
-  const { enabled, onGesture, streamer, getCanvas, focusTarget } = options;
+  const { enabled, onGesture, streamer, touchStreamEngine, getCanvas, focusTarget } = options;
   const startRef = useRef<PointerSample | null>(null);
   const modeRef = useRef<GestureMode>('pending');
   const lastPyRef = useRef(0);
+  const lastTouchMoveTsRef = useRef(0);
 
   if (!enabled) return {};
+
+  // 실기기 연속 터치: 분류 없이 DOWN/MOVE/UP을 그대로 — 탭/스크롤/관성은 기기가 판단한다.
+  // 탭이면 다른 엔진에도 click을 미러하되, 이 기기는 제외(네이티브 탭이 이미 처리)
+  if (touchStreamEngine) {
+    const TOUCH_MOVE_INTERVAL_MS = 25;
+    return {
+      onPointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => {
+        focusTarget.current?.focus();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const sample = sampleFromPointer(event);
+        startRef.current = sample;
+        onGesture({
+          type: 'touch',
+          phase: 'down',
+          x: sample.nx,
+          y: sample.ny,
+          engine: touchStreamEngine,
+        });
+      },
+      onPointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => {
+        if (!startRef.current) return;
+        if (event.timeStamp - lastTouchMoveTsRef.current < TOUCH_MOVE_INTERVAL_MS) return;
+        lastTouchMoveTsRef.current = event.timeStamp;
+        const sample = sampleFromPointer(event);
+        onGesture({
+          type: 'touch',
+          phase: 'move',
+          x: sample.nx,
+          y: sample.ny,
+          engine: touchStreamEngine,
+        });
+      },
+      onPointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => {
+        const start = startRef.current;
+        startRef.current = null;
+        if (!start) return;
+        const end = sampleFromPointer(event);
+        onGesture({ type: 'touch', phase: 'up', x: end.nx, y: end.ny, engine: touchStreamEngine });
+        const command = resolvePointerGesture(start, end);
+        if (command.type === 'click') {
+          spawnRipple(event.currentTarget.parentElement, event.clientX, event.clientY);
+          onGesture({ ...command, except: touchStreamEngine });
+        }
+      },
+      onPointerCancel: () => {
+        if (startRef.current) {
+          onGesture({ type: 'touch', phase: 'up', x: 0.5, y: 0.5, engine: touchStreamEngine });
+        }
+        startRef.current = null;
+      },
+    };
+  }
 
   const displayToEngineScale = (): number => {
     const canvas = getCanvas();

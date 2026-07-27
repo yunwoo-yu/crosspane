@@ -225,6 +225,18 @@ export class AndroidEmulatorSession implements InputTarget {
     }
   }
 
+  /** 연속 터치 — motionevent DOWN/MOVE/UP으로 손가락 제스처를 그대로 재생한다.
+      네이티브 스크롤 물리(관성/러버밴드)가 실제 제스처 속도에서 나온다 */
+  async touchAt(phase: 'down' | 'move' | 'up', normalizedX: number, normalizedY: number) {
+    this.runInputCommand([
+      'input',
+      'motionevent',
+      phase.toUpperCase(),
+      Math.round(normalizedX * this.screen.width),
+      Math.round(normalizedY * this.screen.height),
+    ]);
+  }
+
   async clickAt(normalizedX: number, normalizedY: number): Promise<void> {
     const x = Math.round(normalizedX * this.screen.width);
     const y = Math.round(normalizedY * this.screen.height);
@@ -330,8 +342,11 @@ export class AndroidEmulatorSession implements InputTarget {
         'exec-out',
         'screenrecord',
         '--output-format=h264',
+        // 절반 해상도 — 인코딩/전송/디코딩 지연이 크게 줄고 pane 표시 크기에는 충분
+        '--size',
+        `${Math.floor(this.screen.width / 2 / 2) * 2}x${Math.floor(this.screen.height / 2 / 2) * 2}`,
         '--bit-rate',
-        '8000000',
+        '4000000',
         '--time-limit',
         '180',
         '-',

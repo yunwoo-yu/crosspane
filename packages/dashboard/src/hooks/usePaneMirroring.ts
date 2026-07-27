@@ -37,8 +37,9 @@ export function usePaneMirroring({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const keyInputRef = useRef<HTMLInputElement | null>(null);
   const screenStateRef = useRef<PaneScreen | null>(null);
-  // 실기기 pane은 로컬 에코 금지 — 네이티브 스크롤+스트림이 피드백 (단위 불일치 방지)
-  const localEcho = engine === 'chromium' || engine === 'webkit' || engine === 'firefox';
+  // Android(비디오, scrollY 미상)만 에코 금지 — iOS 셸은 단위 정합(frame px) 후 에코로
+  // 손가락 1:1 추적. 브라우저 엔진은 기존대로
+  const localEcho = engine !== 'android';
   screenStateRef.current ??= new PaneScreen(viewport, localEcho);
   const sendCommandRef = useRef(sendCommand);
   sendCommandRef.current = sendCommand;
@@ -71,6 +72,7 @@ export function usePaneMirroring({
   });
   const canvasHandlers = usePointerGestures({
     enabled: !viewOnly,
+    touchStreamEngine: engine === 'android' ? 'android' : undefined,
     // 클릭은 전 엔진 미러(한 번 입력, 모두 반영), 드래그(가로)는 이 pane만
     onGesture: (command) =>
       stableSendRef.current(command.type === 'drag' ? { ...command, engine } : command),
