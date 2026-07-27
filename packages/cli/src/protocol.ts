@@ -5,7 +5,8 @@ export type BrowserEngineName = Exclude<EngineName, 'ios-sim' | 'android'>;
 
 export type LogLevel = 'log' | 'info' | 'warning' | 'error' | 'debug' | string;
 
-export type EngineStatus = 'starting' | 'ready' | 'error';
+/** stopped = 사용 가능하지만 꺼져 있음 (대시보드에서 시작 가능) */
+export type EngineStatus = 'starting' | 'ready' | 'error' | 'stopped';
 
 /**
  * 프레임 바이너리 패킷: [엔진코드 u8][scrollY int32LE, 모르면 -1][JPEG 원본].
@@ -54,8 +55,10 @@ export type ServerEvent =
   | { type: 'navigation'; engine: EngineName; url: string; ts: number }
   | { type: 'httperror'; engine: EngineName; url: string; status: number; ts: number };
 
-/** 대시보드 → 서버로 흐르는 입력 커맨드. 모든 엔진에 미러링된다 */
+/** 대시보드 → 서버 커맨드. 입력 계열은 모든 엔진에 미러링, engine 제어는 서버가 처리 */
 export type ClientCommand =
+  | { type: 'start-engine'; engine: EngineName }
+  | { type: 'stop-engine'; engine: EngineName }
   | { type: 'click'; x: number; y: number }
   | { type: 'scroll'; deltaY: number }
   | { type: 'keypress'; key: string }

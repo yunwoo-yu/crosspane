@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { countErrorsSinceLastNavigation, detectUrlDesync, toDisplayPath } from '../src/log-utils';
+import {
+  countErrorsSinceLastNavigation,
+  detectUrlDesync,
+  normalizeUrlInput,
+  toDisplayPath,
+} from '../src/log-utils';
 import type { LogEntry } from '../src/types';
 
 function entry(partial: Partial<LogEntry> & Pick<LogEntry, 'engine' | 'kind'>): LogEntry {
@@ -64,5 +69,19 @@ describe('toDisplayPath', () => {
 
   it('파싱 불가능한 값은 그대로 돌려준다', () => {
     expect(toDisplayPath('about:blank')).toBe('about:blank');
+  });
+});
+
+describe('normalizeUrlInput', () => {
+  it(':3000 축약을 확장한다', () => {
+    expect(normalizeUrlInput(':3000')).toBe('http://localhost:3000');
+  });
+
+  it('스킴이 없으면 http를 붙인다', () => {
+    expect(normalizeUrlInput('example.com/path')).toBe('http://example.com/path');
+  });
+
+  it('완전한 URL은 그대로', () => {
+    expect(normalizeUrlInput('https://a.dev')).toBe('https://a.dev');
   });
 });

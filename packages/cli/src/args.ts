@@ -16,7 +16,8 @@ Options:
                          web      + Firefox (mobile web cross-browsing)
                          device   webview + REAL Android emulator / iOS Simulator panes
                          full     everything
-  --engines <list>     Override engine list (chromium,webkit,firefox)
+  --engines <list>     Engines to auto-start (chromium,webkit,firefox) — others stay
+                       available as stopped panes you can start from the dashboard
   --device <name>      Playwright device preset (default: "iPhone 15")
   --port <n>           Dashboard port (default: 7788)
   --inject <path>      JS file injected into every page before load (bridge mocks etc.)
@@ -40,10 +41,12 @@ export interface CliOptions {
   url: string;
   profile: ProfileName;
   engines: BrowserEngineName[];
-  /** 실제 iOS 시뮬레이터 pane. undefined = SDK 감지 시 자동 (device/full 프로필) */
+  /** true=강제 자동시작, false=pane 제외, undefined=SDK 있으면 pane 표시(시작은 프로필 따름) */
   iosSimulator?: boolean;
-  /** 실제 Android pane. undefined = SDK 감지 시 자동 (device/full 프로필) */
+  /** true=강제 자동시작, false=pane 제외, undefined=SDK 있으면 pane 표시(시작은 프로필 따름) */
   android?: boolean;
+  /** 프로필이 실기기 pane을 자동 시작하는지 (device/full) */
+  autoStartRealDevices: boolean;
   device: string;
   port: number;
   injectScriptPath?: string;
@@ -178,9 +181,9 @@ export function parseCliArguments(argv: string[]): CliOptions {
     url: resolveTargetUrl(target),
     profile,
     engines: explicitEngines ?? [...preset.engines],
-    // 실기기 pane: 명시 플래그 > 프로필. 프로필이 켠 경우에만 undefined(SDK 자동 감지)를 남긴다
-    iosSimulator: explicitIosSimulator ?? (preset.realDevicePanes ? undefined : false),
-    android: explicitAndroid ?? (preset.realDevicePanes ? undefined : false),
+    iosSimulator: explicitIosSimulator,
+    android: explicitAndroid,
+    autoStartRealDevices: preset.realDevicePanes,
     device,
     port,
     injectScriptPath,

@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { ENGINE_CODES, type EngineName, type HelloEvent, type ServerEvent } from '../src/protocol';
-import { type DashboardServer, startDashboardServer } from '../src/server';
-import type { EngineSession } from '../src/session';
+import { type DashboardServer, type PaneController, startDashboardServer } from '../src/server';
+import type { EngineSession, InputTarget } from '../src/session';
 
 /** 실제 브라우저 없이 입력 미러링을 검증하기 위한 EngineSession 대역 */
 function fakeSession() {
@@ -20,6 +20,10 @@ function fakeSession() {
     navigate: vi.fn(async () => {}),
     markActivity: vi.fn(),
   };
+}
+
+function fakeController(): PaneController & { startEngine: ReturnType<typeof vi.fn> } {
+  return { startEngine: vi.fn(async () => {}), stopEngine: vi.fn(async () => {}) };
 }
 
 const hello = (): HelloEvent => ({
@@ -96,7 +100,12 @@ describe('startDashboardServer', () => {
   });
 
   it('접속하면 hello를 먼저 보낸다', async () => {
-    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
     const client = await TestClient.connect(server.port);
     clients.push(client);
     expect(await client.nextEvent()).toMatchObject({ type: 'hello', device: 'iPhone 15' });
@@ -109,7 +118,12 @@ describe('startDashboardServer', () => {
       ['chromium', a as unknown as EngineSession],
       ['webkit', b as unknown as EngineSession],
     ] as [EngineName, EngineSession][]);
-    server = await startDashboardServer({ port: 0, hello, sessions });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions,
+      paneController: fakeController(),
+    });
     const client = await TestClient.connect(server.port);
     clients.push(client);
 
@@ -142,7 +156,12 @@ describe('startDashboardServer', () => {
       EngineName,
       EngineSession,
     ][]);
-    server = await startDashboardServer({ port: 0, hello, sessions });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions,
+      paneController: fakeController(),
+    });
     const client = await TestClient.connect(server.port);
     clients.push(client);
 
@@ -154,7 +173,12 @@ describe('startDashboardServer', () => {
   });
 
   it('broadcastEvent가 연결된 모든 클라이언트에 전달된다', async () => {
-    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
     const c1 = await TestClient.connect(server.port);
     const c2 = await TestClient.connect(server.port);
     clients.push(c1, c2);
@@ -168,7 +192,12 @@ describe('startDashboardServer', () => {
   });
 
   it('broadcastFrame이 [엔진코드 1바이트][JPEG] 바이너리 패킷으로 전달된다', async () => {
-    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
     const client = await TestClient.connect(server.port);
     clients.push(client);
     await client.nextEvent(); // hello 소비
@@ -182,7 +211,12 @@ describe('startDashboardServer', () => {
   });
 
   it('마지막 프레임을 새 클라이언트에 재전송한다', async () => {
-    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
     // 클라이언트가 없을 때 프레임 발생 — 화면 변화가 없으면 다시 오지 않는다
     server.broadcastFrame('chromium', Buffer.from([1, 2, 3]), 0);
 
@@ -195,7 +229,12 @@ describe('startDashboardServer', () => {
   });
 
   it('접속 전에 발생한 로그를 새 클라이언트에 재전송한다', async () => {
-    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
     // 클라이언트가 없을 때 발생한 이벤트
     server.broadcastEvent({
       type: 'console',
@@ -214,7 +253,12 @@ describe('startDashboardServer', () => {
   });
 
   it('마지막 내비게이션을 히스토리 로그 뒤에 재전송한다 (배지 오염 방지)', async () => {
-    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
     server.broadcastEvent({ type: 'navigation', engine: 'chromium', url: 'http://a/1', ts: 1 });
     server.broadcastEvent({
       type: 'pageerror',
@@ -232,10 +276,63 @@ describe('startDashboardServer', () => {
     expect(await client.nextEvent()).toMatchObject({ type: 'navigation', url: 'http://a/2' });
   });
 
+  it('start/stop-engine 커맨드는 미러링이 아니라 컨트롤러로 라우팅된다', async () => {
+    const controller = fakeController();
+    const session = fakeSession();
+    const sessions = new Map([['chromium', session as unknown as InputTarget]] as [
+      EngineName,
+      InputTarget,
+    ][]);
+    server = await startDashboardServer({ port: 0, hello, sessions, paneController: controller });
+    const client = await TestClient.connect(server.port);
+    clients.push(client);
+
+    client.sendCommand({ type: 'start-engine', engine: 'firefox' });
+    client.sendCommand({ type: 'stop-engine', engine: 'chromium' });
+    await vi.waitFor(() => {
+      expect(controller.startEngine).toHaveBeenCalledWith('firefox');
+      expect(controller.stopEngine).toHaveBeenCalledWith('chromium');
+    });
+    // 세션 입력으로 흘러가지 않는다
+    expect(session.clickAt).not.toHaveBeenCalled();
+  });
+
+  it('엔진이 stopped되면 캐시된 프레임을 새 클라이언트에 재생하지 않는다', async () => {
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
+    server.broadcastFrame('chromium', Buffer.from([1, 2, 3]), 0);
+    server.broadcastEvent({ type: 'engine-status', engine: 'chromium', status: 'stopped' });
+
+    const client = await TestClient.connect(server.port);
+    clients.push(client);
+    expect(await client.nextEvent()).toMatchObject({ type: 'hello' });
+    expect(await client.nextEvent()).toMatchObject({ type: 'engine-status', status: 'stopped' });
+    // 다음 메시지가 프레임이면 실패해야 한다 — 짧게 기다려 프레임이 안 오는 것을 확인
+    const raced = await Promise.race([
+      client.next().then(() => 'message'),
+      new Promise((resolve) => setTimeout(() => resolve('silence'), 400)),
+    ]);
+    expect(raced).toBe('silence');
+  });
+
   it('사용 중인 포트면 명확한 에러로 실패한다', async () => {
-    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
     await expect(
-      startDashboardServer({ port: server.port, hello, sessions: new Map() }),
+      startDashboardServer({
+        port: server.port,
+        hello,
+        sessions: new Map(),
+        paneController: fakeController(),
+      }),
     ).rejects.toThrow(/already in use/);
   });
 
@@ -244,7 +341,12 @@ describe('startDashboardServer', () => {
     writeFileSync(join(dir, 'index.html'), '<html>test-dashboard</html>');
     vi.stubEnv('CROSSPANE_DASHBOARD_DIR', dir);
 
-    server = await startDashboardServer({ port: 0, hello, sessions: new Map() });
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
     const response = await fetch(`http://127.0.0.1:${server.port}/`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('test-dashboard');

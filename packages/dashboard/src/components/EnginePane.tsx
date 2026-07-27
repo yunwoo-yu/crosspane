@@ -11,6 +11,9 @@ interface EnginePaneProps {
   urlDesynced: boolean;
   /** 입력 미러링 불가 pane (예: iOS 시뮬레이터) — 입력 핸들러를 붙이지 않는다 */
   viewOnly: boolean;
+  /** 포커스 모드: 이 pane만 크게 표시 */
+  focused: boolean;
+  onToggleFocus: () => void;
   onSendCommand: (command: ClientCommand) => void;
   subscribeToFrames: (engine: EngineName, listener: FrameListener) => () => void;
 }
@@ -45,6 +48,8 @@ export function EnginePane({
   errorCount,
   urlDesynced,
   viewOnly,
+  focused,
+  onToggleFocus,
   onSendCommand,
   subscribeToFrames,
 }: EnginePaneProps) {
@@ -53,6 +58,12 @@ export function EnginePane({
   const onSendCommandRef = useRef(onSendCommand);
   onSendCommandRef.current = onSendCommand;
   const [hasFrame, setHasFrame] = useState(false);
+  const stopped = state?.status === 'stopped';
+
+  // 중지되면 마지막 프레임은 더 이상 현재 상태가 아니다 — canvas를 숨긴다
+  useEffect(() => {
+    if (stopped) setHasFrame(false);
+  }, [stopped]);
 
   // 로컬 에코(스크롤 예측) 상태:
   // localTarget = 사용자가 의도한 scrollY, lastFrameScrollY = 프레임이 반영한 실제 scrollY.
@@ -148,6 +159,33 @@ export function EnginePane({
           </span>
         )}
         {errorCount > 0 && <span className="err-badge">{errorCount}</span>}
+        <button
+          type="button"
+          className="pane-btn"
+          title={focused ? '포커스 해제 (Esc)' : '이 pane만 크게'}
+          onClick={onToggleFocus}
+        >
+          {focused ? '⤢' : '⤡'}
+        </button>
+        {stopped ? (
+          <button
+            type="button"
+            className="pane-btn"
+            title="이 엔진 시작"
+            onClick={() => onSendCommand({ type: 'start-engine', engine })}
+          >
+            ▶
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="pane-btn"
+            title="이 엔진 중지 (리소스 반환)"
+            onClick={() => onSendCommand({ type: 'stop-engine', engine })}
+          >
+            ■
+          </button>
+        )}
       </div>
       <div
         className="pane-screen"
@@ -190,7 +228,19 @@ export function EnginePane({
         />
         {!hasFrame && (
           <div className="placeholder">
-            {state?.status === 'error' ? `failed: ${state.detail ?? 'unknown'}` : 'starting…'}
+            {stopped ? (
+              <button
+                type="button"
+                className="start-btn"
+                onClick={() => onSendCommand({ type: 'start-engine', engine })}
+              >
+                ▶ Start {engine}
+              </button>
+            ) : state?.status === 'error' ? (
+              `failed: ${state.detail ?? 'unknown'}`
+            ) : (
+              'starting…'
+            )}
           </div>
         )}
       </div>

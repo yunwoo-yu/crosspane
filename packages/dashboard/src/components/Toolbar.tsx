@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { normalizeUrlInput } from '../log-utils';
 import type { ClientCommand, HelloEvent } from '../types';
 
 interface ToolbarProps {
@@ -19,18 +21,38 @@ export function Toolbar({
   onSendCommand,
   onClearLogs,
 }: ToolbarProps) {
+  const [urlInput, setUrlInput] = useState('');
+
+  // 최초 hello 도착 시 URL 바를 타깃 주소로 채운다
+  useEffect(() => {
+    if (hello) setUrlInput(hello.url);
+  }, [hello]);
+
   return (
     <header className="toolbar">
       <span className="brand">crosspane</span>
       <span className={`conn ${connected ? 'on' : 'off'}`}>
         {connected ? 'connected' : 'disconnected'}
       </span>
-      {hello && (
-        <>
-          <span className="target">{hello.url}</span>
-          <span className="device">{hello.device}</span>
-        </>
-      )}
+      <form
+        className="url-bar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (urlInput.trim()) {
+            onSendCommand({ type: 'navigate', url: normalizeUrlInput(urlInput) });
+          }
+        }}
+      >
+        <input
+          type="text"
+          value={urlInput}
+          onChange={(event) => setUrlInput(event.target.value)}
+          placeholder=":3000 또는 URL"
+          aria-label="navigate all engines"
+          spellCheck={false}
+        />
+      </form>
+      {hello && <span className="device">{hello.device}</span>}
       {urlDesynced && syncTargetUrl && (
         <button
           type="button"

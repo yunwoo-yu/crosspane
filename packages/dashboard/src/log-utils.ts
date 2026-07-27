@@ -33,3 +33,11 @@ export function toDisplayPath(url: string): string {
     return url;
   }
 }
+
+/** URL 바 입력을 이동 가능한 URL로 정규화한다 (":3000" 축약, 스킴 보정) */
+export function normalizeUrlInput(input: string): string {
+  const trimmed = input.trim();
+  if (/^:?\d+$/.test(trimmed)) return `http://localhost:${trimmed.replace(':', '')}`;
+  if (!/^https?:\/\//.test(trimmed)) return `http://${trimmed}`;
+  return trimmed;
+}

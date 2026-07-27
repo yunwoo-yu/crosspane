@@ -4,7 +4,8 @@ import { HELP_TEXT, parseCliArguments } from './args.js';
 import { resolveDeviceViewport } from './devices.js';
 import { applyInteractiveAnswers, detectMissingSetup, runInteractiveSetup } from './interactive.js';
 import { IosSimulatorSession, resolveDeveloperDir } from './ios-simulator.js';
-import type { EngineName, EngineStatus } from './protocol.js';
+import { resolvePaneSetup } from './pane-setup.js';
+import type { BrowserEngineName, EngineName, EngineStatus } from './protocol.js';
 import { startDashboardServer } from './server.js';
 import { EngineSession, type InputTarget, type SessionEvents } from './session.js';
 
@@ -29,8 +30,7 @@ async function main(): Promise<void> {
   const options = parseCliArguments(argv);
   const viewport = resolveDeviceViewport(options.device);
 
-  // 실기기 pane 가용성: OS/SDK에 따라 다르다. 없으면 조용히 죽는 대신
-  // 이유를 알려주고, 코어 엔진 pane은 어떤 환경에서든 항상 동작한다.
+  // 실기기 pane 가용성 — 없으면 pane 자체를 빼고 이유를 안내한다
   const iosAvailable = resolveDeveloperDir() !== undefined;
   const androidAvailable = resolveAndroidSdkDir() !== undefined;
   if (options.iosSimulator === true && !iosAvailable) {
@@ -41,31 +41,79 @@ async function main(): Promise<void> {
       '  ⚠ --android ignored: Android SDK not found (set ANDROID_HOME or install Android Studio)',
     );
   }
-  if (options.iosSimulator === undefined && !iosAvailable) {
-    console.log('  ℹ ios-sim pane skipped — requires macOS with Xcode');
-  }
-  if (options.android === undefined && !androidAvailable) {
-    console.log(
-      '  ℹ android pane skipped — Android SDK not found (set ANDROID_HOME or install Android Studio)',
-    );
-  }
-  const useIosSimulator = (options.iosSimulator ?? true) && iosAvailable;
-  const useAndroid = (options.android ?? true) && androidAvailable;
-  const paneEngines: EngineName[] = [
-    ...options.engines,
-    ...(useAndroid ? (['android'] as const) : []),
-    ...(useIosSimulator ? (['ios-sim'] as const) : []),
-  ];
+
+  const paneSetup = resolvePaneSetup({
+    autoStartEngines: options.engines,
+    autoStartRealDevices: options.autoStartRealDevices,
+    iosSimulator: options.iosSimulator,
+    android: options.android,
+    iosAvailable,
+    androidAvailable,
+  });
+
   const sessions = new Map<EngineName, InputTarget>();
+  const startingEngines = new Set<EngineName>();
+
+  const browserLaunchOptions = {
+    url: options.url,
+    device: options.device,
+    injectScriptPath: options.injectScriptPath,
+    customUserAgent: options.customUserAgent,
+    emulateWebview: options.emulateWebview,
+    freshSession: options.freshSession,
+  };
+
+  /** pane 라이프사이클 컨트롤러 — 기동 시 자동 시작과 대시보드의 start/stop이 공유 */
+  const paneController = {
+    async startEngine(engine: EngineName): Promise<void> {
+      if (!paneSetup.panes.includes(engine)) return;
+      if (sessions.has(engine) || startingEngines.has(engine)) return;
+      startingEngines.add(engine);
+      try {
+        let session: InputTarget;
+        if (engine === 'android') {
+          session = await AndroidEmulatorSession.launch(options.url, sessionEvents);
+        } else if (engine === 'ios-sim') {
+          session = await IosSimulatorSession.launch(options.url, sessionEvents);
+        } else {
+          session = await EngineSession.launch(
+            engine as BrowserEngineName,
+            browserLaunchOptions,
+            sessionEvents,
+          );
+        }
+        sessions.set(engine, session);
+        console.log(`  ✓ ${engine} ready`);
+      } catch (err) {
+        sessionEvents.onStatus(engine, 'error', String(err));
+        console.error(`  ✗ ${engine} failed: ${String(err)}`);
+        if (engine !== 'android' && engine !== 'ios-sim') {
+          console.error(`    (missing browser? run: npx playwright install ${engine})`);
+        }
+      } finally {
+        startingEngines.delete(engine);
+      }
+    },
+    async stopEngine(engine: EngineName): Promise<void> {
+      const session = sessions.get(engine);
+      if (!session) return;
+      sessions.delete(engine);
+      sessionEvents.onStatus(engine, 'stopped');
+      console.log(`  ■ ${engine} stopped`);
+      await session.dispose().catch(() => undefined);
+    },
+  };
+
   const server = await startDashboardServer({
     port: options.port,
     sessions,
+    paneController,
     hello: () => ({
       type: 'hello',
       url: options.url,
       device: options.device,
-      engines: paneEngines,
-      viewOnlyEngines: useIosSimulator ? ['ios-sim'] : undefined,
+      engines: paneSetup.panes,
+      viewOnlyEngines: paneSetup.viewOnly.length > 0 ? paneSetup.viewOnly : undefined,
       viewport,
     }),
   });
@@ -88,63 +136,16 @@ async function main(): Promise<void> {
 
   console.log(`crosspane dashboard → http://localhost:${server.port}`);
   console.log(
-    `target: ${options.url}  device: ${options.device}  engines: ${options.engines.join(', ')}`,
+    `target: ${options.url}  device: ${options.device}  panes: ${paneSetup.panes.join(', ')}  auto-start: ${paneSetup.autoStart.join(', ')}`,
   );
 
-  if (useAndroid) {
-    // 실제 Android pane — 에뮬레이터 부팅에 시간이 걸릴 수 있어 병렬로 시작.
-    // adb input이 있어 탭/스크롤/타이핑까지 완전 미러링된다
-    void AndroidEmulatorSession.launch(options.url, sessionEvents)
-      .then((session) => {
-        sessions.set('android', session);
-        console.log('  ✓ android ready (interactive)');
-      })
-      .catch((err: unknown) => {
-        sessionEvents.onStatus('android', 'error', String(err));
-        console.error(`  ✗ android failed: ${String(err)}`);
-      });
-  }
-
-  if (useIosSimulator) {
-    // 실제 iOS 시뮬레이터 pane — 부팅에 수십 초 걸릴 수 있어 브라우저 엔진과 병렬로 시작
-    void IosSimulatorSession.launch(options.url, sessionEvents)
-      .then((session) => {
-        sessions.set('ios-sim', session);
-        console.log('  ✓ ios-sim ready (view-only)');
-      })
-      .catch((err: unknown) => {
-        sessionEvents.onStatus('ios-sim', 'error', String(err));
-        console.error(`  ✗ ios-sim failed: ${String(err)}`);
-      });
-  }
-
-  const launchResults = await Promise.allSettled(
-    options.engines.map(async (engine) => {
-      const session = await EngineSession.launch(
-        engine,
-        {
-          url: options.url,
-          device: options.device,
-          injectScriptPath: options.injectScriptPath,
-          customUserAgent: options.customUserAgent,
-          emulateWebview: options.emulateWebview,
-          freshSession: options.freshSession,
-        },
-        sessionEvents,
-      );
-      sessions.set(engine, session);
-      console.log(`  ✓ ${engine} ready`);
-    }),
-  );
-  for (const [index, result] of launchResults.entries()) {
-    if (result.status === 'rejected') {
-      console.error(`  ✗ ${options.engines[index]} failed: ${String(result.reason)}`);
-      console.error(`    (missing browser? run: npx playwright install ${options.engines[index]})`);
+  // 자동 시작 대상은 병렬 기동, 나머지는 stopped로 표시 (대시보드에서 시작 가능)
+  for (const engine of paneSetup.panes) {
+    if (paneSetup.autoStart.includes(engine)) {
+      void paneController.startEngine(engine);
+    } else {
+      sessionEvents.onStatus(engine, 'stopped');
     }
-  }
-  if (sessions.size === 0) {
-    server.close();
-    throw new Error('No engine could be started.');
   }
 
   const shutdown = async (): Promise<void> => {

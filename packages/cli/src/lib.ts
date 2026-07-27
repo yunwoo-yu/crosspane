@@ -13,6 +13,7 @@ export {
   IosSimulatorSession,
   resolveDeveloperDir,
 } from './ios-simulator.js';
+export { type PaneSetup, type PaneSetupInput, resolvePaneSetup } from './pane-setup.js';
 export {
   type BrowserEngineName,
   type ClientCommand,
@@ -29,6 +30,7 @@ export {
 export {
   type DashboardServer,
   type DashboardServerOptions,
+  type PaneController,
   startDashboardServer,
 } from './server.js';
 export {

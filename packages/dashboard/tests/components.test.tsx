@@ -18,12 +18,14 @@ const fakeFrame = { width: 390, height: 844, close: vi.fn() } as unknown as Imag
 /** EnginePane을 렌더하고 프레임 리스너를 캡처해 프레임 주입을 흉내낼 수 있게 한다 */
 function renderEnginePane(overrides: {
   onSendCommand?: ReturnType<typeof vi.fn>;
-  status?: 'starting' | 'ready' | 'error';
+  status?: 'starting' | 'ready' | 'error' | 'stopped';
   detail?: string;
   errorCount?: number;
   currentUrl?: string;
   urlDesynced?: boolean;
   viewOnly?: boolean;
+  focused?: boolean;
+  onToggleFocus?: ReturnType<typeof vi.fn>;
 }) {
   let capturedListener: FrameListener | undefined;
   const subscribeToFrames = (_engine: EngineName, listener: FrameListener) => {
@@ -41,6 +43,8 @@ function renderEnginePane(overrides: {
       errorCount={overrides.errorCount ?? 0}
       urlDesynced={overrides.urlDesynced ?? false}
       viewOnly={overrides.viewOnly ?? false}
+      focused={overrides.focused ?? false}
+      onToggleFocus={overrides.onToggleFocus ?? vi.fn()}
       onSendCommand={overrides.onSendCommand ?? vi.fn()}
       subscribeToFrames={subscribeToFrames}
     />,
@@ -70,7 +74,11 @@ describe('Toolbar', () => {
     );
 
     expect(screen.getByText('connected')).toBeTruthy();
-    expect(screen.getByText('http://localhost:3000')).toBeTruthy();
+    // URL 바가 타깃 주소로 초기화된다
+    expect(screen.getByLabelText('navigate all engines')).toHaveProperty(
+      'value',
+      'http://localhost:3000',
+    );
     expect(screen.queryByText(/재동기화/)).toBeNull(); // 정상 상태에선 숨김
 
     fireEvent.click(screen.getByTitle('뒤로가기'));
@@ -84,6 +92,27 @@ describe('Toolbar', () => {
 
     fireEvent.click(screen.getByText('clear logs'));
     expect(onClearLogs).toHaveBeenCalled();
+  });
+
+  it('URL 바 입력을 정규화해 navigate로 보낸다', () => {
+    const onSendCommand = vi.fn();
+    render(
+      <Toolbar
+        connected={true}
+        hello={helloEvent}
+        urlDesynced={false}
+        syncTargetUrl={undefined}
+        onSendCommand={onSendCommand}
+        onClearLogs={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText('navigate all engines');
+    fireEvent.change(input, { target: { value: ':5173' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(onSendCommand).toHaveBeenCalledWith({
+      type: 'navigate',
+      url: 'http://localhost:5173',
+    });
   });
 
   it('URL이 어긋나면 재동기화 버튼이 나타나고 기준 URL로 navigate를 보낸다', () => {
@@ -221,6 +250,27 @@ describe('EnginePane', () => {
   it('에러 개수가 있으면 배지를 표시한다', () => {
     renderEnginePane({ errorCount: 3 });
     expect(screen.getByText('3')).toBeTruthy();
+  });
+
+  it('stopped pane은 Start 버튼을 보여주고 start-engine을 보낸다', () => {
+    const onSendCommand = vi.fn();
+    renderEnginePane({ status: 'stopped', onSendCommand });
+    fireEvent.click(screen.getByText(/Start chromium/));
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'start-engine', engine: 'chromium' });
+  });
+
+  it('실행 중 pane의 ■ 버튼은 stop-engine을 보낸다', () => {
+    const onSendCommand = vi.fn();
+    renderEnginePane({ status: 'ready', onSendCommand });
+    fireEvent.click(screen.getByTitle('이 엔진 중지 (리소스 반환)'));
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'stop-engine', engine: 'chromium' });
+  });
+
+  it('포커스 토글 버튼이 onToggleFocus를 호출한다', () => {
+    const onToggleFocus = vi.fn();
+    renderEnginePane({ onToggleFocus });
+    fireEvent.click(screen.getByTitle('이 pane만 크게'));
+    expect(onToggleFocus).toHaveBeenCalled();
   });
 });
 

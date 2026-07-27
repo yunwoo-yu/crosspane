@@ -14,17 +14,26 @@ export interface DashboardServer {
   close(): void;
 }
 
+export interface PaneController {
+  startEngine(engine: EngineName): Promise<void>;
+  stopEngine(engine: EngineName): Promise<void>;
+}
+
 export interface DashboardServerOptions {
   port: number;
   hello: () => HelloEvent;
   sessions: ReadonlyMap<EngineName, InputTarget>;
+  paneController: PaneController;
 }
 
 // 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
 const EVENT_HISTORY_LIMIT = 300;
 
+/** 미러링 대상 입력 커맨드 (pane 제어 커맨드 제외) */
+type MirrorCommand = Exclude<ClientCommand, { type: 'start-engine' } | { type: 'stop-engine' }>;
+
 /** 입력 커맨드 하나를 특정 엔진 세션에 재생한다 */
-function applyCommandToSession(session: InputTarget, command: ClientCommand): Promise<void> {
+function applyCommandToSession(session: InputTarget, command: MirrorCommand): Promise<void> {
   switch (command.type) {
     case 'click':
       return session.clickAt(command.x, command.y);
@@ -51,7 +60,7 @@ function applyCommandToSession(session: InputTarget, command: ClientCommand): Pr
  */
 async function mirrorCommandToSessions(
   sessions: ReadonlyMap<EngineName, InputTarget>,
-  command: ClientCommand,
+  command: MirrorCommand,
 ): Promise<void> {
   await Promise.allSettled(
     [...sessions.values()].map((session) => {
@@ -92,6 +101,12 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
         break;
       case 'engine-status':
         lastStatusByEngine.set(event.engine, event);
+        // 중지된 엔진의 마지막 프레임/URL은 더 이상 유효하지 않다 —
+        // 늦게 접속한 클라이언트에 죽은 화면이 재생되지 않도록 캐시를 비운다
+        if (event.status === 'stopped') {
+          lastFramePacketByEngine.delete(event.engine);
+          lastNavigationByEngine.delete(event.engine);
+        }
         break;
       case 'navigation':
         lastNavigationByEngine.set(event.engine, event);
@@ -114,7 +129,14 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     client.on('message', (raw) => {
       try {
         const command = JSON.parse(String(raw)) as ClientCommand;
-        void mirrorCommandToSessions(options.sessions, command);
+        // pane 제어는 세션 미러링이 아니라 라이프사이클 컨트롤러가 처리한다
+        if (command.type === 'start-engine') {
+          void options.paneController.startEngine(command.engine);
+        } else if (command.type === 'stop-engine') {
+          void options.paneController.stopEngine(command.engine);
+        } else {
+          void mirrorCommandToSessions(options.sessions, command);
+        }
       } catch {
         // 잘못된 형식의 클라이언트 메시지는 무시 (서버가 죽으면 안 됨)
       }

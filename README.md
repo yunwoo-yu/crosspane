@@ -40,6 +40,10 @@ First run downloads the engine binaries. If a browser is missing, run
 - **Login session persistence**: each engine's cookies/storage are saved on exit and
   restored next run (`~/.crosspane/state/<origin>/`) — log into your app once, not on
   every launch in every engine. Start clean with `--fresh`
+- **Runtime pane control**: all available engines are always listed — profiles only
+  decide what auto-starts. Boot the real-device panes on demand with ▶, stop any
+  engine with ■ to free resources, focus one pane full-width (Esc to exit), and
+  navigate every engine from the URL bar
 - **Mirrored interaction**: click/scroll on any pane replays on every engine
 - **Per-engine console**: `console.*`, uncaught errors (with stack), failed network requests — filterable by engine
 - **HMR friendly**: engines are real browsers pointed at your dev server, so hot reload just works

@@ -22,8 +22,7 @@ describe('parseCliArguments', () => {
       url: 'http://localhost:3000',
       profile: 'webview',
       engines: ['chromium', 'webkit'], // 웹뷰 QA에 Firefox(Gecko)는 대응물이 없다
-      iosSimulator: false,
-      android: false,
+      autoStartRealDevices: false,
       device: 'iPhone 15',
       port: 7788,
       emulateWebview: true,
@@ -31,24 +30,23 @@ describe('parseCliArguments', () => {
     });
   });
 
-  it('--profile web은 Firefox를 추가한다 (모바일 웹 크로스브라우징)', () => {
+  it('--profile web은 Firefox를 자동 시작에 추가한다', () => {
     const options = parseCliArguments([':3000', '--profile', 'web']);
     expect(options.engines).toEqual(['chromium', 'webkit', 'firefox']);
-    expect(options.iosSimulator).toBe(false);
+    expect(options.autoStartRealDevices).toBe(false);
   });
 
-  it('--profile device는 실기기 pane을 SDK 자동 감지로 켠다', () => {
+  it('--profile device는 실기기 자동 시작을 켠다', () => {
     const options = parseCliArguments([':3000', '--profile', 'device']);
     expect(options.engines).toEqual(['chromium', 'webkit']);
-    expect(options.iosSimulator).toBeUndefined(); // undefined = SDK 감지 시 자동
-    expect(options.android).toBeUndefined();
+    expect(options.autoStartRealDevices).toBe(true);
   });
 
   it('명시 플래그가 프로필보다 우선한다 (플래그 순서 무관)', () => {
     const options = parseCliArguments([':3000', '--ios-sim', '--profile', 'webview']);
-    expect(options.iosSimulator).toBe(true); // webview 프로필이어도 강제 활성화
+    expect(options.iosSimulator).toBe(true); // webview 프로필이어도 강제 시작
     const options2 = parseCliArguments([':3000', '--profile', 'full', '--no-android']);
-    expect(options2.android).toBe(false);
+    expect(options2.android).toBe(false); // pane 자체를 제외
   });
 
   it('알 수 없는 프로필이면 던진다', () => {
@@ -60,6 +58,8 @@ describe('parseCliArguments', () => {
       false,
     );
     expect(parseCliArguments([':3000', '--android']).android).toBe(true);
+    // 플래그가 없으면 undefined — pane 표시/시작은 SDK 가용성과 프로필이 결정
+    expect(parseCliArguments([':3000']).android).toBeUndefined();
   });
 
   it('--user-agent와 --preset-ua를 반영한다', () => {
