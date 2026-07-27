@@ -216,7 +216,8 @@ describe('EnginePane', () => {
     fireEvent.pointerMove(canvas, { clientX: 50, clientY: 40 }); // 추가 60px
     // pointerup 전에 코얼레싱 타이머가 돌면 이미 scroll이 나간다 (실시간 추종)
     vi.advanceTimersByTime(50);
-    expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 120 });
+    // pane 독립 스크롤 — 이 pane의 엔진이 타깃으로 지정된다
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 120, engine: 'chromium' });
     fireEvent.pointerUp(canvas, { clientX: 50, clientY: 40 });
     // drag 커맨드는 보내지 않는다 (이미 스크롤로 재생됨)
     expect(onSendCommand.mock.calls.every(([c]) => c.type !== 'drag')).toBe(true);
@@ -281,7 +282,7 @@ describe('EnginePane', () => {
 
     vi.advanceTimersByTime(200);
     expect(onSendCommand).toHaveBeenCalledTimes(1);
-    expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 70 });
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 70, engine: 'chromium' });
 
     // 아직 목표(70)에 못 미친 프레임(scrollY=30) — 남은 40만큼 에코 유지 (고무줄 방지)
     emitFrame(30);

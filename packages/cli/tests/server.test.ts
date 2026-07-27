@@ -241,6 +241,13 @@ describe('startDashboardServer', () => {
       expect(b.dragBetween).toHaveBeenCalledWith(0.5, 0.8, 0.5, 0.2, 200);
     });
 
+    // engine 지정 스크롤은 그 세션에만 (pane 독립 스크롤)
+    client.sendCommand({ type: 'scroll', deltaY: 55, engine: 'webkit' });
+    await vi.waitFor(() => {
+      expect(b.scrollBy).toHaveBeenCalledWith(55);
+    });
+    expect(a.scrollBy).not.toHaveBeenCalledWith(55);
+
     client.sendCommand({ type: 'scroll', deltaY: 120 });
     await vi.waitFor(() => {
       expect(a.scrollBy).toHaveBeenCalledWith(120);

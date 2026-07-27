@@ -13,6 +13,8 @@ const BOOT_TIMEOUT_MS = 180_000;
 // 에뮬레이터 screencap은 회당 수백 ms — 브라우저 엔진보다 느리게 폴링한다
 const IDLE_CAPTURE_INTERVAL_MS = 1_500;
 const ACTIVE_CAPTURE_INTERVAL_MS = 400;
+// 이보다 짧은 스와이프는 Android 터치 슬롭 근처라 탭으로 오인될 수 있다
+const MIN_SWIPE_PX = 60;
 const ACTIVITY_WINDOW_MS = 5_000;
 // 기준 뷰포트(iPhone 15 프리셋 844px) 대비 스와이프 거리 환산에 쓴다
 const REFERENCE_VIEWPORT_HEIGHT = 844;
@@ -249,9 +251,15 @@ export class AndroidEmulatorSession implements InputTarget {
     ]);
   }
 
+  // 짧은 스와이프는 Android가 탭으로 오인할 수 있다(실측: 카드 클릭 유발) —
+  // 델타를 누적해 최소 길이 이상일 때만 스와이프로 방출한다
+  private pendingScrollPx = 0;
+
   async scrollBy(deltaY: number): Promise<void> {
-    const distance = toSwipeDistance(deltaY, this.screen.height);
-    if (distance === 0) return;
+    this.pendingScrollPx += toSwipeDistance(deltaY, this.screen.height);
+    const distance = Math.trunc(this.pendingScrollPx);
+    if (Math.abs(distance) < MIN_SWIPE_PX) return;
+    this.pendingScrollPx -= distance;
     const x = Math.round(this.screen.width / 2);
     const startY = Math.round(this.screen.height / 2 + distance / 2);
     const endY = startY - distance;

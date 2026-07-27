@@ -44,7 +44,10 @@ export function usePaneMirroring({
   // 휠/드래그 공용 스크롤 스트리머 — 로컬 즉시 반영 + 코얼레싱 전송
   const streamerRef = useRef<ScrollStreamer | null>(null);
   streamerRef.current ??= createScrollStreamer({
-    sendCommand: stableSendRef.current,
+    // 스크롤은 pane 독립 — 이 pane의 엔진에만 보낸다 (엔진별 스크롤 물리가 달라
+    // 미러링하면 위치가 어긋나고, Android는 스와이프 재생이 탭으로 오인되기도 한다)
+    sendCommand: (command) =>
+      stableSendRef.current(command.type === 'scroll' ? { ...command, engine } : command),
     applyLocal: (deltaY, now) => {
       const canvas = canvasRef.current;
       if (canvas) screenStateRef.current?.scrollBy(canvas, deltaY, now);
@@ -65,7 +68,9 @@ export function usePaneMirroring({
   });
   const canvasHandlers = usePointerGestures({
     enabled: !viewOnly,
-    onGesture: stableSendRef.current,
+    // 클릭은 전 엔진 미러(한 번 입력, 모두 반영), 드래그(가로)는 이 pane만
+    onGesture: (command) =>
+      stableSendRef.current(command.type === 'drag' ? { ...command, engine } : command),
     streamer: streamerRef.current,
     getCanvas: () => canvasRef.current,
     focusTarget: keyInputRef,

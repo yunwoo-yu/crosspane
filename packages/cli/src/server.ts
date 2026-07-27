@@ -98,8 +98,13 @@ async function mirrorCommandToSessions(
   sessions: ReadonlyMap<EngineName, InputTarget>,
   command: MirrorCommand,
 ): Promise<void> {
+  // engine이 지정된 커맨드(pane 독립 스크롤/드래그)는 그 세션에만 재생한다
+  const targeted = 'engine' in command && command.engine ? command.engine : undefined;
+  const targets = targeted
+    ? [sessions.get(targeted)].filter((session): session is InputTarget => Boolean(session))
+    : [...sessions.values()];
   await Promise.allSettled(
-    [...sessions.values()].map((session) => {
+    targets.map((session) => {
       session.markActivity();
       return applyCommandToSession(session, command);
     }),
