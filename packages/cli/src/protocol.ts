@@ -63,6 +63,10 @@ export type ServerEvent =
       status: number;
       resourceType: string;
       durationMs: number;
+      /** xhr/fetch에 한해 수집 — 상세 뷰용 (바디는 텍스트/JSON만, 상한 잘림) */
+      responseHeaders?: Record<string, string>;
+      bodyPreview?: string;
+      bodyTruncated?: boolean;
       ts: number;
     };
 

@@ -37,6 +37,9 @@ export interface SessionEvents {
       status: number;
       resourceType: string;
       durationMs: number;
+      responseHeaders?: Record<string, string>;
+      bodyPreview?: string;
+      bodyTruncated?: boolean;
     },
   ): void;
   onStatus(engine: EngineName, status: EngineStatus, detail?: string): void;
@@ -120,6 +123,8 @@ export function buildWebviewUserAgent(
 }
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
+// 네트워크 상세의 응답 바디 프리뷰 상한 (WS 페이로드 보호)
+const BODY_PREVIEW_LIMIT = 16_000;
 const SCREENSHOT_TIMEOUT_MS = 5_000;
 const JPEG_QUALITY = 60;
 // 폴링 캡처 주기: 평소에는 낮게 유지하고(변화 없는 프레임은 어차피 스킵),
@@ -210,14 +215,31 @@ export class EngineSession {
       void response
         .finished()
         .catch(() => undefined)
-        .then(() => {
+        .then(async () => {
           const timing = request.timing();
+          // 상세(헤더/바디)는 API 응답(xhr/fetch)에만 — 정적 리소스는 무겁고 무의미
+          const isApi = request.resourceType() === 'xhr' || request.resourceType() === 'fetch';
+          let bodyPreview: string | undefined;
+          let bodyTruncated: boolean | undefined;
+          if (isApi) {
+            const contentType = response.headers()['content-type'] ?? '';
+            if (/json|text|xml|urlencoded/.test(contentType)) {
+              const body = await response.text().catch(() => undefined);
+              if (body !== undefined) {
+                bodyTruncated = body.length > BODY_PREVIEW_LIMIT;
+                bodyPreview = body.slice(0, BODY_PREVIEW_LIMIT);
+              }
+            }
+          }
           events.onNetwork(engine, {
             method: request.method(),
             url: response.url(),
             status: response.status(),
             resourceType: request.resourceType(),
             durationMs: timing.responseEnd >= 0 ? Math.round(timing.responseEnd) : -1,
+            ...(isApi ? { responseHeaders: response.headers() } : {}),
+            bodyPreview,
+            bodyTruncated,
           });
         });
     });

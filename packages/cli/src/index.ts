@@ -74,7 +74,9 @@ async function main(): Promise<void> {
         if (engine === 'android') {
           session = await AndroidEmulatorSession.launch(options.url, sessionEvents);
         } else if (engine === 'ios-sim') {
-          session = await IosSimulatorSession.launch(options.url, sessionEvents);
+          session = await IosSimulatorSession.launch(options.url, sessionEvents, {
+            runtime: options.iosRuntime,
+          });
         } else {
           session = await EngineSession.launch(
             engine as BrowserEngineName,

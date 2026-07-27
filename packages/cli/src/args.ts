@@ -24,6 +24,7 @@ Options:
   --user-agent <ua>    Exact UA for every engine (reproduce your app's custom webview UA)
   --preset-ua          Use Playwright's browser preset UA instead of webview UA emulation
   --fresh              Start with a clean session (ignore saved logins/storage)
+  --ios-runtime <ver>  iOS Simulator runtime version (e.g. 17.2) — reproduce old-iOS bugs
   --ios-sim            Force the real iOS Simulator pane regardless of profile
   --no-ios-sim         Disable the iOS Simulator pane
   --android            Force the real Android pane regardless of profile
@@ -56,6 +57,8 @@ export interface CliOptions {
   emulateWebview: boolean;
   /** 저장된 로그인 세션을 무시하고 깨끗하게 시작 */
   freshSession: boolean;
+  /** iOS 시뮬레이터 런타임 버전 (예: "17.2") — 구버전 iOS 재현용 */
+  iosRuntime?: string;
 }
 
 const SUPPORTED_ENGINES: readonly BrowserEngineName[] = ['chromium', 'webkit', 'firefox'];
@@ -121,6 +124,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let customUserAgent: string | undefined;
   let emulateWebview = true;
   let freshSession = false;
+  let iosRuntime: string | undefined;
 
   while (args.length > 0) {
     const flag = args.shift();
@@ -171,6 +175,9 @@ export function parseCliArguments(argv: string[]): CliOptions {
       case '--inject':
         injectScriptPath = value;
         break;
+      case '--ios-runtime':
+        iosRuntime = value;
+        break;
       default:
         throw new Error(`Unknown option ${flag}`);
     }
@@ -190,5 +197,6 @@ export function parseCliArguments(argv: string[]): CliOptions {
     customUserAgent,
     emulateWebview,
     freshSession,
+    iosRuntime,
   };
 }

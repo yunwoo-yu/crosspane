@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
+import { cn } from '../lib/cn';
 import { toDisplayPath } from '../log-utils';
 import { groupNetworkRows, statusTone } from '../network-utils';
 import type { EngineName, NetworkEntry } from '../types';
@@ -24,6 +25,7 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
   const [xhrOnly, setXhrOnly] = useState(true);
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [search, setSearch] = useState('');
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   // 실제 수집된 엔진만 칼럼으로 (실기기 pane은 네트워크 훅이 없다)
   const columns = useMemo(() => {
@@ -81,36 +83,73 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr
-                key={row.key}
-                className={
-                  row.statusMismatch
-                    ? 'bg-warn/10 text-warn' // 엔진 간 상태가 다른 행 — 이 툴이 존재하는 이유
-                    : 'text-fg'
-                }
-              >
-                <td className="px-3 py-0.5 text-fg-muted">{row.method}</td>
-                <td className="max-w-96 truncate py-0.5 pr-3" title={row.url}>
-                  {toDisplayPath(row.url)}
-                </td>
-                {columns.map((engine) => {
-                  const cell = row.perEngine[engine];
-                  return (
-                    <td key={engine} className="whitespace-nowrap py-0.5 pr-3">
-                      {cell ? (
-                        <>
-                          <span className={TONE_CLASS[statusTone(cell.status)]}>{cell.status}</span>
-                          {cell.durationMs >= 0 && (
-                            <span className="ml-1.5 text-fg-muted">{cell.durationMs}ms</span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-fg-muted">—</span>
-                      )}
+              <Fragment key={row.key}>
+                <tr
+                  className={cn(
+                    'cursor-pointer hover:bg-line/40',
+                    row.statusMismatch
+                      ? 'bg-warn/10 text-warn' // 엔진 간 상태가 다른 행 — 이 툴이 존재하는 이유
+                      : 'text-fg',
+                  )}
+                  onClick={() => setExpandedKey((key) => (key === row.key ? null : row.key))}
+                >
+                  <td className="px-3 py-0.5 text-fg-muted">{row.method}</td>
+                  <td className="max-w-96 truncate py-0.5 pr-3" title={row.url}>
+                    {toDisplayPath(row.url)}
+                  </td>
+                  {columns.map((engine) => {
+                    const cell = row.perEngine[engine];
+                    return (
+                      <td key={engine} className="whitespace-nowrap py-0.5 pr-3">
+                        {cell ? (
+                          <>
+                            <span className={TONE_CLASS[statusTone(cell.status)]}>
+                              {cell.status}
+                            </span>
+                            {cell.durationMs >= 0 && (
+                              <span className="ml-1.5 text-fg-muted">{cell.durationMs}ms</span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-fg-muted">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                {expandedKey === row.key && (
+                  <tr>
+                    <td colSpan={2 + columns.length} className="bg-app/60 px-3 py-2">
+                      <div className="flex flex-wrap gap-4">
+                        {columns.map((engine) => {
+                          const detail = row.perEngine[engine]?.entry;
+                          if (!detail) return null;
+                          return (
+                            <div key={engine} className="min-w-64 max-w-xl flex-1">
+                              <div className="mb-1 text-[10px] text-fg-muted uppercase tracking-wider">
+                                {engine} · {detail.status}
+                              </div>
+                              {detail.responseHeaders && (
+                                <pre className="mb-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-[10px] text-fg-muted">
+                                  {Object.entries(detail.responseHeaders)
+                                    .map(([name, value]) => `${name}: ${value}`)
+                                    .join('\n')}
+                                </pre>
+                              )}
+                              {detail.bodyPreview !== undefined && (
+                                <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-line p-1.5 text-[11px] text-fg">
+                                  {detail.bodyPreview}
+                                  {detail.bodyTruncated ? '\n… (truncated)' : ''}
+                                </pre>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </td>
-                  );
-                })}
-              </tr>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

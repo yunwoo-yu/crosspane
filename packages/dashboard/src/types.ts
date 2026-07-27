@@ -41,6 +41,9 @@ export interface NetworkEntry {
   status: number;
   resourceType: string;
   durationMs: number;
+  responseHeaders?: Record<string, string>;
+  bodyPreview?: string;
+  bodyTruncated?: boolean;
   ts: number;
 }
 

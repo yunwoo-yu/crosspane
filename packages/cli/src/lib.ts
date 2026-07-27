@@ -11,6 +11,7 @@ export { encodeFramePacket } from './frame-packet.js';
 export {
   chooseSimulatorDevice,
   IosSimulatorSession,
+  listIosRuntimes,
   resolveDeveloperDir,
 } from './ios-simulator.js';
 export { type PaneSetup, type PaneSetupInput, resolvePaneSetup } from './pane-setup.js';

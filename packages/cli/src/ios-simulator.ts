@@ -37,12 +37,16 @@ export function resolveDeveloperDir(): string | undefined {
  */
 export function chooseSimulatorDevice(
   simctlListJson: string,
+  preferredRuntime?: string,
 ): { udid: string; name: string; runtime: string } | undefined {
   const parsed = JSON.parse(simctlListJson) as { devices: Record<string, SimctlDevice[]> };
+  // "17.2" → "iOS-17-2" 형태로 정규화
+  const wanted = preferredRuntime ? `iOS-${preferredRuntime.replace(/\./g, '-')}` : undefined;
   const candidates: { udid: string; name: string; runtime: string; booted: boolean }[] = [];
   for (const [runtimeId, devices] of Object.entries(parsed.devices)) {
     const runtime = runtimeId.replace('com.apple.CoreSimulator.SimRuntime.', '');
     if (!runtime.startsWith('iOS')) continue;
+    if (wanted && runtime !== wanted) continue;
     for (const device of devices) {
       if (!device.isAvailable || !device.name.startsWith('iPhone')) continue;
       candidates.push({
@@ -58,6 +62,16 @@ export function chooseSimulatorDevice(
     return b.runtime.localeCompare(a.runtime, undefined, { numeric: true });
   });
   return candidates[0];
+}
+
+/** 설치된 iOS 런타임 버전 목록 (에러 안내용) */
+export function listIosRuntimes(simctlListJson: string): string[] {
+  const parsed = JSON.parse(simctlListJson) as { devices: Record<string, SimctlDevice[]> };
+  return Object.keys(parsed.devices)
+    .map((id) => id.replace('com.apple.CoreSimulator.SimRuntime.', ''))
+    .filter((runtime) => runtime.startsWith('iOS'))
+    .map((runtime) => runtime.replace('iOS-', '').replace(/-/g, '.'))
+    .sort();
 }
 
 /**
@@ -79,7 +93,11 @@ export class IosSimulatorSession implements InputTarget {
     this.currentUrl = initialUrl;
   }
 
-  static async launch(url: string, events: SessionEvents): Promise<IosSimulatorSession> {
+  static async launch(
+    url: string,
+    events: SessionEvents,
+    options: { runtime?: string } = {},
+  ): Promise<IosSimulatorSession> {
     events.onStatus(ENGINE, 'starting');
     const developerDir = resolveDeveloperDir();
     if (!developerDir) {
@@ -87,8 +105,15 @@ export class IosSimulatorSession implements InputTarget {
     }
 
     const list = await simctl(developerDir, ['list', 'devices', 'available', '-j']);
-    const device = chooseSimulatorDevice(list.stdout);
-    if (!device) throw new Error('No available iPhone simulator found');
+    const device = chooseSimulatorDevice(list.stdout, options.runtime);
+    if (!device) {
+      const runtimes = listIosRuntimes(list.stdout).join(', ');
+      throw new Error(
+        options.runtime
+          ? `No iPhone simulator for iOS ${options.runtime} (installed: ${runtimes})`
+          : 'No available iPhone simulator found',
+      );
+    }
 
     // 이미 부팅돼 있으면 boot가 149를 반환한다 — 무시
     await simctl(developerDir, ['boot', device.udid]).catch(() => undefined);

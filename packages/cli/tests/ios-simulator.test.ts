@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseSimulatorDevice } from '../src/ios-simulator';
+import { chooseSimulatorDevice, listIosRuntimes } from '../src/ios-simulator';
 
 const fixture = JSON.stringify({
   devices: {
@@ -33,5 +33,16 @@ describe('chooseSimulatorDevice', () => {
 
   it('iPhone이 없으면 undefined', () => {
     expect(chooseSimulatorDevice(JSON.stringify({ devices: {} }))).toBeUndefined();
+  });
+
+  it('--ios-runtime 지정 시 해당 런타임만 고른다 (구버전 iOS 재현)', () => {
+    expect(chooseSimulatorDevice(fixture, '17.2')?.udid).toBe('A');
+    expect(chooseSimulatorDevice(fixture, '16.0')).toBeUndefined();
+  });
+});
+
+describe('listIosRuntimes', () => {
+  it('설치된 iOS 런타임 버전 목록을 돌려준다', () => {
+    expect(listIosRuntimes(fixture)).toEqual(['17.2', '18.5']);
   });
 });

@@ -5,7 +5,9 @@ export interface NetworkRow {
   method: string;
   url: string;
   /** 엔진별 최신 응답 (같은 요청을 여러 번 하면 마지막 것) */
-  perEngine: Partial<Record<EngineName, { status: number; durationMs: number }>>;
+  perEngine: Partial<
+    Record<EngineName, { status: number; durationMs: number; entry: NetworkEntry }>
+  >;
   /** 엔진 간 상태코드가 다르면 true — "iOS만 401" 같은 차이를 자동 표시 */
   statusMismatch: boolean;
   lastTs: number;
@@ -42,7 +44,7 @@ export function groupNetworkRows(entries: NetworkEntry[], filters: NetworkFilter
       };
       rows.set(key, row);
     }
-    row.perEngine[entry.engine] = { status: entry.status, durationMs: entry.durationMs };
+    row.perEngine[entry.engine] = { status: entry.status, durationMs: entry.durationMs, entry };
     row.lastTs = Math.max(row.lastTs, entry.ts);
   }
 
