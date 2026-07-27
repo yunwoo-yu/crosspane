@@ -23,3 +23,7 @@ paths:
   발생시키므로 중복 가드 유지
 - `navigation` 이벤트로 engineStates를 갱신할 때 **기존 필드(viewOnly/detail)를 스프레드로
   보존**할 것 — 새 객체로 교체하면 셸 모드의 view-only 해제가 내비게이션마다 풀린다 (실측)
+- **app.css에 unlayered 전역 규칙(`* { padding: 0 }` 등)을 넣지 말 것** — Tailwind v4는
+  유틸리티를 @layer에 두므로 레이어 밖 규칙이 명시도와 무관하게 모든 p-*/m-*를
+  무효화한다 (실측: px-4가 조용히 0px — "여백 고쳐도 안 먹던" 사건의 원인).
+  리셋은 Tailwind preflight에 맡긴다

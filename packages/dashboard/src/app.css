@@ -15,12 +15,6 @@
   --color-ok: #30c85e;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 :root {
   color-scheme: dark;
   --bg: #0b0d12;
@@ -105,8 +99,12 @@ body {
   background: currentColor;
 }
 .conn.on {
-  background: rgba(48, 200, 94, 0.12);
-  color: var(--ok);
+  background: transparent;
+  color: var(--muted);
+  padding-inline: 2px;
+}
+.conn.on::before {
+  background: var(--ok);
 }
 .conn.off {
   background: rgba(240, 68, 82, 0.12);

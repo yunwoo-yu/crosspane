@@ -92,7 +92,8 @@ export default function App() {
     .map((engine) => engineStates[engine]?.currentUrl)
     .find((url) => Boolean(url));
 
-  const errorLogCount = logs.filter((log) => log.level === 'error').length;
+  // pane 배지와 같은 기준(엔진별 마지막 내비게이션 이후) — 두 배지가 어긋나지 않게
+  const errorLogCount = engineNames.reduce((sum, engine) => sum + errorCountFor(engine), 0);
 
   const exportReport = useCallback(() => {
     if (!hello) return;
@@ -179,7 +180,7 @@ export default function App() {
           >
             Console
             {errorLogCount > 0 && (
-              <span className="rounded-full bg-danger px-1.5 text-[10px] text-white leading-4">
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 font-semibold text-[10px] text-white leading-none">
                 {errorLogCount}
               </span>
             )}
