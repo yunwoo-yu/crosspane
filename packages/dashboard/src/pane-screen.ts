@@ -19,10 +19,38 @@ export class PaneScreen {
 
   constructor(
     private readonly viewportCss: { width: number; height: number },
-    /** 로컬 에코(transform 예측) 사용 여부 — 실기기 pane은 네이티브 스크롤+스트림이
-        피드백이라 에코를 켜면 단위 불일치로 화면이 밀린다 (실측 깨짐) */
-    private readonly localEcho = true,
+    /**
+     * 에코 방식:
+     * - absolute: scrollY 정합 가능한 엔진 — 목표-실제 차이만큼 transform (기존)
+     * - relative: scrollY 미상 + 스트림 지연(Android 비디오) — 델타를 시간 감쇠로
+     *   선행 표시해 스트림 지연(~0.5s)을 체감에서 지운다
+     */
+    private readonly echoMode: 'absolute' | 'relative' = 'absolute',
   ) {}
+
+  // relative 에코 상태 — 각 델타는 ECHO_DECAY_MS에 걸쳐 0으로 감쇠 (스트림이 따라오는 시간)
+  private static readonly RELATIVE_DECAY_MS = 500;
+  private relativeDeltas: { delta: number; ts: number }[] = [];
+  private decayRafScheduled = false;
+  private lastCanvas: HTMLCanvasElement | null = null;
+
+  private applyRelativeEcho(now: number): void {
+    this.relativeDeltas = this.relativeDeltas.filter(
+      (entry) => now - entry.ts < PaneScreen.RELATIVE_DECAY_MS,
+    );
+    const offset = this.relativeDeltas.reduce(
+      (sum, entry) => sum + entry.delta * (1 - (now - entry.ts) / PaneScreen.RELATIVE_DECAY_MS),
+      0,
+    );
+    if (this.lastCanvas) applyEchoOffset(this.lastCanvas, offset);
+    if (this.relativeDeltas.length > 0 && !this.decayRafScheduled) {
+      this.decayRafScheduled = true;
+      requestAnimationFrame(() => {
+        this.decayRafScheduled = false;
+        this.applyRelativeEcho(Date.now());
+      });
+    }
+  }
 
   /** 유휴 판정 — 입력이 멈춘 뒤에는 엔진의 실제 스크롤 위치로 수렴한다 */
   private static readonly INPUT_IDLE_MS = 400;
@@ -42,7 +70,13 @@ export class PaneScreen {
         canvas.height = frame.height;
       }
       canvas.getContext('2d')?.drawImage(frame, 0, 0);
-      applyEchoOffset(canvas, this.localEcho ? this.echo.reconcileFrame(scrollY, now) : 0);
+      this.lastCanvas = canvas;
+      if (this.echoMode === 'relative') {
+        // 프레임 도착이 에코를 리셋하지 않는다 — 스트림은 항상 과거라 리셋하면 뒤로 튄다
+        this.applyRelativeEcho(now);
+      } else {
+        applyEchoOffset(canvas, this.echo.reconcileFrame(scrollY, now));
+      }
       return;
     }
 
@@ -79,7 +113,12 @@ export class PaneScreen {
       this.redrawCrop(canvas);
       return;
     }
-    if (!this.localEcho) return; // 실기기: 스트림이 곧 피드백
+    this.lastCanvas = canvas;
+    if (this.echoMode === 'relative') {
+      this.relativeDeltas.push({ delta: deltaY, ts: now });
+      this.applyRelativeEcho(now);
+      return;
+    }
     applyEchoOffset(canvas, this.echo.addWheelDelta(deltaY, now));
   }
 

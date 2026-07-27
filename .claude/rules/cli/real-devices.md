@@ -56,3 +56,11 @@ paths:
 - fps 상한 ~5Hz는 takeSnapshot의 콘텐츠 갱신 케이던스 한계다. Simulator.app 창을
   붙여도 동일(실측) — 진짜 30fps는 IOSurface 접근(idb) 필요, 옵션 의존성 로드맵
 - 프레임의 scrollY는 프레임 픽셀 단위(contentOffset × pixelsPerPoint)로 보낸다
+
+## Android 셸 (WebView 컴포넌트)
+
+- 1순위는 자체 셸 APK(`shell-android/`, build-tools로 소스 빌드·해시 캐시) —
+  Chrome UI 없는 앱 임베드 WebView + 콘솔/내비게이션 릴레이. 실패 시 Chrome 폴백 유지
+- 셸 통신은 iOS와 동일 규약(`/shell/android/{commands,event}` 롱폴) — 컨트롤 포트는
+  `adb reverse`로 기기에 노출한다 (에뮬레이터의 localhost ≠ 호스트)
+- 입력(터치/키)은 시스템 레벨(motionevent/input)이라 셸 앱과 무관하게 동작한다

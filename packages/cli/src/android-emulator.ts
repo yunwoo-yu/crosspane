@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { ensureAndroidShellApk } from './android-shell.js';
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
 import type { InputTarget, SessionEvents } from './session.js';
 
@@ -96,6 +97,10 @@ export class AndroidEmulatorSession implements InputTarget {
   private currentUrl: string;
 
   private events?: SessionEvents;
+  /** shell = 자체 WebView 셸앱(앱 임베드 재현 + 콘솔 릴레이), chrome = 브라우저 폴백 */
+  private mode: 'shell' | 'chrome' = 'chrome';
+  private readonly commandQueue: Record<string, unknown>[] = [];
+  private commandWaiter: ((commands: Record<string, unknown>[]) => void) | null = null;
 
   private constructor(
     private readonly adbPath: string,
@@ -106,7 +111,11 @@ export class AndroidEmulatorSession implements InputTarget {
     this.currentUrl = initialUrl;
   }
 
-  static async launch(url: string, events: SessionEvents): Promise<AndroidEmulatorSession> {
+  static async launch(
+    url: string,
+    events: SessionEvents,
+    options: { controlUrl?: string } = {},
+  ): Promise<AndroidEmulatorSession> {
     events.onStatus(ENGINE, 'starting');
     const sdkDir = resolveAndroidSdkDir();
     if (!sdkDir) {
@@ -133,7 +142,36 @@ export class AndroidEmulatorSession implements InputTarget {
     const session = new AndroidEmulatorSession(adbPath, serial, screen, url);
     await session.skipChromeFirstRun();
     await session.openUrl(url);
-    events.onStatus(ENGINE, 'ready', serial);
+    // 1순위: 자체 WebView 셸앱 — Chrome UI 없이 앱 임베드 웹뷰 그대로 + 콘솔 릴레이.
+    // 빌드툴이 없거나 실패하면 Chrome 폴백 (이유는 콘솔에 남긴다)
+    let detail = `${serial} · Chrome`;
+    if (options.controlUrl) {
+      try {
+        const controlPort = new URL(options.controlUrl).port;
+        const apkPath = await ensureAndroidShellApk(sdkDir);
+        await adb(adbPath, serial, ['reverse', `tcp:${controlPort}`, `tcp:${controlPort}`]);
+        await adb(adbPath, serial, ['install', '-r', apkPath]);
+        await adb(adbPath, serial, [
+          'shell',
+          'am',
+          'start',
+          '-n',
+          'dev.crosspane.shell/.MainActivity',
+          '--es',
+          'url',
+          url,
+          '--es',
+          'control',
+          options.controlUrl,
+        ]);
+        session.mode = 'shell';
+        detail = `${serial} · WebView`;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message.split('\n')[0] : String(err);
+        console.warn(`  ⚠ android: WebView 셸 실패 → Chrome 폴백: ${reason.slice(0, 200)}`);
+      }
+    }
+    events.onStatus(ENGINE, 'ready', detail);
     session.events = events;
     session.startPolling(events);
     return session;
@@ -209,6 +247,49 @@ export class AndroidEmulatorSession implements InputTarget {
     this.activeUntil = Date.now() + ACTIVITY_WINDOW_MS;
     // 입력 직후 즉시 캡처 — 화면 반영 지연이 폴링 간격만큼 늘어지는 것을 막는다
     this.captureLoop?.wake();
+  }
+
+  private enqueue(command: Record<string, unknown>): void {
+    this.commandQueue.push(command);
+    if (this.commandWaiter) {
+      const waiter = this.commandWaiter;
+      this.commandWaiter = null;
+      waiter(this.commandQueue.splice(0));
+    } else if (this.commandQueue.length > 200) {
+      this.commandQueue.splice(0, this.commandQueue.length - 200);
+    }
+    this.markActivity();
+  }
+
+  /** 셸 명령 롱폴 — iOS 셸과 동일 규약 (server /shell/android/commands) */
+  waitForShellCommands(): Promise<unknown[]> {
+    if (this.commandQueue.length > 0) return Promise.resolve(this.commandQueue.splice(0));
+    this.commandWaiter?.([]);
+    return new Promise((resolve) => {
+      const waiter = (commands: Record<string, unknown>[]): void => {
+        clearTimeout(timer);
+        resolve(commands);
+      };
+      const timer = setTimeout(() => {
+        if (this.commandWaiter === waiter) this.commandWaiter = null;
+        resolve([]);
+      }, 8_000);
+      this.commandWaiter = waiter;
+    });
+  }
+
+  /** 셸앱이 POST한 이벤트(콘솔/에러/내비게이션) → 세션 이벤트 */
+  handleShellEvent(payload: unknown): void {
+    if (!this.events || typeof payload !== 'object' || payload === null) return;
+    const event = payload as { kind?: string; level?: string; text?: string; url?: string };
+    if (event.kind === 'console') {
+      this.events.onConsole(ENGINE, event.level ?? 'log', event.text ?? '');
+    } else if (event.kind === 'pageerror') {
+      this.events.onPageError(ENGINE, event.text ?? '');
+    } else if (event.kind === 'navigation' && event.url) {
+      this.currentUrl = event.url;
+      this.events.onNavigation(ENGINE, event.url);
+    }
   }
 
   /** 시청자 0명이면 screenrecord 스트림도 멈춘다 (에뮬레이터 인코딩 비용 절약) */
@@ -302,18 +383,23 @@ export class AndroidEmulatorSession implements InputTarget {
   }
 
   async goBack(): Promise<void> {
+    if (this.mode === 'shell') return this.enqueue({ type: 'back' });
     await this.pressKey('Back');
   }
 
   async goForward(): Promise<void> {
+    if (this.mode === 'shell') return this.enqueue({ type: 'forward' });
     await this.pressKey('Forward');
   }
 
   async reload(): Promise<void> {
+    if (this.mode === 'shell') return this.enqueue({ type: 'reload' });
     await this.openUrl(this.currentUrl);
   }
 
   async navigate(url: string): Promise<void> {
+    this.currentUrl = url;
+    if (this.mode === 'shell') return this.enqueue({ type: 'navigate', url });
     await this.openUrl(url);
   }
 

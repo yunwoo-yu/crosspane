@@ -40,12 +40,15 @@ export function usePointerGestures(options: {
   streamer: ScrollStreamer;
   /** 연속 터치 스트리밍 대상 엔진 (Android) — 제스처를 분류하지 않고 그대로 전달한다 */
   touchStreamEngine?: 'android';
+  /** 터치 무브의 세로 델타(프레임 px) — 로컬 선행 에코용 */
+  onTouchDelta?: (deltaY: number) => void;
   /** 표시 px → 엔진 px 환산용 (1:1 손가락 추적) */
   getCanvas: () => HTMLCanvasElement | null;
   /** pointerdown 시 포커스를 줄 대상 (키 입력 라우팅) */
   focusTarget: React.RefObject<HTMLElement | null>;
 }) {
-  const { enabled, onGesture, streamer, touchStreamEngine, getCanvas, focusTarget } = options;
+  const { enabled, onGesture, streamer, touchStreamEngine, onTouchDelta, getCanvas, focusTarget } =
+    options;
   const startRef = useRef<PointerSample | null>(null);
   const modeRef = useRef<GestureMode>('pending');
   const lastPyRef = useRef(0);
@@ -56,13 +59,14 @@ export function usePointerGestures(options: {
   // 실기기 연속 터치: 분류 없이 DOWN/MOVE/UP을 그대로 — 탭/스크롤/관성은 기기가 판단한다.
   // 탭이면 다른 엔진에도 click을 미러하되, 이 기기는 제외(네이티브 탭이 이미 처리)
   if (touchStreamEngine) {
-    const TOUCH_MOVE_INTERVAL_MS = 25;
+    const TOUCH_MOVE_INTERVAL_MS = 15;
     return {
       onPointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => {
         focusTarget.current?.focus();
         event.currentTarget.setPointerCapture(event.pointerId);
         const sample = sampleFromPointer(event);
         startRef.current = sample;
+        lastPyRef.current = event.clientY;
         onGesture({
           type: 'touch',
           phase: 'down',
@@ -73,6 +77,12 @@ export function usePointerGestures(options: {
       },
       onPointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => {
         if (!startRef.current) return;
+        // 로컬 선행 에코 — 스트림 지연을 기다리지 않고 즉시 화면을 밀어준다
+        const canvas = getCanvas();
+        const scale = canvas && canvas.clientHeight > 0 ? canvas.height / canvas.clientHeight : 1;
+        const moveDelta = (lastPyRef.current - event.clientY) * scale;
+        lastPyRef.current = event.clientY;
+        if (moveDelta !== 0) onTouchDelta?.(moveDelta);
         if (event.timeStamp - lastTouchMoveTsRef.current < TOUCH_MOVE_INTERVAL_MS) return;
         lastTouchMoveTsRef.current = event.timeStamp;
         const sample = sampleFromPointer(event);

@@ -114,7 +114,9 @@ async function main(): Promise<void> {
       try {
         let session: InputTarget;
         if (engine === 'android') {
-          session = await AndroidEmulatorSession.launch(options.url, sessionEvents);
+          session = await AndroidEmulatorSession.launch(options.url, sessionEvents, {
+            controlUrl: `http://localhost:${server.port}/shell/android`,
+          });
         } else if (engine === 'ios-sim') {
           session = await IosSimulatorSession.launch(options.url, sessionEvents, {
             runtime: options.iosRuntime,
@@ -180,15 +182,18 @@ async function main(): Promise<void> {
     },
     // 시뮬레이터 셸앱 브릿지 — 세션이 셸 모드일 때만 실동작한다
     shellBridge: {
+      // iOS/Android 셸 공통 규약 — 셸 프로토콜을 구현한 세션이면 엔진 무관 동작
       waitForCommands(engine) {
         const session = sessions.get(engine);
-        return session instanceof IosSimulatorSession
-          ? session.waitForShellCommands()
+        return session && 'waitForShellCommands' in session
+          ? (session as IosSimulatorSession | AndroidEmulatorSession).waitForShellCommands()
           : Promise.resolve([]);
       },
       handleEvent(engine, payload) {
         const session = sessions.get(engine);
-        if (session instanceof IosSimulatorSession) session.handleShellEvent(payload);
+        if (session && 'handleShellEvent' in session) {
+          (session as IosSimulatorSession | AndroidEmulatorSession).handleShellEvent(payload);
+        }
       },
       handleFrame(engine, jpeg, scrollY) {
         const session = sessions.get(engine);

@@ -41,7 +41,8 @@
   },
   "files": [
     "dist",
-    "shell"
+    "shell",
+    "shell-android"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node ./scripts/bundle-dashboard.mjs",
