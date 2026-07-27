@@ -15,7 +15,7 @@ let controlBase = env["CROSSPANE_CONTROL"] ?? ""
 final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate {
   var webView: WKWebView!
   // 프레임 스트리밍: 변화 없으면 idle로 느려지고, 명령이 오면 즉시 fast로 복귀
-  private let frameIntervalFast: TimeInterval = 1.0 / 15.0
+  private let frameIntervalFast: TimeInterval = 1.0 / 25.0
   private let frameIntervalIdle: TimeInterval = 0.5
   private var frameInterval: TimeInterval = 1.0 / 15.0
   private var lastFrameHash = 0

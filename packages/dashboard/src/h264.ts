@@ -83,6 +83,23 @@ export class H264AnnexBParser {
   /** 마지막으로 파싱된 SPS 기준 codec 문자열 (SPS 도착 전엔 null) */
   codec: string | null = null;
 
+  /**
+   * 스트림 유휴 시 pending의 마지막 NAL을 방출한다 — 마지막 프레임은 다음 시작코드가
+   * 와야 완결 판정되므로, 저속 구간에서 최종 프레임이 갇히는 지연(실측 ~360ms)을 없앤다.
+   * chunk 경계는 대개 NAL 경계(screenrecord가 프레임 단위로 write)라 안전하고,
+   * 드물게 잘린 NAL이면 디코더 에러 → 파이프라인 리셋으로 자가 복구된다.
+   */
+  flushPending(): H264AccessUnit[] {
+    const marks = findStartCodes(this.pending);
+    if (marks.length !== 1) return [];
+    const nal = this.pending.subarray(marks[0].nalStart);
+    if (nal.length < 2) return [];
+    this.pending = new Uint8Array(0);
+    const units: H264AccessUnit[] = [];
+    this.consumeNal(nal.slice(), units);
+    return units;
+  }
+
   push(bytes: Uint8Array): H264AccessUnit[] {
     const data = concat([this.pending, bytes]);
     const marks = findStartCodes(data);
