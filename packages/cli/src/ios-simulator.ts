@@ -6,6 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
 import type { InputTarget, SessionEvents } from './session.js';
 
 const execFileAsync = promisify(execFile);
@@ -14,7 +15,9 @@ const ENGINE = 'ios-sim' as const;
 const BOOT_TIMEOUT_MS = 120_000;
 // 시뮬레이터 스크린샷은 회당 수백 ms가 걸려 브라우저 엔진보다 느리게 폴링한다
 const IDLE_CAPTURE_INTERVAL_MS = 1_500;
-const ACTIVE_CAPTURE_INTERVAL_MS = 600;
+const ACTIVE_CAPTURE_INTERVAL_MS = 400;
+// 셸 명령 롱폴 유지 시간 — 이 안에 명령이 오면 즉시 응답한다 (지연 0)
+const COMMAND_LONG_POLL_MS = 8_000;
 const ACTIVITY_WINDOW_MS = 5_000;
 const MAX_QUEUED_COMMANDS = 200;
 
@@ -130,13 +133,15 @@ export function listIosRuntimes(simctlListJson: string): string[] {
  * navigate/reload 커맨드만 따라간다 (재동기화 버튼 포함).
  */
 export class IosSimulatorSession implements InputTarget {
-  private disposed = false;
   private activeUntil = 0;
   private lastFrame: Buffer | null = null;
   private currentUrl: string;
   /** shell = 진짜 WKWebView 컴포넌트 + 입력/콘솔 지원, safari = 브라우저 view-only 폴백 */
   private mode: 'shell' | 'safari' = 'safari';
   private readonly commandQueue: Record<string, unknown>[] = [];
+  /** 롱폴 중인 셸의 응답 콜백 — 명령이 들어오면 즉시 전달된다 */
+  private commandWaiter: ((commands: Record<string, unknown>[]) => void) | null = null;
+  private captureLoop: CaptureLoop | null = null;
   private events: SessionEvents | null = null;
 
   private constructor(
@@ -257,11 +262,38 @@ export class IosSimulatorSession implements InputTarget {
 
   private enqueue(command: Record<string, unknown>): void {
     this.commandQueue.push(command);
-    // 셸앱이 폴링을 멈춘 상태(크래시 등)에서 입력이 계속 오면 무한 성장한다 — 상한
-    if (this.commandQueue.length > MAX_QUEUED_COMMANDS) {
+    // 셸이 롱폴 대기 중이면 즉시 전달 — 폴링 주기만큼의 입력 지연을 없앤다
+    if (this.commandWaiter) {
+      const waiter = this.commandWaiter;
+      this.commandWaiter = null;
+      waiter(this.commandQueue.splice(0));
+    } else if (this.commandQueue.length > MAX_QUEUED_COMMANDS) {
+      // 셸앱이 폴링을 멈춘 상태(크래시 등)에서 입력이 계속 오면 무한 성장한다 — 상한
       this.commandQueue.splice(0, this.commandQueue.length - MAX_QUEUED_COMMANDS);
     }
     this.markActivity();
+  }
+
+  /**
+   * 셸의 명령 롱폴 — 큐가 비어 있으면 명령이 올 때까지(최대 COMMAND_LONG_POLL_MS) 대기.
+   * 새 폴이 오면 이전 waiter는 빈 응답으로 해제한다 (셸 재시작 등 중복 폴 대비).
+   */
+  waitForShellCommands(): Promise<unknown[]> {
+    if (this.commandQueue.length > 0) {
+      return Promise.resolve(this.commandQueue.splice(0));
+    }
+    this.commandWaiter?.([]);
+    return new Promise((resolve) => {
+      const waiter = (commands: Record<string, unknown>[]): void => {
+        clearTimeout(timer);
+        resolve(commands);
+      };
+      const timer = setTimeout(() => {
+        if (this.commandWaiter === waiter) this.commandWaiter = null;
+        resolve([]);
+      }, COMMAND_LONG_POLL_MS);
+      this.commandWaiter = waiter;
+    });
   }
 
   /**
@@ -282,14 +314,12 @@ export class IosSimulatorSession implements InputTarget {
   }
 
   private startPolling(events: SessionEvents): void {
-    void (async () => {
-      while (!this.disposed) {
-        await this.captureAndEmitFrame(events);
-        const interval =
-          Date.now() < this.activeUntil ? ACTIVE_CAPTURE_INTERVAL_MS : IDLE_CAPTURE_INTERVAL_MS;
-        await new Promise((resolve) => setTimeout(resolve, interval));
-      }
-    })();
+    this.captureLoop = startCaptureLoop({
+      capture: () => this.captureAndEmitFrame(events),
+      isActive: () => Date.now() < this.activeUntil,
+      activeIntervalMs: ACTIVE_CAPTURE_INTERVAL_MS,
+      idleIntervalMs: IDLE_CAPTURE_INTERVAL_MS,
+    });
   }
 
   private async captureAndEmitFrame(events: SessionEvents): Promise<void> {
@@ -316,6 +346,8 @@ export class IosSimulatorSession implements InputTarget {
 
   markActivity(): void {
     this.activeUntil = Date.now() + ACTIVITY_WINDOW_MS;
+    // 입력 직후 즉시 캡처 — 화면 반영 지연이 폴링 간격만큼 늘어지는 것을 막는다
+    this.captureLoop?.wake();
   }
 
   async navigate(url: string): Promise<void> {
@@ -339,6 +371,17 @@ export class IosSimulatorSession implements InputTarget {
   async clickAt(normalizedX: number, normalizedY: number): Promise<void> {
     if (this.mode === 'shell') this.enqueue({ type: 'click', x: normalizedX, y: normalizedY });
   }
+  async dragBetween(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    durationMs: number,
+  ): Promise<void> {
+    if (this.mode === 'shell') {
+      this.enqueue({ type: 'drag', fromX, fromY, toX, toY, durationMs });
+    }
+  }
   async scrollBy(deltaY: number): Promise<void> {
     if (this.mode === 'shell') this.enqueue({ type: 'scroll', deltaY });
   }
@@ -356,7 +399,9 @@ export class IosSimulatorSession implements InputTarget {
   }
 
   async dispose(): Promise<void> {
-    this.disposed = true;
+    this.captureLoop?.stop();
+    this.commandWaiter?.([]);
+    this.commandWaiter = null;
     // 다음 실행이 빨라지도록 시뮬레이터는 부팅 상태로 둔다
   }
 }

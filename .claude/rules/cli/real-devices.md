@@ -37,3 +37,10 @@ paths:
   기본 브라우저 미지정 이미지에서 일반 인텐트는 해석 실패
 - 실행 파일 경로는 `adbExecutableName`/`emulatorExecutableName`/`androidSdkCandidateDirs`
   헬퍼만 사용 (Windows `.exe`, OS별 SDK 경로가 여기 몰려 있음)
+
+## 입력 반응성 (실측으로 얻은 구조)
+
+- iOS 셸 명령은 **롱폴**이다: 서버가 `/commands` 응답을 잡아두고 enqueue 시 즉시 응답.
+  고정 주기 폴링으로 되돌리면 입력 지연이 주기만큼 다시 생긴다 (250ms 폴링 시절 실측 ~1초)
+- 캡처 루프는 `capture-loop.ts` 공용 — `markActivity()`가 `wake()`를 불러 입력 직후
+  즉시 캡처한다. wake 경로를 끊으면 화면 반영이 폴링 간격만큼 늦어진다

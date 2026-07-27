@@ -12,7 +12,7 @@ const buttonVariants = cva(
         outline: 'border-line bg-panel-2 text-fg hover:border-accent/60',
         ghost: 'border-transparent bg-transparent text-fg-muted hover:bg-panel-2 hover:text-fg',
         /** 토글 칩/탭의 활성 상태 — 액센트 틴트 */
-        active: 'border-accent/40 bg-accent/15 text-accent hover:bg-accent/20',
+        active: 'border-transparent bg-accent/15 text-accent hover:bg-accent/22',
         warn: 'border-warn/50 bg-warn/15 text-warn hover:bg-warn/25',
       },
       size: {

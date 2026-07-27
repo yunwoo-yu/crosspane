@@ -52,6 +52,14 @@ export interface SessionEvents {
  */
 export interface InputTarget {
   clickAt(normalizedX: number, normalizedY: number): Promise<void>;
+  /** 드래그/스와이프 재생 — 좌표는 0~1 정규화 */
+  dragBetween(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    durationMs: number,
+  ): Promise<void>;
   scrollBy(deltaY: number): Promise<void>;
   pressKey(key: string): Promise<void>;
   typeText(text: string): Promise<void>;
@@ -376,6 +384,30 @@ export class EngineSession {
       normalizedX * this.viewport.width,
       normalizedY * this.viewport.height,
     );
+  }
+
+  async dragBetween(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    durationMs: number,
+  ): Promise<void> {
+    const deltaX = (toX - fromX) * this.viewport.width;
+    const deltaY = (toY - fromY) * this.viewport.height;
+    // 세로 위주 드래그 = 터치 스크롤 의도 — 마우스 드래그로 재생하면 모바일
+    // 뷰포트에서 텍스트 선택이 돼버린다 (실측). 검증된 scrollBy 경로로 변환한다
+    if (Math.abs(deltaY) > Math.abs(deltaX) * 1.5) {
+      await this.scrollBy(-deltaY);
+      return;
+    }
+    // 가로/자유 드래그(캐러셀·슬라이더)는 pointer 시퀀스로 재생 —
+    // 중간 move를 여러 스텝으로 보내야 드래그로 인식하는 라이브러리가 많다
+    const steps = Math.max(3, Math.min(12, Math.round(durationMs / 30)));
+    await this.page.mouse.move(fromX * this.viewport.width, fromY * this.viewport.height);
+    await this.page.mouse.down();
+    await this.page.mouse.move(toX * this.viewport.width, toY * this.viewport.height, { steps });
+    await this.page.mouse.up();
   }
 
   /**

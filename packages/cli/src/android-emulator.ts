@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
 import type { InputTarget, SessionEvents } from './session.js';
 
 const execFileAsync = promisify(execFile);
@@ -11,7 +12,7 @@ const ENGINE = 'android' as const;
 const BOOT_TIMEOUT_MS = 180_000;
 // 에뮬레이터 screencap은 회당 수백 ms — 브라우저 엔진보다 느리게 폴링한다
 const IDLE_CAPTURE_INTERVAL_MS = 1_500;
-const ACTIVE_CAPTURE_INTERVAL_MS = 500;
+const ACTIVE_CAPTURE_INTERVAL_MS = 400;
 const ACTIVITY_WINDOW_MS = 5_000;
 // 기준 뷰포트(iPhone 15 프리셋 844px) 대비 스와이프 거리 환산에 쓴다
 const REFERENCE_VIEWPORT_HEIGHT = 844;
@@ -88,7 +89,6 @@ export function toSwipeDistance(deltaY: number, screenHeight: number): number {
  * adb input이 있어서 iOS 시뮬레이터와 달리 탭/스크롤/타이핑까지 완전 미러링된다.
  */
 export class AndroidEmulatorSession implements InputTarget {
-  private disposed = false;
   private activeUntil = 0;
   private lastFrame: Buffer | null = null;
   private currentUrl: string;
@@ -169,15 +169,15 @@ export class AndroidEmulatorSession implements InputTarget {
     );
   }
 
+  private captureLoop: CaptureLoop | null = null;
+
   private startPolling(events: SessionEvents): void {
-    void (async () => {
-      while (!this.disposed) {
-        await this.captureAndEmitFrame(events);
-        const interval =
-          Date.now() < this.activeUntil ? ACTIVE_CAPTURE_INTERVAL_MS : IDLE_CAPTURE_INTERVAL_MS;
-        await new Promise((resolve) => setTimeout(resolve, interval));
-      }
-    })();
+    this.captureLoop = startCaptureLoop({
+      capture: () => this.captureAndEmitFrame(events),
+      isActive: () => Date.now() < this.activeUntil,
+      activeIntervalMs: ACTIVE_CAPTURE_INTERVAL_MS,
+      idleIntervalMs: IDLE_CAPTURE_INTERVAL_MS,
+    });
   }
 
   private async captureAndEmitFrame(events: SessionEvents): Promise<void> {
@@ -199,12 +199,34 @@ export class AndroidEmulatorSession implements InputTarget {
 
   markActivity(): void {
     this.activeUntil = Date.now() + ACTIVITY_WINDOW_MS;
+    // 입력 직후 즉시 캡처 — 화면 반영 지연이 폴링 간격만큼 늘어지는 것을 막는다
+    this.captureLoop?.wake();
   }
 
   async clickAt(normalizedX: number, normalizedY: number): Promise<void> {
     const x = Math.round(normalizedX * this.screen.width);
     const y = Math.round(normalizedY * this.screen.height);
     await this.shell(['input', 'tap', String(x), String(y)]);
+  }
+
+  async dragBetween(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    durationMs: number,
+  ): Promise<void> {
+    // input swipe는 진짜 터치 제스처다 — 네이티브 스크롤/스와이프가 그대로 동작한다
+    const duration = Math.max(40, Math.min(1_000, Math.round(durationMs)));
+    await this.shell([
+      'input',
+      'swipe',
+      String(Math.round(fromX * this.screen.width)),
+      String(Math.round(fromY * this.screen.height)),
+      String(Math.round(toX * this.screen.width)),
+      String(Math.round(toY * this.screen.height)),
+      String(duration),
+    ]);
   }
 
   async scrollBy(deltaY: number): Promise<void> {
@@ -253,7 +275,7 @@ export class AndroidEmulatorSession implements InputTarget {
   }
 
   async dispose(): Promise<void> {
-    this.disposed = true;
+    this.captureLoop?.stop();
     // 다음 실행이 빨라지도록 에뮬레이터는 부팅 상태로 둔다
   }
 

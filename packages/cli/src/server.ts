@@ -19,9 +19,10 @@ export interface PaneController {
   stopEngine(engine: EngineName): Promise<void>;
 }
 
-/** 시뮬레이터 셸앱과의 HTTP 브릿지 — 명령 드레인 / 이벤트 수신 */
+/** 시뮬레이터 셸앱과의 HTTP 브릿지 — 명령 롱폴 / 이벤트 수신 */
 export interface ShellBridge {
-  drainCommands(engine: EngineName): unknown[];
+  /** 명령이 생길 때까지(또는 타임아웃까지) 대기 후 반환 — 입력 지연을 폴링 주기에서 분리한다 */
+  waitForCommands(engine: EngineName): Promise<unknown[]>;
   handleEvent(engine: EngineName, payload: unknown): void;
 }
 
@@ -48,6 +49,14 @@ function applyCommandToSession(session: InputTarget, command: MirrorCommand): Pr
   switch (command.type) {
     case 'click':
       return session.clickAt(command.x, command.y);
+    case 'drag':
+      return session.dragBetween(
+        command.fromX,
+        command.fromY,
+        command.toX,
+        command.toY,
+        command.durationMs,
+      );
     case 'scroll':
       return session.scrollBy(command.deltaY);
     case 'keypress':
@@ -90,8 +99,12 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     if (shellMatch && options.shellBridge) {
       const engine = shellMatch[1] as EngineName;
       if (shellMatch[2] === 'commands') {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(options.shellBridge.drainCommands(engine)));
+        // 롱폴: 명령이 생기면 즉시, 없으면 브릿지의 타임아웃까지 대기 후 빈 배열 응답
+        void options.shellBridge.waitForCommands(engine).then((commands) => {
+          if (res.writableEnded) return;
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(commands));
+        });
       } else {
         let body = '';
         req.on('data', (chunk) => {

@@ -106,7 +106,8 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
       {
         DispatchQueue.main.async { for command in commands { self.execute(command) } }
       }
-      DispatchQueue.global().asyncAfter(deadline: .now() + 0.25) { self.pollCommands() }
+      // 서버가 롱폴로 응답을 잡아두므로(명령 발생 시 즉시 응답) 곧바로 재폴링한다
+      DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { self.pollCommands() }
     }.resume()
   }
 
@@ -136,6 +137,32 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
     case "scroll":
       let deltaY = command["deltaY"] as? Double ?? 0
       webView.evaluateJavaScript("window.scrollBy(0, \(deltaY));")
+    case "drag":
+      // 합성 터치는 WKWebView 네이티브 스크롤을 움직이지 못한다 —
+      // 세로 위주 드래그는 scrollBy로 재현하고, 그 외(캐러셀 등)는 pointer 시퀀스로 전달
+      let fromX = command["fromX"] as? Double ?? 0
+      let fromY = command["fromY"] as? Double ?? 0
+      let toX = command["toX"] as? Double ?? 0
+      let toY = command["toY"] as? Double ?? 0
+      let js = """
+        (function () {
+          const fx = \(fromX) * screen.width, fy = \(fromY) * screen.height;
+          const tx = \(toX) * screen.width, ty = \(toY) * screen.height;
+          const dx = tx - fx, dy = ty - fy;
+          if (Math.abs(dy) > Math.abs(dx) * 1.5) {
+            window.scrollBy(0, -dy);
+            return;
+          }
+          const el = document.elementFromPoint(fx, fy) || document.body;
+          const opts = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true });
+          el.dispatchEvent(new PointerEvent('pointerdown', opts(fx, fy)));
+          for (let i = 1; i <= 5; i++) {
+            el.dispatchEvent(new PointerEvent('pointermove', opts(fx + (dx * i) / 5, fy + (dy * i) / 5)));
+          }
+          el.dispatchEvent(new PointerEvent('pointerup', opts(tx, ty)));
+        })();
+        """
+      webView.evaluateJavaScript(js)
     case "type":
       if let text = command["text"] as? String,
         let encoded = try? JSONSerialization.data(withJSONObject: [text]),

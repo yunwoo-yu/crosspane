@@ -117,9 +117,11 @@ async function main(): Promise<void> {
     paneController,
     // 시뮬레이터 셸앱 브릿지 — 세션이 셸 모드일 때만 실동작한다
     shellBridge: {
-      drainCommands(engine) {
+      waitForCommands(engine) {
         const session = sessions.get(engine);
-        return session instanceof IosSimulatorSession ? session.drainShellCommands() : [];
+        return session instanceof IosSimulatorSession
+          ? session.waitForShellCommands()
+          : Promise.resolve([]);
       },
       handleEvent(engine, payload) {
         const session = sessions.get(engine);

@@ -82,6 +82,8 @@ export type ClientCommand =
   | { type: 'start-engine'; engine: EngineName }
   | { type: 'stop-engine'; engine: EngineName }
   | { type: 'click'; x: number; y: number }
+  /** 드래그/스와이프 — 좌표는 0~1 정규화, durationMs는 제스처 소요 시간 */
+  | { type: 'drag'; fromX: number; fromY: number; toX: number; toY: number; durationMs: number }
   | { type: 'scroll'; deltaY: number }
   | { type: 'keypress'; key: string }
   | { type: 'type'; text: string }

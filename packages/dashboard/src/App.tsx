@@ -8,6 +8,7 @@ import { Button } from './components/ui/button';
 import { ToastStack, useToasts } from './components/ui/toast';
 import { ENGINE_SHORT_LABEL } from './constants';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
+import { usePanelHeight } from './hooks/usePanelHeight';
 import { countErrorsSinceLastNavigation, detectUrlDesync } from './log-utils';
 import { buildReportHtml, downloadReport } from './report-utils';
 import type { ClientCommand, EngineName } from './types';
@@ -47,27 +48,7 @@ export default function App() {
     (engine: EngineName) => paneCanvasesRef.current.get(engine) ?? null,
     [],
   );
-  // 하단 패널 높이 — 드래그 리사이즈, localStorage 유지
-  const [panelHeight, setPanelHeight] = useState(() => {
-    const saved = Number(localStorage.getItem('crosspane.panelHeight'));
-    return Number.isFinite(saved) && saved >= 120 ? saved : 250;
-  });
-  const startPanelResize = (event: React.PointerEvent) => {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = panelHeight;
-    const onMove = (move: PointerEvent) => {
-      const next = Math.min(600, Math.max(120, startHeight + (startY - move.clientY)));
-      setPanelHeight(next);
-      localStorage.setItem('crosspane.panelHeight', String(next));
-    };
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  };
+  const { panelHeight, startPanelResize } = usePanelHeight();
 
   const errorCountFor = useCallback(
     (engine: EngineName) => countErrorsSinceLastNavigation(logs, engine),
@@ -190,7 +171,7 @@ export default function App() {
           onPointerDown={startPanelResize}
           title="드래그로 패널 높이 조절"
         />
-        <div className="flex items-center gap-1 border-line border-b px-3 pb-1.5">
+        <div className="flex items-center gap-1.5 border-line border-b px-4 pb-2">
           <Button
             variant={bottomTab === 'console' ? 'active' : 'ghost'}
             size="icon"

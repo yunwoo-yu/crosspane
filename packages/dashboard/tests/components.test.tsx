@@ -166,6 +166,9 @@ describe('EnginePane', () => {
     if (!window.PointerEvent) {
       window.PointerEvent = window.MouseEvent as unknown as typeof PointerEvent;
     }
+    // jsdom에는 포인터 캡처 API가 없다 — 제스처 추적 테스트용 no-op
+    Element.prototype.setPointerCapture ??= () => {};
+    Element.prototype.releasePointerCapture ??= () => {};
   });
 
   it('클릭 좌표를 0~1로 정규화해서 보낸다', () => {
@@ -186,8 +189,32 @@ describe('EnginePane', () => {
     const { emitFrame } = renderEnginePane({ onSendCommand });
     emitFrame(); // 프레임이 있어야 canvas가 표시된다
 
-    fireEvent.pointerDown(screen.getByLabelText('chromium'), { clientX: 50, clientY: 50 });
+    const canvas = screen.getByLabelText('chromium');
+    fireEvent.pointerDown(canvas, { clientX: 50, clientY: 50 });
+    expect(onSendCommand).not.toHaveBeenCalled(); // 제스처는 pointerup에서 분류된다
+    fireEvent.pointerUp(canvas, { clientX: 51, clientY: 50 });
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'click', x: 0.5, y: 0.25 });
+  });
+
+  it('임계 이상 이동한 포인터 제스처는 drag 커맨드로 보낸다', () => {
+    (Element.prototype as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 200,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const onSendCommand = vi.fn();
+    const { emitFrame } = renderEnginePane({ onSendCommand });
+    emitFrame();
+    const canvas = screen.getByLabelText('chromium');
+    fireEvent.pointerDown(canvas, { clientX: 50, clientY: 160 });
+    fireEvent.pointerUp(canvas, { clientX: 50, clientY: 40 });
+    expect(onSendCommand).toHaveBeenCalledTimes(1);
+    const command = onSendCommand.mock.calls[0][0];
+    expect(command).toMatchObject({ type: 'drag', fromX: 0.5, fromY: 0.8, toX: 0.5, toY: 0.2 });
+    expect(command.durationMs).toBeGreaterThanOrEqual(40);
   });
 
   it('휠 델타를 모아 하나의 scroll 커맨드로 보내고, 로컬 에코로 즉시 이동시킨다', () => {

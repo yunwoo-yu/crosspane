@@ -11,6 +11,7 @@ import type { EngineSession, InputTarget } from '../src/session';
 function fakeSession() {
   return {
     clickAt: vi.fn(async () => {}),
+    dragBetween: vi.fn(async () => {}),
     scrollBy: vi.fn(async () => {}),
     pressKey: vi.fn(async () => {}),
     typeText: vi.fn(async () => {}),
@@ -173,6 +174,19 @@ describe('startDashboardServer', () => {
     await vi.waitFor(() => {
       expect(a.clickAt).toHaveBeenCalledWith(0.5, 0.25);
       expect(b.clickAt).toHaveBeenCalledWith(0.5, 0.25);
+    });
+
+    client.sendCommand({
+      type: 'drag',
+      fromX: 0.5,
+      fromY: 0.8,
+      toX: 0.5,
+      toY: 0.2,
+      durationMs: 200,
+    });
+    await vi.waitFor(() => {
+      expect(a.dragBetween).toHaveBeenCalledWith(0.5, 0.8, 0.5, 0.2, 200);
+      expect(b.dragBetween).toHaveBeenCalledWith(0.5, 0.8, 0.5, 0.2, 200);
     });
 
     client.sendCommand({ type: 'scroll', deltaY: 120 });

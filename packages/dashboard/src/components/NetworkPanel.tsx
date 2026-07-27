@@ -40,7 +40,7 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-line border-b px-3 py-1.5">
+      <div className="flex items-center gap-2 border-line border-b px-4 py-2">
         <Input
           className="max-w-56"
           value={search}
@@ -70,7 +70,7 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-panel text-left text-[10px] text-fg-muted uppercase tracking-wider">
             <tr>
-              <th className="px-3 py-1 font-medium">method</th>
+              <th className="py-1 pr-3 pl-4 font-medium">method</th>
               <th className="py-1 pr-3 font-medium">url</th>
               {columns.map((engine) => (
                 <th key={engine} className="py-1 pr-3 font-medium">
@@ -91,7 +91,7 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
                   )}
                   onClick={() => setExpandedKey((key) => (key === row.key ? null : row.key))}
                 >
-                  <td className="px-3 py-0.5 text-fg-muted">{row.method}</td>
+                  <td className="py-0.5 pr-3 pl-4 text-fg-muted">{row.method}</td>
                   <td className="max-w-96 truncate py-0.5 pr-3" title={row.url}>
                     {toDisplayPath(row.url)}
                   </td>
@@ -117,7 +117,7 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
                 </tr>
                 {expandedKey === row.key && (
                   <tr>
-                    <td colSpan={2 + columns.length} className="bg-app/60 px-3 py-2">
+                    <td colSpan={2 + columns.length} className="bg-app/60 px-4 py-2">
                       <div className="flex flex-wrap gap-4">
                         {columns.map((engine) => {
                           const detail = row.perEngine[engine]?.entry;
@@ -152,7 +152,7 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
           </tbody>
         </table>
         {rows.length === 0 && (
-          <div className="px-3 py-4 text-fg-muted">요청 없음 — 페이지를 조작해보세요</div>
+          <div className="px-4 py-6 text-fg-muted">요청 없음 — 페이지를 조작해보세요</div>
         )}
       </div>
     </div>

@@ -16,3 +16,6 @@ paths:
 - `requestfailed`의 취소류 필터(`isAbortedRequestError`)를 제거하지 말 것 —
   Next.js prefetch 취소 등이 에러 배지를 오염시킨다 (배지 9 오탐 실측)
 - 클릭 좌표는 0~1 정규화로 받는다 — 픽셀 좌표를 넘기는 클라이언트를 가정하지 말 것
+- 드래그(제스처)는 **세로 위주면 scrollBy로 변환**할 것 — Playwright mouse 드래그는
+  모바일 뷰포트에서 텍스트 선택이 된다 (실측). 가로/자유 드래그만 pointer 시퀀스로 재생
+  (iOS 셸도 동일 휴리스틱: 합성 터치는 WKWebView 네이티브 스크롤을 못 움직인다)
