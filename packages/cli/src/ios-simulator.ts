@@ -24,8 +24,9 @@ interface SimctlDevice {
   isAvailable: boolean;
 }
 
-/** xcode-select가 CLT를 가리켜도 Xcode.app이 있으면 DEVELOPER_DIR로 우회한다 */
+/** xcode-select가 CLT를 가리켜도 Xcode.app이 있으면 DEVELOPER_DIR로 우회한다. macOS 전용 */
 export function resolveDeveloperDir(): string | undefined {
+  if (process.platform !== 'darwin') return undefined;
   if (process.env.DEVELOPER_DIR) return process.env.DEVELOPER_DIR;
   return existsSync(XCODE_DEVELOPER_DIR) ? XCODE_DEVELOPER_DIR : undefined;
 }
@@ -82,7 +83,7 @@ export class IosSimulatorSession implements InputTarget {
     events.onStatus(ENGINE, 'starting');
     const developerDir = resolveDeveloperDir();
     if (!developerDir) {
-      throw new Error('Xcode not found — install Xcode.app to use --ios-sim');
+      throw new Error('iOS Simulator pane requires macOS with Xcode.app installed');
     }
 
     const list = await simctl(developerDir, ['list', 'devices', 'available', '-j']);

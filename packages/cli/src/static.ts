@@ -35,9 +35,11 @@ export async function serveDashboardFile(
 ): Promise<void> {
   const urlPath = (req.url ?? '/').split('?')[0];
   const relativePath = urlPath === '/' ? 'index.html' : urlPath.slice(1);
-  const filePath = path.join(rootDir, path.normalize(relativePath));
-  // 경로 탈출(../) 방어: 해석된 최종 경로가 루트 밖이면 거부
-  if (!filePath.startsWith(rootDir)) {
+  const resolvedRoot = path.resolve(rootDir);
+  const filePath = path.resolve(resolvedRoot, path.normalize(relativePath));
+  // 경로 탈출(../) 방어: 구분자까지 포함해 비교해야 형제 디렉터리
+  // (예: /root-evil)가 /root의 prefix로 통과하는 것을 막는다. Windows 경로 호환.
+  if (filePath !== resolvedRoot && !filePath.startsWith(resolvedRoot + path.sep)) {
     res.writeHead(403).end();
     return;
   }

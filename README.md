@@ -96,6 +96,21 @@ Frames are captured at CSS-pixel scale (not device scale — an iPhone 15 preset
 DPR 3, which would be 9× the pixels) and drawn straight to a `<canvas>` per pane,
 bypassing React state entirely.
 
+## Platform support
+
+Core panes (Chromium / WebKit / Firefox) work on **macOS, Windows and Linux** —
+Playwright ships engine builds for all three, so iOS-approximate WebKit testing
+works even on Windows. Real-device panes degrade gracefully: if the required SDK
+is missing, the pane is skipped with a clear notice and everything else still works.
+
+| Pane | macOS | Windows | Linux |
+|---|---|---|---|
+| Chromium / WebKit / Firefox | ✅ | ✅ | ✅ |
+| Android emulator / USB device (adb) | ✅ | ✅ (`%LOCALAPPDATA%\Android\Sdk` auto-detected) | ✅ (`~/Android/Sdk`) |
+| iOS Simulator | ✅ (Xcode) | — (Apple limitation) | — (Apple limitation) |
+
+CI runs the full build and test suite on all three operating systems.
+
 ## Known limits
 
 - Playwright WebKit ≈ iOS WKWebView, but not pixel-identical (font rendering, some CSS quirks)

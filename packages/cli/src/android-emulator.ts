@@ -31,15 +31,39 @@ export const ANDROID_KEYCODES: Record<string, number> = {
   Forward: 125,
 };
 
-/** ANDROID_HOME/일반 설치 경로에서 SDK 루트를 찾는다 */
+/** Windows는 실행 파일 확장자가 다르다 */
+export function adbExecutableName(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? 'adb.exe' : 'adb';
+}
+
+export function emulatorExecutableName(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? 'emulator.exe' : 'emulator';
+}
+
+/** OS별 Android SDK 표준 설치 경로 후보 (환경변수 최우선) */
+export function androidSdkCandidateDirs(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home: string = homedir(),
+): string[] {
+  const candidates = [env.ANDROID_HOME, env.ANDROID_SDK_ROOT];
+  if (platform === 'darwin') {
+    candidates.push(
+      join(home, 'Library/Android/sdk'),
+      '/opt/homebrew/share/android-commandlinetools',
+    );
+  } else if (platform === 'win32') {
+    if (env.LOCALAPPDATA) candidates.push(join(env.LOCALAPPDATA, 'Android', 'Sdk'));
+  } else {
+    candidates.push(join(home, 'Android/Sdk'));
+  }
+  return candidates.filter((dir): dir is string => Boolean(dir));
+}
+
 export function resolveAndroidSdkDir(): string | undefined {
-  const candidates = [
-    process.env.ANDROID_HOME,
-    process.env.ANDROID_SDK_ROOT,
-    join(homedir(), 'Library/Android/sdk'),
-    '/opt/homebrew/share/android-commandlinetools',
-  ].filter((dir): dir is string => Boolean(dir));
-  return candidates.find((dir) => existsSync(join(dir, 'platform-tools/adb')));
+  return androidSdkCandidateDirs().find((dir) =>
+    existsSync(join(dir, 'platform-tools', adbExecutableName())),
+  );
 }
 
 /** `adb shell wm size` 출력에서 화면 크기를 파싱한다 */
@@ -86,7 +110,7 @@ export class AndroidEmulatorSession implements InputTarget {
         'Android SDK not found — install platform-tools/emulator (e.g. brew install --cask android-commandlinetools)',
       );
     }
-    const adbPath = join(sdkDir, 'platform-tools/adb');
+    const adbPath = join(sdkDir, 'platform-tools', adbExecutableName());
 
     let serial = await findConnectedDevice(adbPath);
     if (!serial) {
@@ -236,7 +260,7 @@ async function findConnectedDevice(adbPath: string): Promise<string | undefined>
 
 /** AVD가 있으면 헤드리스로 부팅하고 boot_completed까지 대기한다 */
 async function bootHeadlessEmulator(sdkDir: string, adbPath: string): Promise<string> {
-  const emulatorPath = join(sdkDir, 'emulator/emulator');
+  const emulatorPath = join(sdkDir, 'emulator', emulatorExecutableName());
   if (!existsSync(emulatorPath)) {
     throw new Error('No connected Android device and no emulator installed');
   }

@@ -1,5 +1,43 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ANDROID_KEYCODES, parseScreenSize, toSwipeDistance } from '../src/android-emulator';
+import {
+  ANDROID_KEYCODES,
+  adbExecutableName,
+  androidSdkCandidateDirs,
+  emulatorExecutableName,
+  parseScreenSize,
+  toSwipeDistance,
+} from '../src/android-emulator';
+
+describe('크로스 플랫폼 SDK 탐지', () => {
+  it('Windows는 %LOCALAPPDATA%\\Android\\Sdk와 .exe 실행 파일을 쓴다', () => {
+    const dirs = androidSdkCandidateDirs(
+      { LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' },
+      'win32',
+      'C:\\Users\\me',
+    );
+    expect(dirs).toContain(join('C:\\Users\\me\\AppData\\Local', 'Android', 'Sdk'));
+    expect(adbExecutableName('win32')).toBe('adb.exe');
+    expect(emulatorExecutableName('win32')).toBe('emulator.exe');
+  });
+
+  it('Linux는 ~/Android/Sdk를 후보에 넣는다', () => {
+    const dirs = androidSdkCandidateDirs({}, 'linux', '/home/me');
+    expect(dirs).toContain(join('/home/me', 'Android/Sdk'));
+    expect(adbExecutableName('linux')).toBe('adb');
+  });
+
+  it('macOS는 표준 경로와 homebrew 경로를 후보에 넣는다', () => {
+    const dirs = androidSdkCandidateDirs({}, 'darwin', '/Users/me');
+    expect(dirs).toContain(join('/Users/me', 'Library/Android/sdk'));
+    expect(dirs).toContain('/opt/homebrew/share/android-commandlinetools');
+  });
+
+  it('ANDROID_HOME 환경변수가 모든 OS에서 최우선이다', () => {
+    const dirs = androidSdkCandidateDirs({ ANDROID_HOME: '/custom/sdk' }, 'linux', '/home/me');
+    expect(dirs[0]).toBe('/custom/sdk');
+  });
+});
 
 describe('parseScreenSize', () => {
   it('wm size 출력에서 해상도를 파싱한다', () => {

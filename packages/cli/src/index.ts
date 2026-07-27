@@ -29,10 +29,28 @@ async function main(): Promise<void> {
   const options = parseCliArguments(argv);
   const viewport = resolveDeviceViewport(options.device);
 
-  // 실기기 pane(iOS 시뮬레이터/Android)은 SDK가 감지되면 자동 활성화한다 —
-  // 실제 환경 검증이 이 툴의 정체성이다
-  const useIosSimulator = options.iosSimulator ?? resolveDeveloperDir() !== undefined;
-  const useAndroid = options.android ?? resolveAndroidSdkDir() !== undefined;
+  // 실기기 pane 가용성: OS/SDK에 따라 다르다. 없으면 조용히 죽는 대신
+  // 이유를 알려주고, 코어 엔진 pane은 어떤 환경에서든 항상 동작한다.
+  const iosAvailable = resolveDeveloperDir() !== undefined;
+  const androidAvailable = resolveAndroidSdkDir() !== undefined;
+  if (options.iosSimulator === true && !iosAvailable) {
+    console.warn('  ⚠ --ios-sim ignored: requires macOS with Xcode.app installed');
+  }
+  if (options.android === true && !androidAvailable) {
+    console.warn(
+      '  ⚠ --android ignored: Android SDK not found (set ANDROID_HOME or install Android Studio)',
+    );
+  }
+  if (options.iosSimulator === undefined && !iosAvailable) {
+    console.log('  ℹ ios-sim pane skipped — requires macOS with Xcode');
+  }
+  if (options.android === undefined && !androidAvailable) {
+    console.log(
+      '  ℹ android pane skipped — Android SDK not found (set ANDROID_HOME or install Android Studio)',
+    );
+  }
+  const useIosSimulator = (options.iosSimulator ?? true) && iosAvailable;
+  const useAndroid = (options.android ?? true) && androidAvailable;
   const paneEngines: EngineName[] = [
     ...options.engines,
     ...(useAndroid ? (['android'] as const) : []),
@@ -120,9 +138,7 @@ async function main(): Promise<void> {
   for (const [index, result] of launchResults.entries()) {
     if (result.status === 'rejected') {
       console.error(`  ✗ ${options.engines[index]} failed: ${String(result.reason)}`);
-      console.error(
-        `    (missing browser? run: pnpm exec playwright install ${options.engines[index]})`,
-      );
+      console.error(`    (missing browser? run: npx playwright install ${options.engines[index]})`);
     }
   }
   if (sessions.size === 0) {
