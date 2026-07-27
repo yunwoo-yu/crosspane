@@ -36,3 +36,30 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  # 유닛테스트가 못 잡는 회귀(엔진 기동/프레임 스트림/입력 미러링)를 실기동으로 검증
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter crosspane exec playwright install --with-deps chromium
+
+      - name: Build
+        run: pnpm build
+
+      - name: Smoke test
+        run: pnpm smoke
