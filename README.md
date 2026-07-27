@@ -21,14 +21,16 @@ Point it at your local dev server (`pnpm dev`) and see how your webview screens 
 
 ```bash
 pnpm install
-pnpm exec playwright install chromium webkit firefox   # engine binaries (once)
+pnpm --filter crosspane exec playwright install chromium webkit firefox   # engine binaries (once)
 pnpm build
+pnpm --filter crosspane link --global   # register the `crosspane` command (until npm publish)
 
 # terminal 1 — your app
 pnpm dev            # e.g. localhost:3000
 
 # terminal 2
-node packages/cli/dist/index.js :3000
+crosspane           # interactive: pick what to run and the port
+crosspane :3000     # or pass everything directly
 # → open http://localhost:7788
 ```
 
