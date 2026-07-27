@@ -29,7 +29,9 @@ export class PaneScreen {
   ) {}
 
   // relative 에코 상태 — 각 델타는 ECHO_DECAY_MS에 걸쳐 0으로 감쇠 (스트림이 따라오는 시간)
-  private static readonly RELATIVE_DECAY_MS = 500;
+  private static readonly RELATIVE_DECAY_MS = 300;
+  /** 상대 에코 최대 오프셋 (캔버스 높이 비율) — 과하면 빈(검은) 영역이 크게 노출된다 */
+  private static readonly RELATIVE_MAX_RATIO = 0.12;
   private relativeDeltas: { delta: number; ts: number }[] = [];
   private decayRafScheduled = false;
   private lastCanvas: HTMLCanvasElement | null = null;
@@ -42,7 +44,10 @@ export class PaneScreen {
       (sum, entry) => sum + entry.delta * (1 - (now - entry.ts) / PaneScreen.RELATIVE_DECAY_MS),
       0,
     );
-    if (this.lastCanvas) applyEchoOffset(this.lastCanvas, offset);
+    if (this.lastCanvas) {
+      const cap = this.lastCanvas.height * PaneScreen.RELATIVE_MAX_RATIO;
+      applyEchoOffset(this.lastCanvas, Math.max(-cap, Math.min(cap, offset)));
+    }
     if (this.relativeDeltas.length > 0 && !this.decayRafScheduled) {
       this.decayRafScheduled = true;
       requestAnimationFrame(() => {

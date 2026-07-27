@@ -79,6 +79,9 @@ export class H264AnnexBParser {
   private pps: Uint8Array | null = null;
   /** 현재 유닛에 붙일 비VCL NAL 대기열 (SEI 등) */
   private leadingNals: Uint8Array[] = [];
+  /** 누적 중인 액세스 유닛의 슬라이스들 — 한 프레임이 여러 VCL NAL일 수 있다 (Apple 인코더) */
+  private currentSlices: Uint8Array[] = [];
+  private currentIsKeyframe = false;
 
   /** 마지막으로 파싱된 SPS 기준 codec 문자열 (SPS 도착 전엔 null) */
   codec: string | null = null;
@@ -90,13 +93,16 @@ export class H264AnnexBParser {
    * 드물게 잘린 NAL이면 디코더 에러 → 파이프라인 리셋으로 자가 복구된다.
    */
   flushPending(): H264AccessUnit[] {
-    const marks = findStartCodes(this.pending);
-    if (marks.length !== 1) return [];
-    const nal = this.pending.subarray(marks[0].nalStart);
-    if (nal.length < 2) return [];
-    this.pending = new Uint8Array(0);
     const units: H264AccessUnit[] = [];
-    this.consumeNal(nal.slice(), units);
+    const marks = findStartCodes(this.pending);
+    if (marks.length === 1) {
+      const nal = this.pending.subarray(marks[0].nalStart);
+      if (nal.length >= 2) {
+        this.pending = new Uint8Array(0);
+        this.consumeNal(nal.slice(), units);
+      }
+    }
+    this.emitCurrent(units); // 누적 중이던 프레임 마감
     return units;
   }
 
@@ -121,6 +127,7 @@ export class H264AnnexBParser {
   private consumeNal(nal: Uint8Array, units: H264AccessUnit[]): void {
     const type = nal[0] & 0x1f;
     if (type === NAL_TYPE_SPS) {
+      this.emitCurrent(units); // 새 시퀀스 시작 — 누적 중 유닛 마감
       this.sps = nal.slice();
       this.codec = codecStringFromSps(nal);
       return; // 키프레임 유닛에 합쳐 붙인다
@@ -130,17 +137,30 @@ export class H264AnnexBParser {
       return;
     }
     if (type !== NAL_TYPE_IDR && type !== NAL_TYPE_NON_IDR) {
+      this.emitCurrent(units); // 픽처 뒤 비VCL은 다음 유닛 소속
       this.leadingNals.push(nal.slice());
       return;
     }
-    const isKeyframe = type === NAL_TYPE_IDR;
+    // 한 프레임이 여러 슬라이스(VCL NAL)로 올 수 있다(Apple 인코더) —
+    // first_mb_in_slice==0(ue(v) 첫 비트 1)이면 새 픽처의 첫 슬라이스다
+    const isFirstSlice = (nal[1] & 0x80) !== 0;
+    if (isFirstSlice) this.emitCurrent(units);
+    this.currentIsKeyframe = this.currentIsKeyframe || type === NAL_TYPE_IDR;
+    this.currentSlices.push(nal.slice());
+  }
+
+  /** 누적된 슬라이스들을 하나의 액세스 유닛으로 방출한다 */
+  private emitCurrent(units: H264AccessUnit[]): void {
+    if (this.currentSlices.length === 0) return;
     const parts: Uint8Array[] = [];
-    if (isKeyframe && this.sps && this.pps) {
+    if (this.currentIsKeyframe && this.sps && this.pps) {
       parts.push(withStartCode(this.sps), withStartCode(this.pps));
     }
     for (const leading of this.leadingNals) parts.push(withStartCode(leading));
     this.leadingNals = [];
-    parts.push(withStartCode(nal));
-    units.push({ data: concat(parts), isKeyframe });
+    for (const slice of this.currentSlices) parts.push(withStartCode(slice));
+    units.push({ data: concat(parts), isKeyframe: this.currentIsKeyframe });
+    this.currentSlices = [];
+    this.currentIsKeyframe = false;
   }
 }

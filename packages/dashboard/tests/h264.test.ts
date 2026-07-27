@@ -7,17 +7,21 @@ const sc4 = [0, 0, 0, 1];
 const sc3 = [0, 0, 1];
 const SPS = nal(7, 0x64, 0x00, 0x28, 0xaa); // profile 0x64, level 0x28
 const PPS = nal(8, 0xee);
-const IDR = nal(5, 0x11, 0x22);
-const P_FRAME = nal(1, 0x33);
+const IDR = nal(5, 0x88, 0x22); // 0x88: first_mb_in_slice=0
+const P_FRAME = nal(1, 0x99); // MSB 1 = 새 픽처
 
 const bytes = (...parts: number[][]) => new Uint8Array(parts.flat());
+/** 스트림 종료까지 흘려보내고 남은 프레임까지 회수 (AU는 다음 픽처 도착 시 방출됨) */
+const drain = (parser: H264AnnexBParser, data: Uint8Array) => [
+  ...parser.push(data),
+  ...parser.flushPending(),
+];
 
 describe('H264AnnexBParser', () => {
   it('SPS/PPS를 흡수하고 IDR을 키프레임 유닛으로 만든다 (SPS/PPS 동봉)', () => {
     const parser = new H264AnnexBParser();
-    // 마지막 NAL은 다음 시작 코드가 와야 완결된다 — 후속 P로 IDR을 밀어낸다
-    const units = parser.push(bytes(sc4, SPS, sc4, PPS, sc4, IDR, sc4, P_FRAME));
-    expect(units).toHaveLength(1);
+    const units = drain(parser, bytes(sc4, SPS, sc4, PPS, sc4, IDR, sc4, P_FRAME));
+    expect(units).toHaveLength(2); // IDR 유닛 + 마지막 P(플러시)
     expect(units[0].isKeyframe).toBe(true);
     // 유닛 안에 SPS(7)·PPS(8)·IDR(5)이 모두 들어 있다
     const types = [...units[0].data.join(',').matchAll(/(?:^|,)0,0,0,1,(\d+)/g)].map(
@@ -35,17 +39,36 @@ describe('H264AnnexBParser', () => {
     for (let i = 0; i < stream.length; i += 3) {
       units = units.concat(parser.push(stream.subarray(i, i + 3)));
     }
-    expect(units).toHaveLength(2); // IDR + 첫 P (마지막 P는 미완로 보류)
+    units = units.concat(parser.flushPending());
+    expect(units).toHaveLength(3); // IDR + P + P(플러시)
     expect(units[0].isKeyframe).toBe(true);
     expect(units[1].isKeyframe).toBe(false);
   });
 
   it('P프레임은 델타 유닛 — SPS/PPS를 붙이지 않는다', () => {
     const parser = new H264AnnexBParser();
-    const units = parser.push(bytes(sc4, SPS, sc4, PPS, sc4, IDR, sc4, P_FRAME, sc4, P_FRAME));
-    expect(units).toHaveLength(2);
+    const units = drain(parser, bytes(sc4, SPS, sc4, PPS, sc4, IDR, sc4, P_FRAME, sc4, P_FRAME));
+    expect(units).toHaveLength(3);
     expect(units[1].isKeyframe).toBe(false);
     expect(units[1].data[4] & 0x1f).toBe(1); // 시작 코드 바로 뒤가 P NAL
+  });
+});
+
+describe('멀티 슬라이스 프레임 (Apple 인코더)', () => {
+  it('first_mb!=0 슬라이스는 같은 유닛으로 누적된다', () => {
+    const parser = new H264AnnexBParser();
+    const SLICE2 = nal(5, 0x22); // MSB 0 → 같은 픽처의 후속 슬라이스
+    const units = drain(
+      parser,
+      bytes(sc4, SPS, sc4, PPS, sc4, IDR, sc4, SLICE2, sc4, P_FRAME, sc4, P_FRAME),
+    );
+    // IDR+SLICE2가 한 유닛, P 둘이 각각 유닛
+    expect(units).toHaveLength(3);
+    expect(units[0].isKeyframe).toBe(true);
+    const vclCount = [...units[0].data.join(',').matchAll(/(?:^|,)0,0,0,1,(\d+)/g)].filter(
+      (m) => (Number(m[1]) & 0x1f) === 5,
+    ).length;
+    expect(vclCount).toBe(2); // 슬라이스 2개 동봉
   });
 });
 
