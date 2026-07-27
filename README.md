@@ -13,19 +13,17 @@ in-app browsers) who need to catch production-environment bugs before deploying.
 ## Quick start
 
 ```bash
-pnpm install
-pnpm --filter crosspane exec playwright install chromium webkit firefox   # engine binaries (once)
-pnpm build
-pnpm --filter crosspane link --global   # register the `crosspane` command (until npm publish)
-
 # terminal 1 — your app
-pnpm dev            # e.g. localhost:3000
+pnpm dev                 # e.g. localhost:3000
 
 # terminal 2
-crosspane           # interactive: pick what to run and the port
-crosspane :3000     # or pass everything directly
+npx crosspane            # interactive: pick what to run and the port
+npx crosspane :3000      # or pass everything directly
 # → open http://localhost:7788
 ```
+
+First run downloads the engine binaries. If a browser is missing, run
+`npx playwright install chromium webkit firefox` once.
 
 ## Features
 
