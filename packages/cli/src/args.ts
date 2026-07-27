@@ -22,6 +22,7 @@ Options:
   --inject <path>      JS file injected into every page before load (bridge mocks etc.)
   --user-agent <ua>    Exact UA for every engine (reproduce your app's custom webview UA)
   --preset-ua          Use Playwright's browser preset UA instead of webview UA emulation
+  --fresh              Start with a clean session (ignore saved logins/storage)
   --ios-sim            Force the real iOS Simulator pane regardless of profile
   --no-ios-sim         Disable the iOS Simulator pane
   --android            Force the real Android pane regardless of profile
@@ -50,6 +51,8 @@ export interface CliOptions {
   customUserAgent?: string;
   /** 웹뷰 환경 에뮬레이션(UA/서비스워커) 사용 여부 — 기본 켜짐 */
   emulateWebview: boolean;
+  /** 저장된 로그인 세션을 무시하고 깨끗하게 시작 */
+  freshSession: boolean;
 }
 
 const SUPPORTED_ENGINES: readonly BrowserEngineName[] = ['chromium', 'webkit', 'firefox'];
@@ -114,6 +117,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let injectScriptPath: string | undefined;
   let customUserAgent: string | undefined;
   let emulateWebview = true;
+  let freshSession = false;
 
   while (args.length > 0) {
     const flag = args.shift();
@@ -121,6 +125,10 @@ export function parseCliArguments(argv: string[]): CliOptions {
     // 값이 없는 불리언 플래그
     if (flag === '--preset-ua') {
       emulateWebview = false;
+      continue;
+    }
+    if (flag === '--fresh') {
+      freshSession = true;
       continue;
     }
     if (flag === '--ios-sim') {
@@ -178,5 +186,6 @@ export function parseCliArguments(argv: string[]): CliOptions {
     injectScriptPath,
     customUserAgent,
     emulateWebview,
+    freshSession,
   };
 }

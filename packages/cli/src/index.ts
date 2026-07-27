@@ -128,6 +128,7 @@ async function main(): Promise<void> {
           injectScriptPath: options.injectScriptPath,
           customUserAgent: options.customUserAgent,
           emulateWebview: options.emulateWebview,
+          freshSession: options.freshSession,
         },
         sessionEvents,
       );

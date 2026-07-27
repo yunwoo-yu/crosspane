@@ -1,5 +1,16 @@
+import { existsSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { type Browser, chromium, devices, firefox, type Page, webkit } from 'playwright';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import {
+  type Browser,
+  type BrowserContext,
+  chromium,
+  devices,
+  firefox,
+  type Page,
+  webkit,
+} from 'playwright';
 import type { Viewport } from './devices.js';
 import {
   type BrowserEngineName,
@@ -62,6 +73,18 @@ export interface SessionOptions {
   customUserAgent?: string;
   /** 웹뷰 환경 에뮬레이션 — UA를 실배포 웹뷰와 동일하게, WKWebView는 SW 차단 */
   emulateWebview: boolean;
+  /** 저장된 로그인 세션(storageState)을 무시하고 깨끗하게 시작 */
+  freshSession?: boolean;
+}
+
+/**
+ * 로그인 세션 저장 위치: ~/.crosspane/state/<origin>/<engine>.json
+ * 실무 앱은 대부분 로그인 뒤에 있다 — 켤 때마다 전 엔진 재로그인하지 않도록
+ * 쿠키/스토리지를 종료 시 저장하고 다음 실행에서 복원한다. (오리진별 분리)
+ */
+export function sessionStatePath(targetUrl: string, engine: BrowserEngineName): string {
+  const origin = new URL(targetUrl).origin.replace(/[^a-zA-Z0-9]+/g, '_');
+  return join(homedir(), '.crosspane', 'state', origin, `${engine}.json`);
 }
 
 /**
@@ -104,8 +127,10 @@ export class EngineSession {
   private constructor(
     readonly engine: BrowserEngineName,
     private readonly browser: Browser,
+    private readonly context: BrowserContext,
     private readonly page: Page,
     private readonly viewport: Viewport,
+    private readonly statePath: string,
   ) {}
 
   static async launch(
@@ -121,8 +146,13 @@ export class EngineSession {
       options.customUserAgent ??
       (options.emulateWebview ? buildWebviewUserAgent(engine, devicePreset.userAgent) : undefined);
 
-    const browser = await launchers[engine].launch();
-    const context = await browser.newContext({
+    // Playwright의 기본 시그널 핸들러는 SIGINT/SIGTERM에서 브라우저를 즉시 닫아
+    // 종료 시 세션 저장(storageState)이 실패한다 — 종료는 index.ts의 shutdown이 관리
+    const browser = await launchers[engine].launch({
+      handleSIGINT: false,
+      handleSIGTERM: false,
+    });
+    const contextOptions = {
       ...devicePreset,
       // Firefox는 모바일 에뮬레이션(isMobile/hasTouch)을 지원하지 않아 옵션을 제거해야 launch가 성공한다
       ...(engine === 'firefox' ? { isMobile: false, hasTouch: false } : {}),
@@ -131,7 +161,19 @@ export class EngineSession {
       ...(engine === 'webkit' && options.emulateWebview
         ? { serviceWorkers: 'block' as const }
         : {}),
-    });
+    };
+    const statePath = sessionStatePath(options.url, engine);
+    const restoreState = !options.freshSession && existsSync(statePath);
+    let context: BrowserContext;
+    try {
+      context = await browser.newContext({
+        ...contextOptions,
+        ...(restoreState ? { storageState: statePath } : {}),
+      });
+    } catch {
+      // 저장된 상태 파일이 손상된 경우 — 깨끗하게 시작 (세션 파일은 종료 시 덮어써짐)
+      context = await browser.newContext(contextOptions);
+    }
 
     if (options.injectScriptPath) {
       const script = await readFile(options.injectScriptPath, 'utf-8');
@@ -161,7 +203,14 @@ export class EngineSession {
       events.onNavigation(engine, frame.url());
     });
 
-    const session = new EngineSession(engine, browser, page, devicePreset.viewport);
+    const session = new EngineSession(
+      engine,
+      browser,
+      context,
+      page,
+      devicePreset.viewport,
+      statePath,
+    );
     try {
       await page.goto(options.url, {
         waitUntil: 'domcontentloaded',
@@ -320,6 +369,13 @@ export class EngineSession {
   async dispose(): Promise<void> {
     this.disposed = true;
     this.wakeCapture?.();
+    // 로그인 세션 유지: 쿠키/로컬스토리지를 저장해 다음 실행에서 복원한다
+    try {
+      mkdirSync(dirname(this.statePath), { recursive: true });
+      await this.context.storageState({ path: this.statePath });
+    } catch {
+      // 세션 저장 실패는 종료를 막지 않는다
+    }
     await this.browser.close().catch(() => undefined);
   }
 }

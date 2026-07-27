@@ -1,5 +1,7 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildWebviewUserAgent, isAbortedRequestError } from '../src/session';
+import { buildWebviewUserAgent, isAbortedRequestError, sessionStatePath } from '../src/session';
 
 const PRESET_CHROMIUM_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/119.0.6045.109 Chrome/131.0.6778.33 Version/17.2 Mobile/15E148 Safari/604.1';
@@ -44,5 +46,19 @@ describe('isAbortedRequestError', () => {
     expect(isAbortedRequestError('net::ERR_NAME_NOT_RESOLVED')).toBe(false);
     expect(isAbortedRequestError('NS_ERROR_UNKNOWN_HOST')).toBe(false);
     expect(isAbortedRequestError('timeout')).toBe(false);
+  });
+});
+
+describe('sessionStatePath', () => {
+  it('오리진별·엔진별로 분리된 경로를 만든다', () => {
+    expect(sessionStatePath('http://localhost:3000/some/path', 'chromium')).toBe(
+      join(homedir(), '.crosspane', 'state', 'http_localhost_3000', 'chromium.json'),
+    );
+  });
+
+  it('같은 오리진의 다른 경로는 같은 세션을 공유한다', () => {
+    expect(sessionStatePath('http://localhost:3000/a', 'webkit')).toBe(
+      sessionStatePath('http://localhost:3000/b', 'webkit'),
+    );
   });
 });

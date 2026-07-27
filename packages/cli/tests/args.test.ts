@@ -27,6 +27,7 @@ describe('parseCliArguments', () => {
       device: 'iPhone 15',
       port: 7788,
       emulateWebview: true,
+      freshSession: false,
     });
   });
 
@@ -66,6 +67,7 @@ describe('parseCliArguments', () => {
       'MyApp/1.0',
     );
     expect(parseCliArguments([':3000', '--preset-ua']).emulateWebview).toBe(false);
+    expect(parseCliArguments([':3000', '--fresh']).freshSession).toBe(true);
     // 값이 없는 플래그 뒤의 옵션도 정상 파싱된다
     expect(parseCliArguments([':3000', '--preset-ua', '--port', '9000']).port).toBe(9000);
   });

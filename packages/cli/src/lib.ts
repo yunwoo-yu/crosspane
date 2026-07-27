@@ -38,4 +38,5 @@ export {
   isAbortedRequestError,
   type SessionEvents,
   type SessionOptions,
+  sessionStatePath,
 } from './session.js';

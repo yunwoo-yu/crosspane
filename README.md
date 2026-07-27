@@ -37,6 +37,9 @@ First run downloads the engine binaries. If a browser is missing, run
   (view-only; follows navigate/reload/sync). With the Android SDK installed, a REAL
   Android emulator pane running actual Android Chrome is added — fully interactive via
   adb (tap/swipe/type/back are mirrored). A USB-connected Android phone works too.
+- **Login session persistence**: each engine's cookies/storage are saved on exit and
+  restored next run (`~/.crosspane/state/<origin>/`) — log into your app once, not on
+  every launch in every engine. Start clean with `--fresh`
 - **Mirrored interaction**: click/scroll on any pane replays on every engine
 - **Per-engine console**: `console.*`, uncaught errors (with stack), failed network requests — filterable by engine
 - **HMR friendly**: engines are real browsers pointed at your dev server, so hot reload just works
