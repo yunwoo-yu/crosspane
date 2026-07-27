@@ -14,4 +14,5 @@ export const ENGINE_LABEL: Record<EngineName, string> = {
   webkit: 'WebKit · iOS WKWebView',
   firefox: 'Firefox · Gecko',
   'ios-sim': 'iOS Simulator · Real Device',
+  android: 'Android Emulator · Real Device',
 };

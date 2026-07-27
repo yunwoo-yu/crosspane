@@ -24,8 +24,16 @@ describe('parseCliArguments', () => {
       device: 'iPhone 15',
       port: 7788,
       emulateWebview: true,
-      iosSimulator: false,
     });
+    // 실기기 pane은 명시 플래그가 없으면 SDK 감지에 따라 자동 결정된다
+    expect(options.iosSimulator).toBeUndefined();
+    expect(options.android).toBeUndefined();
+  });
+
+  it('--no-ios-sim / --android 플래그를 반영한다', () => {
+    expect(parseCliArguments([':3000', '--no-ios-sim']).iosSimulator).toBe(false);
+    expect(parseCliArguments([':3000', '--android']).android).toBe(true);
+    expect(parseCliArguments([':3000', '--no-android']).android).toBe(false);
   });
 
   it('--user-agent와 --preset-ua를 반영한다', () => {

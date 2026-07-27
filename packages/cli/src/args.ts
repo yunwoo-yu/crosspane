@@ -17,7 +17,10 @@ Options:
   --inject <path>      JS file injected into every page before load (bridge mocks etc.)
   --user-agent <ua>    Exact UA for every engine (reproduce your app's custom webview UA)
   --preset-ua          Use Playwright's browser preset UA instead of webview UA emulation
-  --ios-sim            Add a REAL iOS Simulator pane (requires Xcode; view-only)
+  --ios-sim            Force the real iOS Simulator pane (auto-enabled when Xcode exists)
+  --no-ios-sim         Disable the iOS Simulator pane
+  --android            Force the real Android pane (auto-enabled when the SDK exists)
+  --no-android         Disable the Android pane
   -h, --help           Show this help
 
 By default crosspane emulates deployed webview environments: Chromium gets a real
@@ -28,8 +31,10 @@ Android WebView UA (with the "wv" token) and WebKit gets a real WKWebView UA
 export interface CliOptions {
   url: string;
   engines: BrowserEngineName[];
-  /** 실제 iOS 시뮬레이터 pane 추가 (Xcode 필요, view-only) */
-  iosSimulator: boolean;
+  /** 실제 iOS 시뮬레이터 pane (Xcode 감지 시 자동 활성화, view-only). undefined = 자동 */
+  iosSimulator?: boolean;
+  /** 실제 Android pane (SDK 감지 시 자동 활성화, 완전 인터랙티브). undefined = 자동 */
+  android?: boolean;
   device: string;
   port: number;
   injectScriptPath?: string;
@@ -81,7 +86,6 @@ export function parseCliArguments(argv: string[]): CliOptions {
     device: DEFAULT_OPTIONS.device,
     port: DEFAULT_OPTIONS.port,
     emulateWebview: true,
-    iosSimulator: false,
   };
 
   while (args.length > 0) {
@@ -94,6 +98,18 @@ export function parseCliArguments(argv: string[]): CliOptions {
     }
     if (flag === '--ios-sim') {
       options.iosSimulator = true;
+      continue;
+    }
+    if (flag === '--no-ios-sim') {
+      options.iosSimulator = false;
+      continue;
+    }
+    if (flag === '--android') {
+      options.android = true;
+      continue;
+    }
+    if (flag === '--no-android') {
+      options.android = false;
       continue;
     }
     const value = args.shift();

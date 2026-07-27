@@ -39,6 +39,11 @@ node packages/cli/dist/index.js :3000
   UA (`; wv)` token), WebKit runs with a real WKWebView UA (no Safari token) and service
   worker registration blocked — so UA-sniffing app code behaves like production. Pass your
   app's exact UA with `--user-agent`, or opt out with `--preset-ua`
+- **Real-device panes (auto-detected)**: with Xcode installed, a REAL iOS Simulator pane
+  (Apple's actual iOS WebKit build, real iOS fonts/status bar) is added automatically
+  (view-only; follows navigate/reload/sync). With the Android SDK installed, a REAL
+  Android emulator pane running actual Android Chrome is added — fully interactive via
+  adb (tap/swipe/type/back are mirrored). A USB-connected Android phone works too.
 - **Mirrored interaction**: click/scroll on any pane replays on every engine
 - **Per-engine console**: `console.*`, uncaught errors (with stack), failed network requests — filterable by engine
 - **HMR friendly**: engines are real browsers pointed at your dev server, so hot reload just works
@@ -56,6 +61,10 @@ crosspane <url | :port> [options]
 --inject <path>      JS injected into every page before load
 --user-agent <ua>    exact UA for every engine (reproduce your app's webview UA)
 --preset-ua          use Playwright preset UA instead of webview UA emulation
+--ios-sim            force the real iOS Simulator pane (auto when Xcode exists)
+--no-ios-sim         disable the iOS Simulator pane
+--android            force the real Android pane (auto when the Android SDK exists)
+--no-android         disable the Android pane
 ```
 
 ## How it works

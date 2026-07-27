@@ -1,4 +1,4 @@
-export type EngineName = 'chromium' | 'webkit' | 'firefox' | 'ios-sim';
+export type EngineName = 'chromium' | 'webkit' | 'firefox' | 'ios-sim' | 'android';
 
 export type EngineStatus = 'starting' | 'ready' | 'error';
 
@@ -8,6 +8,7 @@ export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = [
   'webkit',
   'firefox',
   'ios-sim',
+  'android',
 ];
 export const FRAME_HEADER_BYTES = 5;
 

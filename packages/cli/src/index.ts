@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { AndroidEmulatorSession, resolveAndroidSdkDir } from './android-emulator.js';
 import { HELP_TEXT, parseCliArguments } from './args.js';
 import { resolveDeviceViewport } from './devices.js';
-import { IosSimulatorSession } from './ios-simulator.js';
+import { IosSimulatorSession, resolveDeveloperDir } from './ios-simulator.js';
 import type { EngineName, EngineStatus } from './protocol.js';
 import { startDashboardServer } from './server.js';
 import { EngineSession, type InputTarget, type SessionEvents } from './session.js';
@@ -16,9 +17,15 @@ async function main(): Promise<void> {
   const options = parseCliArguments(argv);
   const viewport = resolveDeviceViewport(options.device);
 
-  const paneEngines: EngineName[] = options.iosSimulator
-    ? [...options.engines, 'ios-sim']
-    : [...options.engines];
+  // 실기기 pane(iOS 시뮬레이터/Android)은 SDK가 감지되면 자동 활성화한다 —
+  // 실제 환경 검증이 이 툴의 정체성이다
+  const useIosSimulator = options.iosSimulator ?? resolveDeveloperDir() !== undefined;
+  const useAndroid = options.android ?? resolveAndroidSdkDir() !== undefined;
+  const paneEngines: EngineName[] = [
+    ...options.engines,
+    ...(useAndroid ? (['android'] as const) : []),
+    ...(useIosSimulator ? (['ios-sim'] as const) : []),
+  ];
   const sessions = new Map<EngineName, InputTarget>();
   const server = await startDashboardServer({
     port: options.port,
@@ -28,7 +35,7 @@ async function main(): Promise<void> {
       url: options.url,
       device: options.device,
       engines: paneEngines,
-      viewOnlyEngines: options.iosSimulator ? ['ios-sim'] : undefined,
+      viewOnlyEngines: useIosSimulator ? ['ios-sim'] : undefined,
       viewport,
     }),
   });
@@ -54,7 +61,21 @@ async function main(): Promise<void> {
     `target: ${options.url}  device: ${options.device}  engines: ${options.engines.join(', ')}`,
   );
 
-  if (options.iosSimulator) {
+  if (useAndroid) {
+    // 실제 Android pane — 에뮬레이터 부팅에 시간이 걸릴 수 있어 병렬로 시작.
+    // adb input이 있어 탭/스크롤/타이핑까지 완전 미러링된다
+    void AndroidEmulatorSession.launch(options.url, sessionEvents)
+      .then((session) => {
+        sessions.set('android', session);
+        console.log('  ✓ android ready (interactive)');
+      })
+      .catch((err: unknown) => {
+        sessionEvents.onStatus('android', 'error', String(err));
+        console.error(`  ✗ android failed: ${String(err)}`);
+      });
+  }
+
+  if (useIosSimulator) {
     // 실제 iOS 시뮬레이터 pane — 부팅에 수십 초 걸릴 수 있어 브라우저 엔진과 병렬로 시작
     void IosSimulatorSession.launch(options.url, sessionEvents)
       .then((session) => {

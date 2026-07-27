@@ -1,7 +1,7 @@
-export type EngineName = 'chromium' | 'webkit' | 'firefox' | 'ios-sim';
+export type EngineName = 'chromium' | 'webkit' | 'firefox' | 'ios-sim' | 'android';
 
-/** Playwright로 구동되는 브라우저 엔진 (ios-sim은 시뮬레이터 어댑터가 담당) */
-export type BrowserEngineName = Exclude<EngineName, 'ios-sim'>;
+/** Playwright로 구동되는 브라우저 엔진 (ios-sim/android는 실기기 어댑터가 담당) */
+export type BrowserEngineName = Exclude<EngineName, 'ios-sim' | 'android'>;
 
 export type LogLevel = 'log' | 'info' | 'warning' | 'error' | 'debug' | string;
 
@@ -17,6 +17,7 @@ export const ENGINE_CODES: Record<EngineName, number> = {
   webkit: 1,
   firefox: 2,
   'ios-sim': 3,
+  android: 4,
 };
 
 export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = [
@@ -24,6 +25,7 @@ export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = [
   'webkit',
   'firefox',
   'ios-sim',
+  'android',
 ];
 
 export const FRAME_HEADER_BYTES = 5;

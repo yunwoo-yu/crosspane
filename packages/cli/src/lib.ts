@@ -1,3 +1,10 @@
+export {
+  ANDROID_KEYCODES,
+  AndroidEmulatorSession,
+  parseScreenSize,
+  resolveAndroidSdkDir,
+  toSwipeDistance,
+} from './android-emulator.js';
 export { type CliOptions, parseCliArguments, resolveTargetUrl } from './args.js';
 export { resolveDeviceViewport, type Viewport } from './devices.js';
 export {
