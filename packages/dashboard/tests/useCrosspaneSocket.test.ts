@@ -264,6 +264,34 @@ describe('useCrosspaneSocket', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
+  it('navigation이 engine-status의 viewOnly/detail을 지우지 않는다 (셸 모드 유지)', () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => {
+      socket.receiveEvent({
+        type: 'engine-status',
+        engine: 'ios-sim',
+        status: 'ready',
+        detail: 'iPhone · WKWebView',
+        viewOnly: false,
+      });
+      // 서버 재생 순서상 navigation이 status 뒤에 온다 — 이때 상태가 보존돼야 한다
+      socket.receiveEvent({
+        type: 'navigation',
+        engine: 'ios-sim',
+        url: 'http://localhost:3000/',
+        ts: 1,
+      });
+    });
+    expect(result.current.engineStates['ios-sim']).toMatchObject({
+      status: 'ready',
+      viewOnly: false,
+      detail: 'iPhone · WKWebView',
+      currentUrl: 'http://localhost:3000/',
+    });
+  });
+
   it('이벤트 폭주 시 배칭 — 여러 이벤트가 한 번의 상태 반영으로 묶인다', () => {
     const { result } = renderHook(() => useCrosspaneSocket());
     const socket = FakeWebSocket.instances[0];

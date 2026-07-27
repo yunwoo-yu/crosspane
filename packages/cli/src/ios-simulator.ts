@@ -199,8 +199,16 @@ export class IosSimulatorSession implements InputTarget {
         events.onStatus(ENGINE, 'ready', `${device.name} · WKWebView (${runtimeLabel})`, false);
         session.startPolling(events);
         return session;
-      } catch {
-        // 셸 빌드/설치 실패 — Safari 폴백으로 계속
+      } catch (err) {
+        // 셸 빌드/설치 실패 — Safari 폴백으로 계속하되, 이유를 남겨야
+        // "왜 view-only지?"를 진단할 수 있다
+        const reason = err instanceof Error ? err.message : String(err);
+        console.warn(`  ⚠ ios-sim: WKWebView 셸 실패 → Safari(view-only) 폴백: ${reason}`);
+        events.onConsole(
+          ENGINE,
+          'warning',
+          `[crosspane] WKWebView 셸 실패 (${reason}) — Safari view-only로 동작합니다`,
+        );
       }
     }
 

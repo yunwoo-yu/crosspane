@@ -17,3 +17,9 @@ paths:
 - 휠 델타는 `WHEEL_COALESCE_MS` 동안 합산 후 1개 커맨드로 — 건당 전송 금지
 - view-only pane은 클릭/휠/키 핸들러를 붙이지 않고, URL desync 판단에서도 제외한다
 - 전달받은 `ImageBitmap`은 디스패치 직후 close된다 — 콜백 밖으로 유출 금지
+- 키 입력은 pane의 **숨김 input 경유** (keydown 직접 캡처 금지) — IME 조합(한글)이
+  여기에 걸려 있다. 조합 중(`isComposing`/`insertComposition*`)은 전송하지 않고
+  compositionend의 확정 음절만 보낸다. Safari는 compositionend 후 input을 한 번 더
+  발생시키므로 중복 가드 유지
+- `navigation` 이벤트로 engineStates를 갱신할 때 **기존 필드(viewOnly/detail)를 스프레드로
+  보존**할 것 — 새 객체로 교체하면 셸 모드의 view-only 해제가 내비게이션마다 풀린다 (실측)

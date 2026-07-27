@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConsolePanel } from './components/ConsolePanel';
+import { DiffPanel } from './components/DiffPanel';
 import { EnginePane } from './components/EnginePane';
 import { NetworkPanel } from './components/NetworkPanel';
 import { Toolbar } from './components/Toolbar';
 import { Button } from './components/ui/button';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
 import { countErrorsSinceLastNavigation, detectUrlDesync } from './log-utils';
+import { buildReportHtml, downloadReport } from './report-utils';
 import type { EngineName } from './types';
 
 export default function App() {
@@ -19,7 +21,17 @@ export default function App() {
     clearLogs,
     subscribeToFrames,
   } = useCrosspaneSocket();
-  const [bottomTab, setBottomTab] = useState<'console' | 'network'>('console');
+  const [bottomTab, setBottomTab] = useState<'console' | 'network' | 'diff'>('console');
+  // pane canvas 레지스트리 — diff/리포트가 최신 프레임(canvas)에 직접 접근한다
+  const paneCanvasesRef = useRef(new Map<EngineName, HTMLCanvasElement>());
+  const registerCanvas = useCallback((engine: EngineName, canvas: HTMLCanvasElement | null) => {
+    if (canvas) paneCanvasesRef.current.set(engine, canvas);
+    else paneCanvasesRef.current.delete(engine);
+  }, []);
+  const getPaneCanvas = useCallback(
+    (engine: EngineName) => paneCanvasesRef.current.get(engine) ?? null,
+    [],
+  );
   // 하단 패널 높이 — 드래그 리사이즈, localStorage 유지
   const [panelHeight, setPanelHeight] = useState(() => {
     const saved = Number(localStorage.getItem('crosspane.panelHeight'));
@@ -84,6 +96,24 @@ export default function App() {
     .map((engine) => engineStates[engine]?.currentUrl)
     .find((url) => Boolean(url));
 
+  const exportReport = useCallback(() => {
+    if (!hello) return;
+    const html = buildReportHtml({
+      targetUrl: hello.url,
+      device: hello.device,
+      generatedAt: new Date(),
+      engines: engineNames.map((engine) => ({
+        engine,
+        currentUrl: engineStates[engine]?.currentUrl,
+        status: engineStates[engine]?.status,
+        screenshotDataUrl: paneCanvasesRef.current.get(engine)?.toDataURL('image/jpeg', 0.8),
+      })),
+      logs,
+      networkEntries,
+    });
+    downloadReport(html, hello.url);
+  }, [hello, engineNames, engineStates, logs, networkEntries]);
+
   return (
     <div className="app">
       <Toolbar
@@ -94,6 +124,7 @@ export default function App() {
         syncTargetUrl={syncTargetUrl}
         onSendCommand={sendCommand}
         onClearLogs={clearLogs}
+        onExportReport={exportReport}
       />
 
       <main
@@ -127,6 +158,7 @@ export default function App() {
               }
               onSendCommand={sendCommand}
               subscribeToFrames={subscribeToFrames}
+              registerCanvas={registerCanvas}
             />
           </div>
         ))}
@@ -155,11 +187,19 @@ export default function App() {
           >
             Network
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={bottomTab === 'diff' ? 'border-accent text-fg' : ''}
+            onClick={() => setBottomTab('diff')}
+          >
+            Diff
+          </Button>
         </div>
-        {bottomTab === 'console' ? (
-          <ConsolePanel logs={logs} engines={engineNames} />
-        ) : (
-          <NetworkPanel entries={networkEntries} engines={engineNames} />
+        {bottomTab === 'console' && <ConsolePanel logs={logs} engines={engineNames} />}
+        {bottomTab === 'network' && <NetworkPanel entries={networkEntries} engines={engineNames} />}
+        {bottomTab === 'diff' && (
+          <DiffPanel engines={activeEngines} getPaneCanvas={getPaneCanvas} />
         )}
       </section>
     </div>

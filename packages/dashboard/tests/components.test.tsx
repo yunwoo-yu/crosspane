@@ -235,20 +235,42 @@ describe('EnginePane', () => {
 
   it('키 입력을 엔진으로 포워딩한다 (문자는 type, 특수키는 keypress)', () => {
     const onSendCommand = vi.fn();
-    const { view } = renderEnginePane({ onSendCommand });
-    const paneScreen = view.container.querySelector('.pane-screen');
-    if (!paneScreen) throw new Error('pane-screen not found');
+    renderEnginePane({ onSendCommand });
+    const keyInput = screen.getByLabelText('chromium keyboard input');
 
-    fireEvent.keyDown(paneScreen, { key: 'a' });
+    fireEvent.input(keyInput, { data: 'a', inputType: 'insertText' });
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'type', text: 'a' });
 
-    fireEvent.keyDown(paneScreen, { key: 'Enter' });
+    fireEvent.keyDown(keyInput, { key: 'Enter' });
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'keypress', key: 'Enter' });
 
     onSendCommand.mockClear();
-    fireEvent.keyDown(paneScreen, { key: 'r', metaKey: true }); // OS 단축키는 무시
-    fireEvent.keyDown(paneScreen, { key: 'Shift' }); // 단독 수정키도 무시
+    fireEvent.keyDown(keyInput, { key: 'r', metaKey: true }); // OS 단축키는 무시
+    fireEvent.keyDown(keyInput, { key: 'Shift' }); // 단독 수정키도 무시
     expect(onSendCommand).not.toHaveBeenCalled();
+  });
+
+  it('한글 IME — 조합 중에는 보내지 않고 조합 확정 음절만 type으로 보낸다', () => {
+    const onSendCommand = vi.fn();
+    renderEnginePane({ onSendCommand });
+    const keyInput = screen.getByLabelText('chromium keyboard input');
+
+    // 조합 중간 상태 (isComposing) — 전송 금지
+    fireEvent.input(keyInput, {
+      data: '안',
+      inputType: 'insertCompositionText',
+      isComposing: true,
+    });
+    expect(onSendCommand).not.toHaveBeenCalled();
+
+    // 조합 확정
+    fireEvent.compositionEnd(keyInput, { data: '안' });
+    expect(onSendCommand).toHaveBeenCalledTimes(1);
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'type', text: '안' });
+
+    // Safari: compositionend 후 조합 유래 input이 한 번 더 — 중복 전송 금지
+    fireEvent.input(keyInput, { data: '안', inputType: 'insertFromComposition' });
+    expect(onSendCommand).toHaveBeenCalledTimes(1);
   });
 
   it('현재 URL을 path로 표시하고 desync면 경고 스타일을 붙인다', () => {

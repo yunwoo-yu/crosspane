@@ -144,8 +144,25 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
         webView.evaluateJavaScript("document.execCommand('insertText', false, (\(json))[0]);")
       }
     case "keypress":
-      if let key = command["key"] as? String, key == "Backspace" {
-        webView.evaluateJavaScript("document.execCommand('delete');")
+      if let key = command["key"] as? String {
+        if key == "Backspace" {
+          webView.evaluateJavaScript("document.execCommand('delete');")
+        } else if let encoded = try? JSONSerialization.data(withJSONObject: [key]),
+          let json = String(data: encoded, encoding: .utf8)
+        {
+          // 특수키는 keydown/keyup 이벤트로 전달하고, Enter는 폼 제출까지 재현한다
+          let js = """
+            (function () {
+              const key = (\(json))[0];
+              const el = document.activeElement || document.body;
+              const opts = { key, code: key, bubbles: true, cancelable: true };
+              el.dispatchEvent(new KeyboardEvent('keydown', opts));
+              el.dispatchEvent(new KeyboardEvent('keyup', opts));
+              if (key === 'Enter' && el.form && el.form.requestSubmit) el.form.requestSubmit();
+            })();
+            """
+          webView.evaluateJavaScript(js)
+        }
       }
     case "navigate":
       if let raw = command["url"] as? String, let url = URL(string: raw) {

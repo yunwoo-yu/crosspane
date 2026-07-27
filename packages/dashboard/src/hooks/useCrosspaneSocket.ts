@@ -97,9 +97,12 @@ export function useCrosspaneSocket(): CrosspaneConnection {
           }));
           break;
         case 'navigation':
+          // 기존 상태(viewOnly/detail)를 반드시 보존할 것 — 새 객체로 갈아끼우면
+          // 셸 모드가 해제한 view-only가 내비게이션마다 되살아난다 (실측 버그)
           setEngineStates((prev) => ({
             ...prev,
             [event.engine]: {
+              ...prev[event.engine],
               status: prev[event.engine]?.status ?? 'ready',
               currentUrl: event.url,
             },

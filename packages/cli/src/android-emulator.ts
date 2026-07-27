@@ -93,6 +93,8 @@ export class AndroidEmulatorSession implements InputTarget {
   private lastFrame: Buffer | null = null;
   private currentUrl: string;
 
+  private events?: SessionEvents;
+
   private constructor(
     private readonly adbPath: string,
     private readonly serial: string,
@@ -130,6 +132,7 @@ export class AndroidEmulatorSession implements InputTarget {
     await session.skipChromeFirstRun();
     await session.openUrl(url);
     events.onStatus(ENGINE, 'ready', serial);
+    session.events = events;
     session.startPolling(events);
     return session;
   }
@@ -219,6 +222,16 @@ export class AndroidEmulatorSession implements InputTarget {
   }
 
   async typeText(text: string): Promise<void> {
+    // adb `input text`는 ASCII만 주입 가능 — 한글 등은 IME 앱(ADBKeyboard) 없이는 불가.
+    // 조용히 사라지면 버그처럼 보이므로 콘솔에 이유를 남긴다
+    if (/[^\x20-\x7e]/.test(text)) {
+      this.events?.onConsole(
+        ENGINE,
+        'warning',
+        `[crosspane] Android 에뮬레이터는 비ASCII 입력(한글 등)을 지원하지 않습니다 (adb 한계): "${text}"`,
+      );
+      return;
+    }
     // input text는 공백을 %s로 이스케이프해야 한다
     await this.shell(['input', 'text', text.replace(/ /g, '%s')]);
   }

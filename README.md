@@ -47,7 +47,12 @@ First run downloads the engine binaries. If a browser is missing, run
   profiles only decide what auto-starts. Boot the heavy real-device panes on demand,
   close any pane with ✕ to free resources, focus one pane full-width (Esc to exit),
   and navigate every engine from the URL bar
-- **Mirrored interaction**: click/scroll on any pane replays on every engine
+- **Mirrored interaction**: click/scroll/typing on any pane replays on every engine —
+  IME composition (Korean, Japanese, …) included on browser engines and the iOS shell
+- **Pixel diff**: the Diff tab compares two engines' current frames and highlights
+  every differing pixel — "iOS renders this differently" found by the tool, not your eyes
+- **One-file bug report**: the ⤓ report button downloads a single self-contained HTML
+  with per-engine screenshots, console errors, and failed requests — attach it to an issue
 - **Per-engine console**: `console.*`, uncaught errors (with stack), failed network requests — filterable by engine
 - **HMR friendly**: engines are real browsers pointed at your dev server, so hot reload just works
 - **Device presets**: any [Playwright device descriptor](https://playwright.dev/docs/emulation#devices) (`--device "iPhone 15"`, `"Pixel 7"`, …)

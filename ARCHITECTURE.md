@@ -150,10 +150,10 @@ console.log) 초당 수백 번 리렌더가 난다. 수신 이벤트는 ref 큐�
 
 ## 알려진 한계
 
-- iOS 시뮬레이터 pane은 view-only (입력 주입은 셸앱/idb 필요 — 로드맵)
 - 실기기 pane은 Chrome/Safari 앱을 엶 — 웹뷰 "컴포넌트" 그 자체는 아님 (같은 엔진).
   컴포넌트 레벨 100%는 자체 WKWebView/WebView 셸앱이 최종형
-- 한글 IME 입력 미러링 미지원 (canvas 키 캡처의 한계)
+- Android 에뮬레이터 pane은 비ASCII 입력(한글 등) 불가 — adb `input text`의 한계.
+  브라우저 엔진/iOS 셸 pane은 숨김 input + IME 조합으로 한글 입력 지원
 - 삼성 인터넷 등 서드파티 브라우저는 실기기/APK 필요
 
 ## 로드맵

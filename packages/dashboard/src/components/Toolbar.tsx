@@ -16,6 +16,8 @@ interface ToolbarProps {
   syncTargetUrl: string | undefined;
   onSendCommand: (command: ClientCommand) => void;
   onClearLogs: () => void;
+  /** 현재 상태(스크린샷/로그/네트워크)를 단일 HTML 리포트로 다운로드 */
+  onExportReport: () => void;
 }
 
 export function Toolbar({
@@ -26,6 +28,7 @@ export function Toolbar({
   syncTargetUrl,
   onSendCommand,
   onClearLogs,
+  onExportReport,
 }: ToolbarProps) {
   const [urlInput, setUrlInput] = useState('');
 
@@ -100,6 +103,13 @@ export function Toolbar({
       <Button onClick={() => onSendCommand({ type: 'reload' })}>⟳ reload all</Button>
       <Button variant="ghost" onClick={onClearLogs}>
         clear logs
+      </Button>
+      <Button
+        variant="ghost"
+        title="스크린샷+로그+네트워크를 단일 HTML로 저장"
+        onClick={onExportReport}
+      >
+        ⤓ report
       </Button>
     </header>
   );

@@ -20,6 +20,8 @@ interface EnginePaneProps {
   onToggleFocus: () => void;
   onSendCommand: (command: ClientCommand) => void;
   subscribeToFrames: (engine: EngineName, listener: FrameListener) => () => void;
+  /** diff/리포트가 pane의 원본 canvas에 접근할 수 있도록 등록 (프레임은 상태에 없다) */
+  registerCanvas?: (engine: EngineName, canvas: HTMLCanvasElement | null) => void;
 }
 
 /** 그대로 엔진에 전달할 특수 키 (나머지 단일 문자는 type 커맨드로 보낸다) */
@@ -57,9 +59,11 @@ export function EnginePane({
   onToggleFocus,
   onSendCommand,
   subscribeToFrames,
+  registerCanvas,
 }: EnginePaneProps) {
   const screenRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const keyInputRef = useRef<HTMLInputElement | null>(null);
   const onSendCommandRef = useRef(onSendCommand);
   onSendCommandRef.current = onSendCommand;
   const [hasFrame, setHasFrame] = useState(false);
@@ -181,29 +185,55 @@ export function EnginePane({
         // 원격 화면 위젯: 키 입력을 AT가 아니라 앱(엔진 미러링)이 처리한다
         role="application"
         aria-label={`${engine} screen`}
-        tabIndex={viewOnly ? -1 : 0}
-        onKeyDown={(event) => {
-          if (viewOnly) return;
-          // OS/브라우저 단축키(cmd+r 등)는 대시보드에 남긴다
-          if (event.metaKey || event.ctrlKey || event.altKey) return;
-          if (FORWARDED_SPECIAL_KEYS.has(event.key)) {
-            event.preventDefault();
-            onSendCommand({ type: 'keypress', key: event.key });
-          } else if (event.key.length === 1) {
-            event.preventDefault();
-            onSendCommand({ type: 'type', text: event.key });
-          }
-        }}
       >
+        {/* 키 입력은 숨김 input이 받는다 — 브라우저 IME(한글 조합 등)를 그대로 활용해
+            조합이 끝난 텍스트만 엔진으로 보내기 위함. keydown만으로는 조합형 입력이 불가능하다 */}
+        {!viewOnly && (
+          <input
+            ref={keyInputRef}
+            className="sr-only"
+            aria-label={`${engine} keyboard input`}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onKeyDown={(event) => {
+              // OS/브라우저 단축키(cmd+r 등)는 대시보드에 남긴다
+              if (event.metaKey || event.ctrlKey || event.altKey) return;
+              // IME 조합 중의 키 이벤트(key === 'Process' 등)는 조합 완료가 처리한다
+              if (event.nativeEvent.isComposing) return;
+              if (FORWARDED_SPECIAL_KEYS.has(event.key)) {
+                event.preventDefault();
+                onSendCommand({ type: 'keypress', key: event.key });
+              }
+            }}
+            onInput={(event) => {
+              const native = event.nativeEvent as InputEvent;
+              // 조합 중간 상태와 조합 유래 input(Safari는 compositionend 후에도 발생)은
+              // compositionend 핸들러가 담당한다 — 여기서 보내면 중복 전송된다
+              if (native.isComposing || native.inputType?.startsWith('insertComposition')) return;
+              if (native.inputType === 'insertFromComposition') return;
+              if (native.data) onSendCommand({ type: 'type', text: native.data });
+              event.currentTarget.value = '';
+            }}
+            onCompositionEnd={(event) => {
+              // 한글 등 조합형 입력 — 조합이 확정된 음절만 전송
+              if (event.data) onSendCommand({ type: 'type', text: event.data });
+              event.currentTarget.value = '';
+            }}
+          />
+        )}
         <canvas
-          ref={canvasRef}
+          ref={(canvas) => {
+            canvasRef.current = canvas;
+            registerCanvas?.(engine, canvas);
+          }}
           role="img"
           aria-label={engine}
           style={{ display: hasFrame ? 'block' : 'none' }}
           onPointerDown={(event) => {
             if (viewOnly) return;
-            // 클릭한 pane에 포커스를 줘서 이후 키 입력이 엔진으로 전달되게 한다
-            screenRef.current?.focus();
+            // 클릭한 pane의 숨김 input에 포커스 — 이후 키 입력(IME 포함)이 엔진으로 전달된다
+            keyInputRef.current?.focus();
             // 화면에 표시된 canvas 크기 ≠ 실제 엔진 뷰포트 크기이므로
             // 0~1로 정규화한 좌표를 보내고 서버 쪽에서 뷰포트 픽셀로 환산한다
             const rect = event.currentTarget.getBoundingClientRect();
