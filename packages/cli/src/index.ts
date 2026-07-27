@@ -2,16 +2,28 @@
 import { AndroidEmulatorSession, resolveAndroidSdkDir } from './android-emulator.js';
 import { HELP_TEXT, parseCliArguments } from './args.js';
 import { resolveDeviceViewport } from './devices.js';
+import { applyInteractiveAnswers, detectMissingSetup, runInteractiveSetup } from './interactive.js';
 import { IosSimulatorSession, resolveDeveloperDir } from './ios-simulator.js';
 import type { EngineName, EngineStatus } from './protocol.js';
 import { startDashboardServer } from './server.js';
 import { EngineSession, type InputTarget, type SessionEvents } from './session.js';
 
 async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  if (argv.length === 0 || argv.includes('-h') || argv.includes('--help')) {
+  let argv = process.argv.slice(2);
+  if (argv.includes('-h') || argv.includes('--help')) {
     console.log(HELP_TEXT);
-    process.exit(argv.length === 0 ? 1 : 0);
+    process.exit(0);
+  }
+
+  // 터미널에서 직접 실행하고 대상/프로필/포트가 명시되지 않았으면 물어본다.
+  // 플래그를 주면 그대로 스킵되고, 파이프/CI(non-TTY)에서는 기본값으로 동작한다.
+  const missing = detectMissingSetup(argv);
+  const isInteractiveTerminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
+  if (isInteractiveTerminal && (missing.target || missing.profile || missing.port)) {
+    argv = applyInteractiveAnswers(argv, await runInteractiveSetup(missing));
+  } else if (argv.length === 0) {
+    console.log(HELP_TEXT);
+    process.exit(1);
   }
 
   const options = parseCliArguments(argv);
