@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
-import { encodeFramePacket } from './frame-packet.js';
+import { encodeFramePacket, encodeVideoPacket } from './frame-packet.js';
 import type { ClientCommand, EngineName, HelloEvent, ServerEvent } from './protocol.js';
 import type { InputTarget } from './session.js';
 import { resolveDashboardDir, serveDashboardFile } from './static.js';
@@ -11,6 +11,8 @@ export interface DashboardServer {
   port: number;
   broadcastEvent(event: ServerEvent): void;
   broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number): void;
+  /** 실시간 비디오 스트림 조각 — 캐시하지 않는다 (늦은 접속자는 스트림 재시작으로 키프레임을 받는다) */
+  broadcastVideoChunk(engine: EngineName, chunk: Buffer): void;
   close(): void;
 }
 
@@ -34,6 +36,8 @@ export interface DashboardServerOptions {
   sessions: ReadonlyMap<EngineName, InputTarget>;
   paneController: PaneController;
   shellBridge?: ShellBridge;
+  /** 새 대시보드 접속 시 호출 — 비디오 스트림을 키프레임부터 다시 시작시키는 용도 */
+  onClientConnect?: () => void;
 }
 
 // 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
@@ -179,6 +183,7 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
       client.send(JSON.stringify(navigation));
     }
     for (const framePacket of lastFramePacketByEngine.values()) client.send(framePacket);
+    options.onClientConnect?.();
     client.on('message', (raw) => {
       try {
         const command = JSON.parse(String(raw)) as ClientCommand;
@@ -233,6 +238,9 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
           const packet = encodeFramePacket(engine, jpeg, scrollY);
           lastFramePacketByEngine.set(engine, packet);
           sendToAllClients(packet);
+        },
+        broadcastVideoChunk(engine: EngineName, chunk: Buffer) {
+          sendToAllClients(encodeVideoPacket(engine, chunk));
         },
         close() {
           // httpServer.close()는 열린 소켓이 남아 있으면 대기하므로 클라이언트를 먼저 끊는다

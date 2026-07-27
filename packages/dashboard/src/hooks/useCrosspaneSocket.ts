@@ -10,8 +10,13 @@ import {
   type HelloEvent,
   type LogEntry,
   type NetworkEntry,
+  PACKET_TYPE_FRAME,
+  PACKET_TYPE_VIDEO,
+  SCROLL_Y_UNKNOWN,
   type ServerEvent,
+  VIDEO_HEADER_BYTES,
 } from '../types';
+import { useVideoStreams } from './useVideoStreams';
 
 export interface CrosspaneConnection {
   connected: boolean;
@@ -76,6 +81,20 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     [scheduleFlush],
   );
 
+  /** 디코딩된 프레임(스냅샷/비디오 공통)을 구독자에게 전달하고 close한다 */
+  const dispatchFrame = useCallback((engine: EngineName, frame: ImageBitmap, scrollY: number) => {
+    const listeners = frameListenersRef.current.get(engine);
+    if (listeners && listeners.size > 0) {
+      for (const listener of listeners) listener(frame, scrollY);
+    }
+    frame.close();
+  }, []);
+
+  // 실시간 비디오 스트림(H.264) — 디코드 결과는 스냅샷 프레임과 같은 경로로 흐른다
+  const { pushVideoChunk, resetPipeline } = useVideoStreams((engine, frame) =>
+    dispatchFrame(engine, frame, SCROLL_Y_UNKNOWN),
+  );
+
   const handleServerEvent = useCallback(
     (event: ServerEvent) => {
       switch (event.type) {
@@ -86,6 +105,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
           );
           break;
         case 'engine-status':
+          if (event.status === 'stopped') resetPipeline(event.engine);
           setEngineStates((prev) => ({
             ...prev,
             [event.engine]: {
@@ -158,24 +178,31 @@ export function useCrosspaneSocket(): CrosspaneConnection {
           break;
       }
     },
-    [appendLog, scheduleFlush],
+    [appendLog, scheduleFlush, resetPipeline],
   );
 
-  const handleFramePacket = useCallback((packet: ArrayBuffer) => {
-    const bytes = new Uint8Array(packet);
-    const engine = ENGINE_NAMES_BY_CODE[bytes[0]];
-    if (!engine || bytes.length <= FRAME_HEADER_BYTES) return;
-    const listeners = frameListenersRef.current.get(engine);
-    if (!listeners || listeners.size === 0) return;
-    // 헤더의 scrollY: 이 프레임이 반영하는 실제 스크롤 위치 (로컬 에코 보정용)
-    const scrollY = new DataView(packet).getInt32(1, true);
-    const jpegBlob = new Blob([bytes.subarray(FRAME_HEADER_BYTES)], { type: 'image/jpeg' });
-    // createImageBitmap은 디코딩을 메인 스레드 밖에서 수행한다
-    void createImageBitmap(jpegBlob).then((frame) => {
-      for (const listener of listeners) listener(frame, scrollY);
-      frame.close();
-    });
-  }, []);
+  const handleBinaryPacket = useCallback(
+    (packet: ArrayBuffer) => {
+      const bytes = new Uint8Array(packet);
+      const engine = ENGINE_NAMES_BY_CODE[bytes[1]];
+      if (!engine) return;
+      if (bytes[0] === PACKET_TYPE_VIDEO) {
+        if (bytes.length > VIDEO_HEADER_BYTES)
+          pushVideoChunk(engine, bytes.subarray(VIDEO_HEADER_BYTES));
+        return;
+      }
+      if (bytes[0] !== PACKET_TYPE_FRAME || bytes.length <= FRAME_HEADER_BYTES) return;
+      // 구독자가 없는 프레임은 디코딩 자체를 생략한다 (숨김 pane 비용 0)
+      const listeners = frameListenersRef.current.get(engine);
+      if (!listeners || listeners.size === 0) return;
+      // 헤더의 scrollY: 이 프레임이 반영하는 실제 스크롤 위치 (로컬 에코 보정용)
+      const scrollY = new DataView(packet).getInt32(2, true);
+      const jpegBlob = new Blob([bytes.subarray(FRAME_HEADER_BYTES)], { type: 'image/jpeg' });
+      // createImageBitmap은 디코딩을 메인 스레드 밖에서 수행한다
+      void createImageBitmap(jpegBlob).then((frame) => dispatchFrame(engine, frame, scrollY));
+    },
+    [pushVideoChunk, dispatchFrame],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -196,7 +223,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
         if (typeof ev.data === 'string') {
           handleServerEvent(JSON.parse(ev.data) as ServerEvent);
         } else {
-          handleFramePacket(ev.data);
+          handleBinaryPacket(ev.data);
         }
       };
     };
@@ -208,7 +235,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       if (flushTimerRef.current !== null) window.clearTimeout(flushTimerRef.current);
       socketRef.current?.close();
     };
-  }, [handleServerEvent, handleFramePacket]);
+  }, [handleServerEvent, handleBinaryPacket]);
 
   const sendCommand = useCallback((command: ClientCommand) => {
     const socket = socketRef.current;

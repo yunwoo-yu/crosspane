@@ -116,6 +116,16 @@
 | husky + lint-staged | 커밋은 빠르게(Biome만), 테스트/빌드는 CI가 게이트 |
 | GitHub Actions | biome ci → test → build. 로컬을 통과한 것만 원격에 존재하도록 |
 
+## 실기기 pane 화면: 스트리밍 우선
+
+- **Android = 실시간 H.264 비디오** (`adb screenrecord` → WS → 대시보드 WebCodecs 디코드).
+  스크린샷 폴링(2~3fps)이 아니라 진짜 화면 스트림 — 스크롤/애니메이션이 실기기처럼 흐른다.
+  스트림이 흐르기 시작하면 스크린샷 폴링은 자동 중단(폴백으로만 유지),
+  WebCodecs 미지원 브라우저에서는 비디오 패킷을 무시하고 스크린샷 폴백이 커버한다
+- **iOS 시뮬레이터 = 스크린샷 폴링이 상한**: Apple이 simctl에 스트리밍/입력 주입 API를
+  제공하지 않는다. idb(WebDriverAgent 기반, MJPEG 스트림) 연동이 로드맵
+- H.264 재조립(Annex-B → 액세스 유닛)은 `h264.ts` 순수 모듈 — 유닛테스트로 검증
+
 ## 실기기 pane 입력 반응성
 
 스크린샷 명령(simctl/adb)은 회당 수백 ms — 주기를 줄이는 것만으로는 반응이 늦다.

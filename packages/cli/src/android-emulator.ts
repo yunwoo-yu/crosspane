@@ -170,6 +170,10 @@ export class AndroidEmulatorSession implements InputTarget {
   }
 
   private captureLoop: CaptureLoop | null = null;
+  private stopped = false;
+  private videoProcess: ReturnType<typeof spawn> | null = null;
+  private videoChunkHandler: ((chunk: Buffer) => void) | null = null;
+  private videoBytesReceived = 0;
 
   private startPolling(events: SessionEvents): void {
     this.captureLoop = startCaptureLoop({
@@ -274,7 +278,57 @@ export class AndroidEmulatorSession implements InputTarget {
     await this.openUrl(url);
   }
 
+  /**
+   * 실시간 비디오 스트림 시작 — `screenrecord`의 H.264를 stdout으로 파이프한다.
+   * 스크린샷 폴링(2~3fps)과 달리 진짜 화면 스트림(30fps)이다.
+   * screenrecord는 최대 180초 제한이 있어 종료 시 자동 재시작한다.
+   */
+  startVideoStream(onChunk: (chunk: Buffer) => void): void {
+    this.videoChunkHandler = onChunk;
+    this.spawnVideoStream();
+  }
+
+  /** 새 대시보드 접속 시 — 프로세스를 재시작해 SPS/PPS+키프레임부터 다시 보낸다 */
+  restartVideoStream(): void {
+    if (this.videoChunkHandler && this.videoProcess) this.videoProcess.kill('SIGKILL');
+  }
+
+  private spawnVideoStream(): void {
+    if (this.stopped || !this.videoChunkHandler) return;
+    const proc = spawn(
+      this.adbPath,
+      [
+        '-s',
+        this.serial,
+        'exec-out',
+        'screenrecord',
+        '--output-format=h264',
+        '--bit-rate',
+        '8000000',
+        '--time-limit',
+        '180',
+        '-',
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    this.videoProcess = proc;
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      this.videoBytesReceived += chunk.length;
+      // 스트림이 실제로 흐르기 시작하면 스크린샷 폴링은 낭비 + 오버드로 — 중단한다
+      if (this.videoBytesReceived > 100_000) this.captureLoop?.stop();
+      this.videoChunkHandler?.(chunk);
+    });
+    proc.on('error', () => {
+      // spawn 실패(구형 이미지 등) — 스크린샷 폴링 폴백이 계속 동작한다
+    });
+    proc.on('exit', () => {
+      if (!this.stopped) setTimeout(() => this.spawnVideoStream(), 300);
+    });
+  }
+
   async dispose(): Promise<void> {
+    this.stopped = true;
+    this.videoProcess?.kill('SIGKILL');
     this.captureLoop?.stop();
     // 다음 실행이 빨라지도록 에뮬레이터는 부팅 상태로 둔다
   }

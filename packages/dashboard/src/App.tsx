@@ -171,7 +171,7 @@ export default function App() {
           onPointerDown={startPanelResize}
           title="드래그로 패널 높이 조절"
         />
-        <div className="flex items-center gap-1.5 border-line border-b px-4 pb-2">
+        <div className="flex items-center gap-1.5 border-line border-b px-4 py-2">
           <Button
             variant={bottomTab === 'console' ? 'active' : 'ghost'}
             size="icon"

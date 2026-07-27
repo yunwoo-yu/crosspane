@@ -261,9 +261,9 @@ describe('startDashboardServer', () => {
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
     server.broadcastFrame('webkit', jpeg, 480);
     const packet = await client.nextBinary();
-    expect(packet[0]).toBe(ENGINE_CODES.webkit);
-    expect(packet.readInt32LE(1)).toBe(480); // 로컬 에코 보정용 scrollY
-    expect(packet.subarray(5)).toEqual(jpeg);
+    expect(packet[1]).toBe(ENGINE_CODES.webkit);
+    expect(packet.readInt32LE(2)).toBe(480); // 로컬 에코 보정용 scrollY
+    expect(packet.subarray(6)).toEqual(jpeg);
   });
 
   it('마지막 프레임을 새 클라이언트에 재전송한다', async () => {
@@ -280,8 +280,8 @@ describe('startDashboardServer', () => {
     clients.push(client);
     await client.nextEvent(); // hello 소비
     const packet = await client.nextBinary();
-    expect(packet[0]).toBe(ENGINE_CODES.chromium);
-    expect(packet.subarray(5)).toEqual(Buffer.from([1, 2, 3]));
+    expect(packet[1]).toBe(ENGINE_CODES.chromium);
+    expect(packet.subarray(6)).toEqual(Buffer.from([1, 2, 3]));
   });
 
   it('접속 전에 발생한 로그를 새 클라이언트에 재전송한다', async () => {

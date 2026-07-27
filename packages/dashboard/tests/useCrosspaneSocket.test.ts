@@ -38,11 +38,13 @@ class FakeWebSocket {
   }
 
   receiveFramePacket(engineCode: number, scrollY: number, jpegBytes: number[]): void {
-    const packet = new Uint8Array(5 + jpegBytes.length);
-    packet[0] = engineCode;
-    new DataView(packet.buffer).setInt32(1, scrollY, true);
-    packet.set(jpegBytes, 5);
-    this.onmessage?.({ data: packet.buffer });
+    // 패킷 v2: [type=FRAME(1)][engine][scrollY i32LE][JPEG]
+    const packet = new Uint8Array(6 + jpegBytes.length);
+    packet[0] = 1;
+    packet[1] = engineCode;
+    new DataView(packet.buffer).setInt32(2, scrollY, true);
+    packet.set(jpegBytes, 6);
+    this.onmessage?.({ data: packet.buffer } as MessageEvent<ArrayBuffer>);
   }
 }
 

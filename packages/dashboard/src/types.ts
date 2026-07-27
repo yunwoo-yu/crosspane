@@ -11,6 +11,10 @@ export type {
 export {
   ENGINE_NAMES_BY_CODE,
   FRAME_HEADER_BYTES,
+  PACKET_TYPE_FRAME,
+  PACKET_TYPE_VIDEO,
+  SCROLL_Y_UNKNOWN,
+  VIDEO_HEADER_BYTES,
 } from 'crosspane/protocol';
 
 import type { EngineName, EngineStatus } from 'crosspane/protocol';
