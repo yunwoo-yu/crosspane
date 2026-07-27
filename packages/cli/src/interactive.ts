@@ -10,7 +10,7 @@ export const DEV_SERVER_PROBE_PORTS: readonly number[] = [
 const PROBE_TIMEOUT_MS = 250;
 
 /** localhost 포트에 TCP 연결이 되는지 확인 (HTTP 파싱 없이 리스닝 여부만) */
-function probePort(port: number): Promise<boolean> {
+export function probePort(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.connect({ host: '127.0.0.1', port });
     const finish = (listening: boolean): void => {

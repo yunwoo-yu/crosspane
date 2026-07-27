@@ -2,8 +2,9 @@
 import { spawn } from 'node:child_process';
 import { AndroidEmulatorSession, resolveAndroidSdkDir } from './android-emulator.js';
 import { HELP_TEXT, parseCliArguments } from './args.js';
+import { installPlaywrightBrowser, isMissingBrowserError } from './browser-install.js';
 import { resolveDeviceViewport } from './devices.js';
-import { hasTargetArgument, promptForTarget } from './interactive.js';
+import { hasTargetArgument, probePort, promptForTarget } from './interactive.js';
 import { IosSimulatorSession, resolveDeveloperDir } from './ios-simulator.js';
 import { resolvePaneSetup } from './pane-setup.js';
 import type { BrowserEngineName, EngineName, EngineStatus } from './protocol.js';
@@ -53,8 +54,18 @@ async function main(): Promise<void> {
     androidAvailable,
   });
 
+  // 대상 서버가 죽어 있으면 pane이 빈 화면이 된다 — 기동 시 미리 알려준다
+  const targetPort = /^http:\/\/localhost:(\d+)/.exec(options.url)?.[1];
+  if (targetPort && !(await probePort(Number(targetPort)))) {
+    console.warn(
+      `  ⚠ 대상 ${options.url} 에 연결할 수 없습니다 — dev 서버가 떠 있는지 확인하세요 (뜨면 대시보드에서 ⟳)`,
+    );
+  }
+
   const sessions = new Map<EngineName, InputTarget>();
   const startingEngines = new Set<EngineName>();
+  // 브라우저 자동 설치는 엔진당 1회만 시도 (실패 루프 방지)
+  const browserInstallAttempted = new Set<EngineName>();
 
   const browserLaunchOptions = {
     url: options.url,
@@ -94,11 +105,19 @@ async function main(): Promise<void> {
         }
         console.log(`  ✓ ${engine} ready`);
       } catch (err) {
+        const isBrowserEngine = engine !== 'android' && engine !== 'ios-sim';
+        // 첫 실행에서 브라우저가 없으면 안내 대신 그 자리에서 설치하고 재시도한다
+        if (isBrowserEngine && isMissingBrowserError(err) && !browserInstallAttempted.has(engine)) {
+          browserInstallAttempted.add(engine);
+          startingEngines.delete(engine);
+          console.log(`  ⬇ ${engine} 브라우저가 없어 설치합니다 (최초 1회, 수십 MB)…`);
+          if (await installPlaywrightBrowser(engine)) {
+            return paneController.startEngine(engine);
+          }
+          console.error(`  ✗ ${engine} 설치 실패 — 수동 설치: npx playwright install ${engine}`);
+        }
         sessionEvents.onStatus(engine, 'error', String(err));
         console.error(`  ✗ ${engine} failed: ${String(err)}`);
-        if (engine !== 'android' && engine !== 'ios-sim') {
-          console.error(`    (missing browser? run: npx playwright install ${engine})`);
-        }
       } finally {
         startingEngines.delete(engine);
       }

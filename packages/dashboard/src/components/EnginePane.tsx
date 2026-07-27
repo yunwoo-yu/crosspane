@@ -100,6 +100,12 @@ export function EnginePane({
             {...keyInputHandlers}
           />
         )}
+        {/* 대상 서버 연결 실패 — 빈 화면 대신 원인과 해법을 보여준다 */}
+        {state?.currentUrl?.startsWith('chrome-error://') && (
+          <div className="absolute inset-x-0 top-0 z-10 bg-danger/15 px-4 py-2 text-center text-danger text-xs">
+            대상 서버에 연결할 수 없어요 — dev 서버 실행 후 ⟳ 로 재시도
+          </div>
+        )}
         <canvas
           ref={attachCanvas}
           role="img"
