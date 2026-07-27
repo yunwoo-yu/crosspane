@@ -48,11 +48,23 @@ body {
   padding: 2px 8px;
   border-radius: 999px;
 }
-.conn.on { background: #1c3a26; color: #6fd08c; }
-.conn.off { background: #3a1c1c; color: var(--error); }
+.conn.on {
+  background: #1c3a26;
+  color: #6fd08c;
+}
+.conn.off {
+  background: #3a1c1c;
+  color: var(--error);
+}
 
-.target { color: var(--accent); font-size: 13px; }
-.device { color: var(--muted); font-size: 13px; }
+.target {
+  color: var(--accent);
+  font-size: 13px;
+}
+.device {
+  color: var(--muted);
+  font-size: 13px;
+}
 
 .toolbar button {
   margin-left: auto;
@@ -64,8 +76,12 @@ body {
   font-size: 12px;
   cursor: pointer;
 }
-.toolbar button + button { margin-left: 0; }
-.toolbar button:hover { border-color: var(--accent); }
+.toolbar button + button {
+  margin-left: 0;
+}
+.toolbar button:hover {
+  border-color: var(--accent);
+}
 
 .grid {
   display: grid;
@@ -101,9 +117,15 @@ body {
   border-radius: 50%;
   background: var(--muted);
 }
-.dot.ready { background: #6fd08c; }
-.dot.error { background: var(--error); }
-.dot.starting { background: var(--warn); }
+.dot.ready {
+  background: #6fd08c;
+}
+.dot.error {
+  background: var(--error);
+}
+.dot.starting {
+  background: var(--warn);
+}
 
 .err-badge {
   margin-left: auto;
@@ -160,7 +182,10 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.filters { display: flex; gap: 4px; }
+.filters {
+  display: flex;
+  gap: 4px;
+}
 .filters button {
   background: transparent;
   color: var(--muted);
@@ -170,7 +195,10 @@ body {
   padding: 2px 8px;
   cursor: pointer;
 }
-.filters button.active { color: var(--text); border-color: var(--accent); }
+.filters button.active {
+  color: var(--text);
+  border-color: var(--accent);
+}
 
 .console-body {
   flex: 1;
@@ -181,9 +209,16 @@ body {
   line-height: 1.6;
 }
 
-.log-line { display: flex; gap: 8px; }
-.log-line.error { color: var(--error); }
-.log-line.warn { color: var(--warn); }
+.log-line {
+  display: flex;
+  gap: 8px;
+}
+.log-line.error {
+  color: var(--error);
+}
+.log-line.warn {
+  color: var(--warn);
+}
 
 .log-engine {
   flex: 0 0 64px;
@@ -192,9 +227,15 @@ body {
   letter-spacing: 0.05em;
   opacity: 0.8;
 }
-.log-engine.chromium { color: #8ab4f8; }
-.log-engine.webkit { color: #9ad1a5; }
-.log-engine.firefox { color: #f2a86d; }
+.log-engine.chromium {
+  color: #8ab4f8;
+}
+.log-engine.webkit {
+  color: #9ad1a5;
+}
+.log-engine.firefox {
+  color: #f2a86d;
+}
 
 .log-kind {
   flex: 0 0 90px;
