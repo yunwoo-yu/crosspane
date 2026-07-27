@@ -1,0 +1,50 @@
+{
+  "name": "crosspane",
+  "version": "0.1.0",
+  "description": "One dashboard to preview your local dev server across Chromium, WebKit and Firefox with webview-style device frames, mirrored interactions and per-engine console logs.",
+  "license": "MIT",
+  "author": "yunwoo-yu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yunwoo-yu/crosspane.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/yunwoo-yu/crosspane#readme",
+  "bugs": {
+    "url": "https://github.com/yunwoo-yu/crosspane/issues"
+  },
+  "keywords": [
+    "cross-browser",
+    "webview",
+    "playwright",
+    "webkit",
+    "testing",
+    "preview",
+    "devtools",
+    "responsive"
+  ],
+  "type": "module",
+  "bin": {
+    "crosspane": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
