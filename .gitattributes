@@ -1,0 +1,6 @@
+# Windows의 git autocrlf가 CRLF로 체크아웃하면 Biome 포맷 검사가 깨진다 — 항상 LF
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
