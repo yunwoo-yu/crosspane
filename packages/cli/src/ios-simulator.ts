@@ -388,8 +388,15 @@ export class IosSimulatorSession implements InputTarget {
     }
   }
 
-  /** idb가 있으면 30fps H.264 실스트림 — 셸 스냅샷(5Hz)을 대체한다 */
+  /**
+   * iOS 화면 소스 트레이드오프 (전부 실측):
+   * - 셸 takeSnapshot(기본): 프레임 독립이라 깨짐 0, ~5fps
+   * - idb H.264 (CROSSPANE_IOS_H264=1 옵트인): 20fps지만 델타 손상 시 잔상이 남고
+   *   idb가 주기적 IDR을 안 보내 복구 불가 (지직거림 실측)
+   * - idb MJPEG: 무결점이지만 인코딩이 느려 3fps — 셸보다 못해 채택 안 함
+   */
   startVideoStream(onChunk: (chunk: Buffer) => void): void {
+    if (process.env.CROSSPANE_IOS_H264 !== '1') return; // 기본: 무결점 셸 스냅샷 유지
     const idb = IDB_CANDIDATES.find((path) => existsSync(path));
     if (!idb) return;
     this.videoChunkHandler = onChunk;

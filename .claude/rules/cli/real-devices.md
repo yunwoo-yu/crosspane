@@ -73,3 +73,5 @@ paths:
 - H264 트레일링 플러시는 scrcpy(Android) 전용 — idb는 청크 경계가 NAL 경계가
   아니라 잘린 NAL이 디코더를 영구 정지시킨다 (IDR 재전송 없음)
 - 에뮬레이터 부팅에 `-gpu host` 유지 — 헤드리스 렌더 fps의 핵심 (7→16fps 실측)
+- iOS 화면 소스 기본은 **셸 takeSnapshot(무결점 5fps)** — idb H.264(20fps)는
+  잔상 리스크로 CROSSPANE_IOS_H264=1 옵트인, MJPEG는 3fps라 셸보다 못함 (전부 실측)
