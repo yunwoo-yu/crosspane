@@ -27,6 +27,8 @@ export interface ShellBridge {
 
 export interface DashboardServerOptions {
   port: number;
+  /** 포트가 사용 중일 때 +1씩 시도할 최대 횟수 (기본 1 = 폴백 없음) */
+  portAttempts?: number;
   hello: () => HelloEvent;
   sessions: ReadonlyMap<EngineName, InputTarget>;
   paneController: PaneController;
@@ -188,15 +190,26 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
   };
 
   return new Promise((resolve, reject) => {
-    httpServer.once('error', (err) => {
+    // 포트가 사용 중이면 +1씩 폴백 — 흔한 "이미 떠 있는 다른 도구" 충돌을 조용히 피한다
+    const maxAttempts = Math.max(1, options.portAttempts ?? 1);
+    let attempt = 0;
+    const tryListen = (): void => {
+      httpServer.listen(options.port + attempt);
+    };
+    httpServer.on('error', (err) => {
       const isAddrInUse = (err as NodeJS.ErrnoException).code === 'EADDRINUSE';
+      if (isAddrInUse && attempt + 1 < maxAttempts) {
+        attempt += 1;
+        tryListen();
+        return;
+      }
       reject(
         isAddrInUse
           ? new Error(`Port ${options.port} is already in use — try a different --port`)
           : err,
       );
     });
-    httpServer.listen(options.port, () => {
+    httpServer.once('listening', () => {
       resolve({
         port: (httpServer.address() as AddressInfo).port,
         broadcastEvent(event: ServerEvent) {
@@ -216,5 +229,6 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
         },
       });
     });
+    tryListen();
   });
 }

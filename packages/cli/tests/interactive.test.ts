@@ -1,40 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { applyInteractiveAnswers, detectMissingSetup } from '../src/interactive';
+import { findRunningDevServers, hasTargetArgument } from '../src/interactive';
 
-describe('detectMissingSetup', () => {
-  it('아무것도 없으면 전부 물어본다', () => {
-    expect(detectMissingSetup([])).toEqual({ target: true, profile: true, port: true });
+describe('hasTargetArgument', () => {
+  it('첫 인자가 타깃이면 true', () => {
+    expect(hasTargetArgument([':3000'])).toBe(true);
+    expect(hasTargetArgument(['http://localhost:3000', '--fresh'])).toBe(true);
   });
 
-  it('명시된 항목은 묻지 않는다', () => {
-    expect(detectMissingSetup([':3000', '--profile', 'web', '--port', '9000'])).toEqual({
-      target: false,
-      profile: false,
-      port: false,
-    });
-  });
-
-  it('타깃만 있으면 프로필/포트를 물어본다', () => {
-    expect(detectMissingSetup([':3000'])).toEqual({ target: false, profile: true, port: true });
-  });
-
-  it('플래그로 시작하면 타깃이 없는 것으로 판단한다', () => {
-    expect(detectMissingSetup(['--profile', 'web']).target).toBe(true);
+  it('비어 있거나 플래그로 시작하면 false', () => {
+    expect(hasTargetArgument([])).toBe(false);
+    expect(hasTargetArgument(['--profile', 'web'])).toBe(false);
   });
 });
 
-describe('applyInteractiveAnswers', () => {
-  it('타깃은 맨 앞에, 플래그는 뒤에 합쳐 기존 파서를 재사용한다', () => {
-    expect(
-      applyInteractiveAnswers(['--engines', 'chromium'], {
-        target: ':3000',
-        profile: 'device',
-        port: 8000,
-      }),
-    ).toEqual([':3000', '--engines', 'chromium', '--profile', 'device', '--port', '8000']);
+describe('findRunningDevServers', () => {
+  it('리스닝 중인 포트만 순서대로 반환한다', async () => {
+    const probe = (port: number) => Promise.resolve(port === 3000 || port === 5173);
+    await expect(findRunningDevServers([3000, 4000, 5173], probe)).resolves.toEqual([3000, 5173]);
   });
 
-  it('답변이 없는 항목은 argv를 바꾸지 않는다', () => {
-    expect(applyInteractiveAnswers([':3000'], {})).toEqual([':3000']);
+  it('아무것도 안 떠 있으면 빈 배열', async () => {
+    await expect(findRunningDevServers([3000], () => Promise.resolve(false))).resolves.toEqual([]);
   });
 });

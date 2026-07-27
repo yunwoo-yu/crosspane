@@ -112,3 +112,21 @@ describe('parseCliArguments', () => {
     expect(() => parseCliArguments([':3000', '--wat', 'x'])).toThrow(/Unknown option --wat/);
   });
 });
+
+describe('--no-open / 포트 명시 여부', () => {
+  it('기본은 openBrowser=true, portExplicit=false', () => {
+    const options = parseCliArguments([':3000']);
+    expect(options.openBrowser).toBe(true);
+    expect(options.portExplicit).toBe(false);
+  });
+
+  it('--no-open은 브라우저 자동 열기를 끈다', () => {
+    expect(parseCliArguments([':3000', '--no-open']).openBrowser).toBe(false);
+  });
+
+  it('--port를 주면 portExplicit=true (자동 폴백 비활성)', () => {
+    const options = parseCliArguments([':3000', '--port', '9000']);
+    expect(options.port).toBe(9000);
+    expect(options.portExplicit).toBe(true);
+  });
+});

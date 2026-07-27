@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
+import { ENGINE_SHORT_LABEL } from '../constants';
+import { cn } from '../lib/cn';
 import { normalizeUrlInput } from '../log-utils';
-import type { ClientCommand, HelloEvent } from '../types';
+import type { ClientCommand, EngineName, EngineState, HelloEvent } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
 interface ToolbarProps {
   connected: boolean;
   hello: HelloEvent | null;
+  engineStates: Partial<Record<EngineName, EngineState>>;
   /** 엔진 간 URL이 어긋난 상태 — 재동기화 버튼을 노출한다 */
   urlDesynced: boolean;
   /** 재동기화 기준 URL (첫 번째 엔진의 현재 URL) */
@@ -18,6 +21,7 @@ interface ToolbarProps {
 export function Toolbar({
   connected,
   hello,
+  engineStates,
   urlDesynced,
   syncTargetUrl,
   onSendCommand,
@@ -36,6 +40,29 @@ export function Toolbar({
       <span className={`conn ${connected ? 'on' : 'off'}`}>
         {connected ? 'connected' : 'disconnected'}
       </span>
+      {/* 엔진 pane 토글 — 클릭으로 pane 추가/제거. 실기기 pane은 부팅에 시간이 걸린다 */}
+      <div className="flex items-center gap-1" role="group" aria-label="engine panes">
+        {(hello?.engines ?? []).map((engine) => {
+          const status = engineStates[engine]?.status ?? 'stopped';
+          const active = status !== 'stopped';
+          return (
+            <Button
+              key={engine}
+              variant="ghost"
+              size="icon"
+              className={cn('gap-1.5', active && 'border-accent text-fg')}
+              title={active ? `${engine} pane 중지 (리소스 반환)` : `${engine} pane 시작`}
+              aria-pressed={active}
+              onClick={() =>
+                onSendCommand({ type: active ? 'stop-engine' : 'start-engine', engine })
+              }
+            >
+              <span className={`dot ${status}`} />
+              {ENGINE_SHORT_LABEL[engine]}
+            </Button>
+          );
+        })}
+      </div>
       <form
         className="url-bar max-w-md flex-1"
         onSubmit={(event) => {

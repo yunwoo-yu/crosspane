@@ -1,76 +1,68 @@
+import * as net from 'node:net';
 import { emitKeypressEvents } from 'node:readline';
 import * as readline from 'node:readline/promises';
-import type { ProfileName } from './args.js';
 
-export interface MissingSetup {
-  target: boolean;
-  profile: boolean;
-  port: boolean;
+// 프론트엔드 dev 서버가 흔히 쓰는 포트 — 실행 중인 것을 감지해 선택지로 제안한다
+export const DEV_SERVER_PROBE_PORTS: readonly number[] = [
+  3000, 3001, 4000, 4200, 5000, 5173, 5174, 8000, 8080, 8081,
+];
+
+const PROBE_TIMEOUT_MS = 250;
+
+/** localhost 포트에 TCP 연결이 되는지 확인 (HTTP 파싱 없이 리스닝 여부만) */
+function probePort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    const finish = (listening: boolean): void => {
+      socket.destroy();
+      resolve(listening);
+    };
+    socket.setTimeout(PROBE_TIMEOUT_MS, () => finish(false));
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+  });
 }
 
-export interface InteractiveAnswers {
-  target?: string;
-  profile?: ProfileName;
-  port?: number;
+/** 실행 중인 dev 서버 포트를 병렬 스캔한다 (probe는 테스트에서 주입 가능) */
+export async function findRunningDevServers(
+  ports: readonly number[] = DEV_SERVER_PROBE_PORTS,
+  probe: (port: number) => Promise<boolean> = probePort,
+): Promise<number[]> {
+  const results = await Promise.all(ports.map(async (port) => ((await probe(port)) ? port : null)));
+  return results.filter((port): port is number => port !== null);
 }
 
-/** argv에서 인터랙티브로 물어봐야 할 항목을 찾는다 (명시된 플래그는 묻지 않는다) */
-export function detectMissingSetup(argv: string[]): MissingSetup {
-  const hasTarget = argv.length > 0 && !argv[0].startsWith('-');
-  return {
-    target: !hasTarget,
-    profile: !argv.includes('--profile'),
-    port: !argv.includes('--port'),
-  };
+/** argv에 대상(URL/포트)이 명시됐는지 — 없을 때만 인터랙티브로 묻는다 */
+export function hasTargetArgument(argv: string[]): boolean {
+  return argv.length > 0 && !argv[0].startsWith('-');
 }
 
-/** 인터랙티브 답변을 argv에 합친다 — 이후 일반 플래그 파싱을 그대로 재사용하기 위함 */
-export function applyInteractiveAnswers(argv: string[], answers: InteractiveAnswers): string[] {
-  let merged = [...argv];
-  if (answers.target !== undefined) merged = [answers.target, ...merged];
-  if (answers.profile !== undefined) merged = [...merged, '--profile', answers.profile];
-  if (answers.port !== undefined) merged = [...merged, '--port', String(answers.port)];
-  return merged;
+/**
+ * 대상만 묻는다 — pane 구성은 대시보드 토글, 포트는 자동 폴백이 대신한다.
+ * 실행 중인 dev 서버가 감지되면 선택지로, 없으면 직접 입력으로.
+ */
+export async function promptForTarget(): Promise<string> {
+  const running = await findRunningDevServers();
+  if (running.length > 0) {
+    const choice = await promptSelect<string | null>('Which dev server do you want to preview?', [
+      ...running.map((port) => ({
+        label: `:${port}`,
+        hint: `http://localhost:${port} (detected)`,
+        value: `:${port}` as string | null,
+      })),
+      { label: 'other', hint: 'enter a URL or port manually', value: null },
+    ]);
+    if (choice !== null) return choice;
+  }
+  return promptText('Dev server to preview (e.g. :3000 or a URL)', undefined, {
+    validate: (value) => value.length > 0 || 'target is required',
+  });
 }
 
 interface SelectChoice<T> {
   label: string;
   hint: string;
   value: T;
-}
-
-const PROFILE_CHOICES: SelectChoice<ProfileName>[] = [
-  {
-    label: 'webview',
-    hint: 'Chromium + WebKit — in-app webview QA (fast, recommended)',
-    value: 'webview',
-  },
-  { label: 'web', hint: '+ Firefox — mobile web cross-browsing', value: 'web' },
-  { label: 'device', hint: 'webview + REAL Android emulator / iOS Simulator', value: 'device' },
-  { label: 'full', hint: 'everything', value: 'full' },
-];
-
-const DEFAULT_PORT = 7788;
-
-/** 빠진 항목만 순서대로 묻는다: 대상 URL → 프로필(화살표 선택) → 포트 */
-export async function runInteractiveSetup(missing: MissingSetup): Promise<InteractiveAnswers> {
-  const answers: InteractiveAnswers = {};
-  if (missing.target) {
-    answers.target = await promptText('Dev server to preview (e.g. :3000 or a URL)', undefined, {
-      validate: (value) => value.length > 0 || 'target is required',
-    });
-  }
-  if (missing.profile) {
-    answers.profile = await promptSelect('Which setup do you want to run?', PROFILE_CHOICES);
-  }
-  if (missing.port) {
-    const raw = await promptText('Dashboard port', String(DEFAULT_PORT), {
-      validate: (value) =>
-        (Number.isInteger(Number(value)) && Number(value) > 0) || 'enter a positive number',
-    });
-    answers.port = Number(raw);
-  }
-  return answers;
 }
 
 function promptText(

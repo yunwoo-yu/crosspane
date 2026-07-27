@@ -63,12 +63,6 @@ export function EnginePane({
   const onSendCommandRef = useRef(onSendCommand);
   onSendCommandRef.current = onSendCommand;
   const [hasFrame, setHasFrame] = useState(false);
-  const stopped = state?.status === 'stopped';
-
-  // 중지되면 마지막 프레임은 더 이상 현재 상태가 아니다 — canvas를 숨긴다
-  useEffect(() => {
-    if (stopped) setHasFrame(false);
-  }, [stopped]);
 
   // 로컬 에코(스크롤 예측) 상태:
   // localTarget = 사용자가 의도한 scrollY, lastFrameScrollY = 프레임이 반영한 실제 scrollY.
@@ -172,25 +166,14 @@ export function EnginePane({
         >
           {focused ? '⤢' : '⤡'}
         </Button>
-        {stopped ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            title="이 엔진 시작"
-            onClick={() => onSendCommand({ type: 'start-engine', engine })}
-          >
-            ▶
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon"
-            title="이 엔진 중지 (리소스 반환)"
-            onClick={() => onSendCommand({ type: 'stop-engine', engine })}
-          >
-            ■
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          title="이 pane 닫기 (엔진 중지, 툴바 토글로 재시작)"
+          onClick={() => onSendCommand({ type: 'stop-engine', engine })}
+        >
+          ✕
+        </Button>
       </div>
       <div
         className="pane-screen"
@@ -233,19 +216,7 @@ export function EnginePane({
         />
         {!hasFrame && (
           <div className="placeholder">
-            {stopped ? (
-              <Button
-                variant="default"
-                size="md"
-                onClick={() => onSendCommand({ type: 'start-engine', engine })}
-              >
-                ▶ Start {engine}
-              </Button>
-            ) : state?.status === 'error' ? (
-              `failed: ${state.detail ?? 'unknown'}`
-            ) : (
-              'starting…'
-            )}
+            {state?.status === 'error' ? `failed: ${state.detail ?? 'unknown'}` : 'starting…'}
           </div>
         )}
       </div>

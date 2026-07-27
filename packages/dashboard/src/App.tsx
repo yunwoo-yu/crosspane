@@ -48,12 +48,21 @@ export default function App() {
   );
 
   const engineNames = hello?.engines ?? [];
+  // pane은 실행 중(starting/running/error)인 엔진만 — 중지된 엔진은 그리드에서 빠지고
+  // 툴바 토글로 다시 추가한다 (빈 슬롯이 공간을 차지하지 않도록)
+  const activeEngines = engineNames.filter(
+    (engine) => (engineStates[engine]?.status ?? 'stopped') !== 'stopped',
+  );
   const helloViewOnly = hello?.viewOnlyEngines ?? [];
   // 세션이 확정한 값(셸 성공 시 ios-sim 인터랙티브) > hello의 초기 가정
   const isViewOnly = (engine: EngineName) =>
     engineStates[engine]?.viewOnly ?? helloViewOnly.includes(engine);
   // 포커스 모드: 한 pane만 크게. Esc로 해제
   const [focusedEngine, setFocusedEngine] = useState<EngineName | null>(null);
+  // 포커스 중인 pane이 중지되면 포커스도 해제 (빈 화면에 갇히지 않도록)
+  useEffect(() => {
+    if (focusedEngine && !activeEngines.includes(focusedEngine)) setFocusedEngine(null);
+  }, [focusedEngine, activeEngines]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setFocusedEngine(null);
@@ -61,13 +70,16 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
-  // view-only 엔진(iOS 시뮬레이터)은 클릭을 따라가지 못해 URL이 뒤처지는 게 정상 —
-  // desync 판단은 미러링되는 엔진끼리만 한다
+  // view-only 엔진(iOS 시뮬레이터)은 클릭을 따라가지 못해 URL이 뒤처지는 게 정상이고,
+  // 중지된 엔진의 URL은 과거 값이다 — desync 판단은 실행 중 + 미러링 엔진끼리만 한다
   const mirroredStates = Object.fromEntries(
-    Object.entries(engineStates).filter(([engine]) => !isViewOnly(engine as EngineName)),
+    Object.entries(engineStates).filter(
+      ([engine]) =>
+        activeEngines.includes(engine as EngineName) && !isViewOnly(engine as EngineName),
+    ),
   );
   const urlDesynced = detectUrlDesync(mirroredStates);
-  const syncTargetUrl = engineNames
+  const syncTargetUrl = activeEngines
     .filter((engine) => !isViewOnly(engine))
     .map((engine) => engineStates[engine]?.currentUrl)
     .find((url) => Boolean(url));
@@ -77,6 +89,7 @@ export default function App() {
       <Toolbar
         connected={connected}
         hello={hello}
+        engineStates={engineStates}
         urlDesynced={urlDesynced}
         syncTargetUrl={syncTargetUrl}
         onSendCommand={sendCommand}
@@ -91,7 +104,12 @@ export default function App() {
           gridAutoRows: 'minmax(0, 1fr)',
         }}
       >
-        {engineNames.map((engine) => (
+        {activeEngines.length === 0 && (
+          <div className="flex items-center justify-center text-fg-muted text-sm">
+            실행 중인 pane 없음 — 상단 엔진 토글로 시작하세요
+          </div>
+        )}
+        {activeEngines.map((engine) => (
           <div
             key={engine}
             className={focusedEngine && focusedEngine !== engine ? 'pane-hidden' : 'pane-slot'}

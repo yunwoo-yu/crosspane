@@ -1,8 +1,9 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
 import { AndroidEmulatorSession, resolveAndroidSdkDir } from './android-emulator.js';
 import { HELP_TEXT, parseCliArguments } from './args.js';
 import { resolveDeviceViewport } from './devices.js';
-import { applyInteractiveAnswers, detectMissingSetup, runInteractiveSetup } from './interactive.js';
+import { hasTargetArgument, promptForTarget } from './interactive.js';
 import { IosSimulatorSession, resolveDeveloperDir } from './ios-simulator.js';
 import { resolvePaneSetup } from './pane-setup.js';
 import type { BrowserEngineName, EngineName, EngineStatus } from './protocol.js';
@@ -16,15 +17,16 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // 터미널에서 직접 실행하고 대상/프로필/포트가 명시되지 않았으면 물어본다.
-  // 플래그를 주면 그대로 스킵되고, 파이프/CI(non-TTY)에서는 기본값으로 동작한다.
-  const missing = detectMissingSetup(argv);
+  // 인터랙티브로 묻는 건 대상 URL 하나뿐 — pane 구성은 대시보드 토글,
+  // 포트는 자동 폴백이 대신한다. 실행 중인 dev 서버가 감지되면 선택지로 제안된다.
   const isInteractiveTerminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
-  if (isInteractiveTerminal && (missing.target || missing.profile || missing.port)) {
-    argv = applyInteractiveAnswers(argv, await runInteractiveSetup(missing));
-  } else if (argv.length === 0) {
-    console.log(HELP_TEXT);
-    process.exit(1);
+  if (!hasTargetArgument(argv)) {
+    if (isInteractiveTerminal) {
+      argv = [await promptForTarget(), ...argv];
+    } else {
+      console.log(HELP_TEXT);
+      process.exit(1);
+    }
   }
 
   const options = parseCliArguments(argv);
@@ -109,6 +111,8 @@ async function main(): Promise<void> {
 
   const server = await startDashboardServer({
     port: options.port,
+    // 명시된 포트는 존중하고, 기본 포트는 사용 중이면 +1씩 폴백
+    portAttempts: options.portExplicit ? 1 : 10,
     sessions,
     paneController,
     // 시뮬레이터 셸앱 브릿지 — 세션이 셸 모드일 때만 실동작한다
@@ -150,10 +154,13 @@ async function main(): Promise<void> {
       server.broadcastEvent({ type: 'navigation', engine, url, ts: Date.now() }),
   };
 
-  console.log(`crosspane dashboard → http://localhost:${server.port}`);
+  const dashboardUrl = `http://localhost:${server.port}`;
+  console.log(`crosspane dashboard → ${dashboardUrl}`);
   console.log(
-    `target: ${options.url}  device: ${options.device}  panes: ${paneSetup.panes.join(', ')}  auto-start: ${paneSetup.autoStart.join(', ')}`,
+    `target: ${options.url}  device: ${options.device}  auto-start: ${paneSetup.autoStart.join(', ')} (나머지 pane은 대시보드 상단 토글로)`,
   );
+  // 터미널에서 직접 실행했으면 대시보드를 바로 연다 (파이프/CI에서는 열지 않음)
+  if (options.openBrowser && isInteractiveTerminal) openInBrowser(dashboardUrl);
 
   // 자동 시작 대상은 병렬 기동, 나머지는 stopped로 표시 (대시보드에서 시작 가능)
   for (const engine of paneSetup.panes) {
@@ -172,6 +179,19 @@ async function main(): Promise<void> {
   };
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
+}
+
+/** OS 기본 브라우저로 URL 열기 — 실패해도 조용히 무시 (사용자가 직접 열면 됨) */
+function openInBrowser(url: string): void {
+  const [command, ...args] =
+    process.platform === 'darwin'
+      ? ['open', url]
+      : process.platform === 'win32'
+        ? ['cmd', '/c', 'start', '', url]
+        : ['xdg-open', url];
+  spawn(command, args, { stdio: 'ignore', detached: true })
+    .on('error', () => {})
+    .unref();
 }
 
 main().catch((err: unknown) => {

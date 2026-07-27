@@ -99,6 +99,48 @@ describe('startDashboardServer', () => {
     vi.unstubAllEnvs();
   });
 
+  it('포트가 사용 중이면 portAttempts 범위에서 +1 폴백한다', async () => {
+    const blocker = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
+    try {
+      server = await startDashboardServer({
+        port: blocker.port,
+        portAttempts: 5,
+        hello,
+        sessions: new Map(),
+        paneController: fakeController(),
+      });
+      expect(server.port).toBe(blocker.port + 1);
+    } finally {
+      blocker.close();
+    }
+  });
+
+  it('portAttempts 없이 포트가 사용 중이면 명확한 에러를 던진다', async () => {
+    const blocker = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
+    try {
+      await expect(
+        startDashboardServer({
+          port: blocker.port,
+          hello,
+          sessions: new Map(),
+          paneController: fakeController(),
+        }),
+      ).rejects.toThrow(/already in use/);
+    } finally {
+      blocker.close();
+    }
+  });
+
   it('접속하면 hello를 먼저 보낸다', async () => {
     server = await startDashboardServer({
       port: 0,

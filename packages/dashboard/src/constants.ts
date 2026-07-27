@@ -15,6 +15,15 @@ export const RECONNECT_DELAY_MS = 1_000;
 // 이 간격으로 배칭해 리렌더를 초당 ~20회로 상한한다
 export const EVENT_BATCH_MS = 50;
 
+// 툴바 토글 칩용 짧은 이름
+export const ENGINE_SHORT_LABEL: Record<EngineName, string> = {
+  chromium: 'Chromium',
+  webkit: 'WebKit',
+  firefox: 'Firefox',
+  'ios-sim': 'iOS',
+  android: 'Android',
+};
+
 export const ENGINE_LABEL: Record<EngineName, string> = {
   chromium: 'Chromium · Android WebView',
   webkit: 'WebKit · iOS WKWebView',

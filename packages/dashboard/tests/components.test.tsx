@@ -60,6 +60,26 @@ function renderEnginePane(overrides: {
 }
 
 describe('Toolbar', () => {
+  it('엔진 토글 칩 — 중지 상태 클릭은 start-engine, 실행 상태 클릭은 stop-engine', () => {
+    const onSendCommand = vi.fn();
+    render(
+      <Toolbar
+        connected={true}
+        hello={helloEvent}
+        engineStates={{ chromium: { status: 'ready' } }}
+        urlDesynced={false}
+        syncTargetUrl={undefined}
+        onSendCommand={onSendCommand}
+        onClearLogs={vi.fn()}
+      />,
+    );
+    // 실행 중(chromium) → stop, 중지(webkit) → start
+    fireEvent.click(screen.getByTitle('chromium pane 중지 (리소스 반환)'));
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'stop-engine', engine: 'chromium' });
+    fireEvent.click(screen.getByTitle('webkit pane 시작'));
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'start-engine', engine: 'webkit' });
+  });
+
   it('연결 상태·타깃 URL을 보여주고 back/forward/reload/clear 버튼이 동작한다', () => {
     const onSendCommand = vi.fn();
     const onClearLogs = vi.fn();
@@ -67,6 +87,7 @@ describe('Toolbar', () => {
       <Toolbar
         connected={true}
         hello={helloEvent}
+        engineStates={{}}
         urlDesynced={false}
         syncTargetUrl={undefined}
         onSendCommand={onSendCommand}
@@ -101,6 +122,7 @@ describe('Toolbar', () => {
       <Toolbar
         connected={true}
         hello={helloEvent}
+        engineStates={{}}
         urlDesynced={false}
         syncTargetUrl={undefined}
         onSendCommand={onSendCommand}
@@ -122,6 +144,7 @@ describe('Toolbar', () => {
       <Toolbar
         connected={true}
         hello={helloEvent}
+        engineStates={{}}
         urlDesynced={true}
         syncTargetUrl="http://localhost:3000/?date=2026-08-03"
         onSendCommand={onSendCommand}
@@ -253,17 +276,10 @@ describe('EnginePane', () => {
     expect(screen.getByText('3')).toBeTruthy();
   });
 
-  it('stopped pane은 Start 버튼을 보여주고 start-engine을 보낸다', () => {
-    const onSendCommand = vi.fn();
-    renderEnginePane({ status: 'stopped', onSendCommand });
-    fireEvent.click(screen.getByText(/Start chromium/));
-    expect(onSendCommand).toHaveBeenCalledWith({ type: 'start-engine', engine: 'chromium' });
-  });
-
-  it('실행 중 pane의 ■ 버튼은 stop-engine을 보낸다', () => {
+  it('pane의 ✕ 버튼은 stop-engine을 보낸다', () => {
     const onSendCommand = vi.fn();
     renderEnginePane({ status: 'ready', onSendCommand });
-    fireEvent.click(screen.getByTitle('이 엔진 중지 (리소스 반환)'));
+    fireEvent.click(screen.getByTitle('이 pane 닫기 (엔진 중지, 툴바 토글로 재시작)'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'stop-engine', engine: 'chromium' });
   });
 

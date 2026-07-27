@@ -19,7 +19,8 @@ Options:
   --engines <list>     Engines to auto-start (chromium,webkit,firefox) — others stay
                        available as stopped panes you can start from the dashboard
   --device <name>      Playwright device preset (default: "iPhone 15")
-  --port <n>           Dashboard port (default: 7788)
+  --port <n>           Dashboard port (default: 7788, auto-fallback when taken)
+  --no-open            Don't open the dashboard in your browser automatically
   --inject <path>      JS file injected into every page before load (bridge mocks etc.)
   --user-agent <ua>    Exact UA for every engine (reproduce your app's custom webview UA)
   --preset-ua          Use Playwright's browser preset UA instead of webview UA emulation
@@ -50,6 +51,10 @@ export interface CliOptions {
   autoStartRealDevices: boolean;
   device: string;
   port: number;
+  /** --port로 명시했는지 — 명시 시 자동 폴백 없이 그 포트만 시도한다 */
+  portExplicit: boolean;
+  /** 기동 후 대시보드를 기본 브라우저로 여는지 (기본 켜짐, --no-open으로 끔) */
+  openBrowser: boolean;
   injectScriptPath?: string;
   /** 모든 엔진에 그대로 적용할 커스텀 UA (실제 앱의 웹뷰 UA 재현용) */
   customUserAgent?: string;
@@ -122,6 +127,8 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let port = DEFAULT_PORT;
   let injectScriptPath: string | undefined;
   let customUserAgent: string | undefined;
+  let portExplicit = false;
+  let openBrowser = true;
   let emulateWebview = true;
   let freshSession = false;
   let iosRuntime: string | undefined;
@@ -136,6 +143,10 @@ export function parseCliArguments(argv: string[]): CliOptions {
     }
     if (flag === '--fresh') {
       freshSession = true;
+      continue;
+    }
+    if (flag === '--no-open') {
+      openBrowser = false;
       continue;
     }
     if (flag === '--ios-sim') {
@@ -171,6 +182,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
         break;
       case '--port':
         port = parsePositiveNumberFlag(flag, value);
+        portExplicit = true;
         break;
       case '--inject':
         injectScriptPath = value;
@@ -193,6 +205,8 @@ export function parseCliArguments(argv: string[]): CliOptions {
     autoStartRealDevices: preset.realDevicePanes,
     device,
     port,
+    portExplicit,
+    openBrowser,
     injectScriptPath,
     customUserAgent,
     emulateWebview,

@@ -43,10 +43,10 @@ First run downloads the engine binaries. If a browser is missing, run
 - **Login session persistence**: each engine's cookies/storage are saved on exit and
   restored next run (`~/.crosspane/state/<origin>/`) — log into your app once, not on
   every launch in every engine. Start clean with `--fresh`
-- **Runtime pane control**: all available engines are always listed — profiles only
-  decide what auto-starts. Boot the real-device panes on demand with ▶, stop any
-  engine with ■ to free resources, focus one pane full-width (Esc to exit), and
-  navigate every engine from the URL bar
+- **Runtime pane control**: toggle engine panes on/off from the dashboard toolbar —
+  profiles only decide what auto-starts. Boot the heavy real-device panes on demand,
+  close any pane with ✕ to free resources, focus one pane full-width (Esc to exit),
+  and navigate every engine from the URL bar
 - **Mirrored interaction**: click/scroll on any pane replays on every engine
 - **Per-engine console**: `console.*`, uncaught errors (with stack), failed network requests — filterable by engine
 - **HMR friendly**: engines are real browsers pointed at your dev server, so hot reload just works
@@ -65,7 +65,8 @@ crosspane <url | :port> [options]
                        full:    everything
 --engines <list>     override engine list (chromium,webkit,firefox)
 --device <name>      Playwright device preset (default: "iPhone 15")
---port <n>           dashboard port (default: 7788)
+--port <n>           dashboard port (default: 7788, auto-fallback when taken)
+--no-open            don't open the dashboard in your browser automatically
 --inject <path>      JS injected into every page before load
 --user-agent <ua>    exact UA for every engine (reproduce your app's webview UA)
 --preset-ua          use Playwright preset UA instead of webview UA emulation
