@@ -68,6 +68,8 @@ export interface InputTarget {
   reload(): Promise<void>;
   navigate(url: string): Promise<void>;
   markActivity(): void;
+  /** 대시보드 시청자 유무 — false면 캡처를 멈춰 유휴 CPU를 없앤다 (선택 구현) */
+  setViewersActive?(active: boolean): void;
   dispose(): Promise<void>;
 }
 
@@ -138,6 +140,10 @@ const JPEG_QUALITY = 60;
 // 폴링 캡처 주기: 평소에는 낮게 유지하고(변화 없는 프레임은 어차피 스킵),
 // 입력 직후 ACTIVITY_WINDOW_MS 동안은 빠르게 돌려 반응이 즉시 보이게 한다
 const IDLE_CAPTURE_INTERVAL_MS = 400;
+// 시청자 0명일 때의 폴링 간격 — setViewersActive(true)의 wake가 즉시 깨운다
+const NO_VIEWER_SLEEP_MS = 60_000;
+// 로그인 세션 주기 저장 — 강제 종료(kill)에도 세션이 남도록
+const STATE_SAVE_INTERVAL_MS = 30_000;
 const ACTIVE_CAPTURE_INTERVAL_MS = 75;
 const ACTIVITY_WINDOW_MS = 2_000;
 
@@ -146,6 +152,10 @@ export class EngineSession {
   private activeUntil = 0;
   private wakeCapture: (() => void) | null = null;
   private lastFrame: Buffer | null = null;
+  /** 시청자(대시보드 클라이언트) 유무 — 0명이면 캡처/스크린캐스트를 멈춘다 */
+  private viewersActive = true;
+  private cdpSession: import('playwright').CDPSession | null = null;
+  private stateSaveTimer: NodeJS.Timeout | null = null;
 
   private constructor(
     readonly engine: BrowserEngineName,
@@ -277,6 +287,7 @@ export class EngineSession {
       events.onStatus(engine, 'error', String(err));
     }
     await session.startFrameStreaming(events);
+    session.startPeriodicStateSave();
     return session;
   }
 
@@ -303,6 +314,7 @@ export class EngineSession {
 
   private async startCdpScreencast(events: SessionEvents): Promise<void> {
     const cdp = await this.page.context().newCDPSession(this.page);
+    this.cdpSession = cdp;
     cdp.on('Page.screencastFrame', (frame) => {
       if (!this.disposed) {
         // metadata.scrollOffsetY: 캡처 시점의 실제 스크롤 위치 — 로컬 에코 보정용
@@ -315,6 +327,10 @@ export class EngineSession {
       // ack를 보내지 않으면 다음 프레임이 오지 않는다
       void cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {});
     });
+    await this.sendStartScreencast(cdp);
+  }
+
+  private async sendStartScreencast(cdp: import('playwright').CDPSession): Promise<void> {
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
       quality: JPEG_QUALITY,
@@ -330,11 +346,29 @@ export class EngineSession {
       while (!this.disposed) {
         const interval =
           Date.now() < this.activeUntil ? ACTIVE_CAPTURE_INTERVAL_MS : IDLE_CAPTURE_INTERVAL_MS;
-        await this.sleepUntilWoken(interval);
+        await this.sleepUntilWoken(this.viewersActive ? interval : NO_VIEWER_SLEEP_MS);
         if (this.disposed) break;
+        // 보는 사람이 없으면 스크린샷을 아예 찍지 않는다 — 유휴 CPU 0에 수렴
+        if (!this.viewersActive) continue;
         await this.captureAndEmitFrame(events);
       }
     })();
+  }
+
+  /** 대시보드 접속/이탈 — 0명이면 캡처(폴링/스크린캐스트)를 멈추고, 재접속 시 즉시 재개 */
+  setViewersActive(active: boolean): void {
+    if (this.viewersActive === active) return;
+    this.viewersActive = active;
+    if (this.engine === 'chromium' && this.cdpSession) {
+      const cdp = this.cdpSession;
+      void (active ? this.sendStartScreencast(cdp) : cdp.send('Page.stopScreencast')).catch(
+        () => undefined,
+      );
+    }
+    if (active) {
+      this.lastFrame = null; // 재개 첫 프레임은 무조건 전송 (그동안의 변화 반영)
+      this.wakeCapture?.();
+    }
   }
 
   private async captureAndEmitFrame(events: SessionEvents): Promise<void> {
@@ -446,16 +480,28 @@ export class EngineSession {
     await this.page.goto(url, { waitUntil: 'domcontentloaded' });
   }
 
-  async dispose(): Promise<void> {
-    this.disposed = true;
-    this.wakeCapture?.();
-    // 로그인 세션 유지: 쿠키/로컬스토리지를 저장해 다음 실행에서 복원한다
+  /** 주기적 세션 저장 — SIGKILL 등 비정상 종료에도 로그인이 유실되지 않게 */
+  startPeriodicStateSave(): void {
+    this.stateSaveTimer = setInterval(() => {
+      void this.saveState();
+    }, STATE_SAVE_INTERVAL_MS);
+  }
+
+  private async saveState(): Promise<void> {
     try {
       mkdirSync(dirname(this.statePath), { recursive: true });
       await this.context.storageState({ path: this.statePath });
     } catch {
-      // 세션 저장 실패는 종료를 막지 않는다
+      // 세션 저장 실패는 동작을 막지 않는다 (내비게이션 중 등 일시적 실패)
     }
+  }
+
+  async dispose(): Promise<void> {
+    this.disposed = true;
+    if (this.stateSaveTimer) clearInterval(this.stateSaveTimer);
+    this.wakeCapture?.();
+    // 로그인 세션 유지: 쿠키/로컬스토리지를 저장해 다음 실행에서 복원한다
+    await this.saveState();
     await this.browser.close().catch(() => undefined);
   }
 }

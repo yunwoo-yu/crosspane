@@ -40,6 +40,8 @@ export interface DashboardServerOptions {
   shellBridge?: ShellBridge;
   /** 새 대시보드 접속 시 호출 — 비디오 스트림을 키프레임부터 다시 시작시키는 용도 */
   onClientConnect?: () => void;
+  /** 접속 중인 대시보드 수 변화 — 0명이면 캡처를 멈춰 유휴 비용을 없앤다 */
+  onClientCountChange?: (count: number) => void;
 }
 
 // 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
@@ -202,6 +204,8 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     }
     for (const framePacket of lastFramePacketByEngine.values()) client.send(framePacket);
     options.onClientConnect?.();
+    options.onClientCountChange?.(wss.clients.size);
+    client.on('close', () => options.onClientCountChange?.(wss.clients.size));
     client.on('message', (raw) => {
       try {
         const command = JSON.parse(String(raw)) as ClientCommand;

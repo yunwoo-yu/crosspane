@@ -8,6 +8,8 @@ export interface CaptureLoopOptions {
   capture: () => Promise<void>;
   /** true면 activeIntervalMs, 아니면 idleIntervalMs로 대기 */
   isActive: () => boolean;
+  /** false면 캡처를 건너뛴다 (시청자 없음 등) — wake()로 즉시 재개 */
+  shouldCapture?: () => boolean;
   activeIntervalMs: number;
   idleIntervalMs: number;
 }
@@ -37,7 +39,7 @@ export function startCaptureLoop(options: CaptureLoopOptions): CaptureLoop {
 
   void (async () => {
     while (!stopped) {
-      await options.capture();
+      if (options.shouldCapture?.() !== false) await options.capture();
       if (stopped) break;
       const interval = options.isActive() ? options.activeIntervalMs : options.idleIntervalMs;
       await sleepUntilWake(interval);

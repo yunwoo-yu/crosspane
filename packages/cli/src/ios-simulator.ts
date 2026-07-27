@@ -142,6 +142,7 @@ export class IosSimulatorSession implements InputTarget {
   /** 롱폴 중인 셸의 응답 콜백 — 명령이 들어오면 즉시 전달된다 */
   private commandWaiter: ((commands: Record<string, unknown>[]) => void) | null = null;
   private captureLoop: CaptureLoop | null = null;
+  private viewersActive = true;
   private events: SessionEvents | null = null;
 
   private constructor(
@@ -332,6 +333,7 @@ export class IosSimulatorSession implements InputTarget {
     this.captureLoop = startCaptureLoop({
       capture: () => this.captureAndEmitFrame(events),
       isActive: () => Date.now() < this.activeUntil,
+      shouldCapture: () => this.viewersActive,
       activeIntervalMs: ACTIVE_CAPTURE_INTERVAL_MS,
       idleIntervalMs: IDLE_CAPTURE_INTERVAL_MS,
     });
@@ -363,6 +365,11 @@ export class IosSimulatorSession implements InputTarget {
     this.activeUntil = Date.now() + ACTIVITY_WINDOW_MS;
     // 입력 직후 즉시 캡처 — 화면 반영 지연이 폴링 간격만큼 늘어지는 것을 막는다
     this.captureLoop?.wake();
+  }
+
+  setViewersActive(active: boolean): void {
+    this.viewersActive = active;
+    if (active) this.captureLoop?.wake();
   }
 
   async navigate(url: string): Promise<void> {

@@ -125,6 +125,10 @@ async function main(): Promise<void> {
         if (session instanceof AndroidEmulatorSession) session.restartVideoStream();
       }
     },
+    // 시청자 0명 = 캡처/스트림 전면 정지 (유휴 CPU ~0), 재접속 시 즉시 재개
+    onClientCountChange(count) {
+      for (const session of sessions.values()) session.setViewersActive?.(count > 0);
+    },
     // 시뮬레이터 셸앱 브릿지 — 세션이 셸 모드일 때만 실동작한다
     shellBridge: {
       waitForCommands(engine) {

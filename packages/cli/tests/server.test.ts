@@ -174,6 +174,21 @@ describe('startDashboardServer', () => {
     expect(handleFrame).toHaveBeenLastCalledWith('ios-sim', jpeg, -1);
   });
 
+  it('클라이언트 수 변화를 알린다 (0명 = 캡처 정지 신호)', async () => {
+    const counts: number[] = [];
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+      onClientCountChange: (count) => counts.push(count),
+    });
+    const client = await TestClient.connect(server.port);
+    await vi.waitFor(() => expect(counts).toEqual([1]));
+    client.ws.close();
+    await vi.waitFor(() => expect(counts).toEqual([1, 0]));
+  });
+
   it('접속하면 hello를 먼저 보낸다', async () => {
     server = await startDashboardServer({
       port: 0,

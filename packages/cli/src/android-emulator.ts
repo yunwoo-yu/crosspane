@@ -170,6 +170,7 @@ export class AndroidEmulatorSession implements InputTarget {
   }
 
   private captureLoop: CaptureLoop | null = null;
+  private viewersActive = true;
   private stopped = false;
   private videoProcess: ReturnType<typeof spawn> | null = null;
   private videoChunkHandler: ((chunk: Buffer) => void) | null = null;
@@ -179,6 +180,7 @@ export class AndroidEmulatorSession implements InputTarget {
     this.captureLoop = startCaptureLoop({
       capture: () => this.captureAndEmitFrame(events),
       isActive: () => Date.now() < this.activeUntil,
+      shouldCapture: () => this.viewersActive,
       activeIntervalMs: ACTIVE_CAPTURE_INTERVAL_MS,
       idleIntervalMs: IDLE_CAPTURE_INTERVAL_MS,
     });
@@ -205,6 +207,20 @@ export class AndroidEmulatorSession implements InputTarget {
     this.activeUntil = Date.now() + ACTIVITY_WINDOW_MS;
     // 입력 직후 즉시 캡처 — 화면 반영 지연이 폴링 간격만큼 늘어지는 것을 막는다
     this.captureLoop?.wake();
+  }
+
+  /** 시청자 0명이면 screenrecord 스트림도 멈춘다 (에뮬레이터 인코딩 비용 절약) */
+  setViewersActive(active: boolean): void {
+    if (this.viewersActive === active) return;
+    this.viewersActive = active;
+    if (active) {
+      this.captureLoop?.wake();
+      if (this.videoChunkHandler && !this.videoProcess) this.spawnVideoStream();
+    } else if (this.videoProcess) {
+      const proc = this.videoProcess;
+      this.videoProcess = null; // exit 핸들러의 재시작 방지 표식
+      proc.kill('SIGKILL');
+    }
   }
 
   async clickAt(normalizedX: number, normalizedY: number): Promise<void> {
@@ -322,7 +338,10 @@ export class AndroidEmulatorSession implements InputTarget {
       // spawn 실패(구형 이미지 등) — 스크린샷 폴링 폴백이 계속 동작한다
     });
     proc.on('exit', () => {
-      if (!this.stopped) setTimeout(() => this.spawnVideoStream(), 300);
+      // 시청자 없음으로 의도적으로 멈춘 경우(videoProcess=null)는 재시작하지 않는다
+      if (!this.stopped && this.viewersActive && this.videoProcess === proc) {
+        setTimeout(() => this.spawnVideoStream(), 300);
+      }
     });
   }
 
