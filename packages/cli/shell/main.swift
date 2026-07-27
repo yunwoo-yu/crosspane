@@ -19,6 +19,7 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
   private let frameIntervalIdle: TimeInterval = 0.5
   private var frameInterval: TimeInterval = 1.0 / 15.0
   private var framesPaused = false
+  private var inflightSnapshots = 0
   private var lastFrameHash = 0
   private var unchangedFrames = 0
   // 스트림 프레임의 px/pt 비율 — 대시보드 스크롤 델타(프레임 px)를 pt로 환산한다
@@ -86,10 +87,11 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
   // takeSnapshot은 공개 API이며 인프로세스라 왕복이 없다 (simctl은 회당 수백 ms)
 
   private func streamFrames() {
-    let scheduleNext = { (interval: TimeInterval) in
-      DispatchQueue.main.asyncAfter(deadline: .now() + interval) { self.streamFrames() }
-    }
-    if framesPaused { return scheduleNext(1.0) }
+    // 고정 케이던스 + 동시 2장 파이프라이닝 — takeSnapshot 왕복 지연을 숨겨 fps를 올린다
+    DispatchQueue.main.asyncAfter(deadline: .now() + frameInterval) { self.streamFrames() }
+    if framesPaused || inflightSnapshots >= 2 { return }
+    inflightSnapshots += 1
+    let scheduleNext = { (_: TimeInterval) in } // 완료 콜백은 더 이상 스케줄하지 않는다
     // drawHierarchy는 WK 컴포지터의 비동기 서피스를 찍어 스크롤 중에도 80%가
     // 동일 프레임(실측) — WebKit이 직접 렌더하는 takeSnapshot을 저해상도로 쓴다
     let config = WKSnapshotConfiguration()
@@ -98,6 +100,7 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
     config.afterScreenUpdates = true
     config.snapshotWidth = NSNumber(value: Double(webView.bounds.width) / 2)
     webView.takeSnapshot(with: config) { image, _ in
+      defer { self.inflightSnapshots -= 1 }
       guard let image else { return scheduleNext(self.frameInterval) }
       // 스크롤 위치를 프레임 픽셀 단위로 환산해 동봉한다 (대시보드 로컬 에코용)
       let pixelsPerPoint = (image.size.width * image.scale) / max(1, self.webView.bounds.width)

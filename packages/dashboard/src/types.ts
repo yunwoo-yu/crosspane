@@ -55,4 +55,6 @@ export interface NetworkEntry {
 }
 
 /** scrollY: 프레임 캡처 시점의 스크롤 위치(CSS px), 모르면 음수 */
-export type FrameListener = (frame: ImageBitmap, scrollY: number, fullPage?: boolean) => void;
+/** ImageBitmap(스냅샷) 또는 VideoFrame(실스트림) — 둘 다 drawImage 가능, 전달 후 close됨 */
+export type PaneFrame = ImageBitmap | VideoFrame;
+export type FrameListener = (frame: PaneFrame, scrollY: number, fullPage?: boolean) => void;

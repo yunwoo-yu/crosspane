@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import { type H264AccessUnit, H264AnnexBParser } from '../h264';
 import type { EngineName } from '../types';
 
-/** 디코딩된 비디오 프레임을 기존 프레임 구독 경로로 넘긴다 */
-export type DecodedFrameSink = (engine: EngineName, frame: ImageBitmap) => void;
+/** 디코딩된 비디오 프레임을 기존 프레임 구독 경로로 넘긴다 (VideoFrame 직행 — 변환 왕복 없음) */
+export type DecodedFrameSink = (engine: EngineName, frame: VideoFrame) => void;
 
 const FRAME_DURATION_US = 33_333; // 타임스탬프 용도 (30fps 가정, 표시 타이밍엔 미사용)
 // 스트림이 이 시간 조용하면 pending의 마지막 프레임을 플러시 (다음 시작코드 대기 지연 제거)
@@ -41,12 +41,8 @@ export function useVideoStreams(onFrame: DecodedFrameSink) {
       if (!pipeline.configured) {
         if (!pipeline.parser.codec) return; // SPS 전 — 설정 불가
         const decoder = new VideoDecoder({
-          output: (frame) => {
-            void createImageBitmap(frame).then((bitmap) => {
-              frame.close();
-              onFrameRef.current(engine, bitmap);
-            });
-          },
+          // createImageBitmap 변환 왕복을 생략하고 VideoFrame을 곧장 canvas로
+          output: (frame) => onFrameRef.current(engine, frame),
           // 스트림 오류(잘린 NAL 플러시 등) — 파이프라인을 버리고 다음 키프레임부터 재시작
           error: () => resetPipeline(engine),
         });

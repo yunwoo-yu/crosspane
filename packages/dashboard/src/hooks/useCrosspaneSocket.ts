@@ -84,7 +84,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
 
   /** 디코딩된 프레임(스냅샷/비디오 공통)을 구독자에게 전달하고 close한다 */
   const dispatchFrame = useCallback(
-    (engine: EngineName, frame: ImageBitmap, scrollY: number, fullPage = false) => {
+    (engine: EngineName, frame: ImageBitmap | VideoFrame, scrollY: number, fullPage = false) => {
       const listeners = frameListenersRef.current.get(engine);
       if (listeners && listeners.size > 0) {
         for (const listener of listeners) listener(frame, scrollY, fullPage);

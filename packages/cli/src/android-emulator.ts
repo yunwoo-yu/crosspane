@@ -310,14 +310,36 @@ export class AndroidEmulatorSession implements InputTarget {
 
   /** 연속 터치 — motionevent DOWN/MOVE/UP으로 손가락 제스처를 그대로 재생한다.
       네이티브 스크롤 물리(관성/러버밴드)가 실제 제스처 속도에서 나온다 */
+  // move 백로그 방지: input 실행(~35ms/개)보다 move가 빨리 오면 큐가 쌓여
+  // 드래그가 뒤로 갈수록 밀린다 — 최신 좌표만 유지하고 40ms 간격으로 방출
+  private pendingMove: { x: number; y: number } | null = null;
+  private moveTimer: NodeJS.Timeout | null = null;
+  private lastMoveSentAt = 0;
+
   async touchAt(phase: 'down' | 'move' | 'up', normalizedX: number, normalizedY: number) {
-    this.runInputCommand([
-      'input',
-      'motionevent',
-      phase.toUpperCase(),
-      Math.round(normalizedX * this.screen.width),
-      Math.round(normalizedY * this.screen.height),
-    ]);
+    const x = Math.round(normalizedX * this.screen.width);
+    const y = Math.round(normalizedY * this.screen.height);
+    if (phase === 'move') {
+      this.pendingMove = { x, y };
+      const wait = 40 - (Date.now() - this.lastMoveSentAt);
+      if (wait <= 0) this.flushMove();
+      else if (!this.moveTimer) this.moveTimer = setTimeout(() => this.flushMove(), wait);
+      return;
+    }
+    this.flushMove(); // up/down 전에 마지막 move 순서 보장
+    this.runInputCommand(['input', 'motionevent', phase.toUpperCase(), x, y]);
+  }
+
+  private flushMove(): void {
+    if (this.moveTimer) {
+      clearTimeout(this.moveTimer);
+      this.moveTimer = null;
+    }
+    const move = this.pendingMove;
+    this.pendingMove = null;
+    if (!move) return;
+    this.lastMoveSentAt = Date.now();
+    this.runInputCommand(['input', 'motionevent', 'MOVE', move.x, move.y]);
   }
 
   async clickAt(normalizedX: number, normalizedY: number): Promise<void> {

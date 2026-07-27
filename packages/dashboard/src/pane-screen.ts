@@ -1,5 +1,12 @@
 import { applyEchoOffset } from './lib/canvas';
 import { ScrollEcho } from './scroll-echo';
+import type { PaneFrame } from './types';
+
+/** VideoFrame은 width 대신 displayWidth를 쓴다 */
+function frameSize(frame: PaneFrame): { width: number; height: number } {
+  if ('displayWidth' in frame) return { width: frame.displayWidth, height: frame.displayHeight };
+  return { width: frame.width, height: frame.height };
+}
 
 /**
  * pane 화면 렌더러 — 프레임 종류에 따라 두 모드를 오간다.
@@ -62,17 +69,18 @@ export class PaneScreen {
 
   acceptFrame(
     canvas: HTMLCanvasElement,
-    frame: ImageBitmap,
+    frame: PaneFrame,
     scrollY: number,
     fullPage: boolean,
     now: number,
   ): void {
+    const { width: frameW, height: frameH } = frameSize(frame);
     if (!fullPage) {
       // window 모드 (page 모드였다면 백킹 폐기 — 뷰포트 폴백/엔진 전환)
       this.backing = null;
-      if (canvas.width !== frame.width || canvas.height !== frame.height) {
-        canvas.width = frame.width;
-        canvas.height = frame.height;
+      if (canvas.width !== frameW || canvas.height !== frameH) {
+        canvas.width = frameW;
+        canvas.height = frameH;
       }
       canvas.getContext('2d')?.drawImage(frame, 0, 0);
       this.lastCanvas = canvas;
@@ -88,20 +96,16 @@ export class PaneScreen {
     }
 
     // page 모드: 풀페이지 비트맵을 백킹에 보관
-    if (
-      !this.backing ||
-      this.backing.width !== frame.width ||
-      this.backing.height !== frame.height
-    ) {
+    if (!this.backing || this.backing.width !== frameW || this.backing.height !== frameH) {
       this.backing ??= document.createElement('canvas');
-      this.backing.width = frame.width;
-      this.backing.height = frame.height;
+      this.backing.width = frameW;
+      this.backing.height = frameH;
     }
     this.backing.getContext('2d')?.drawImage(frame, 0, 0);
 
-    const viewportPx = this.viewportHeightPx(frame.width);
-    if (canvas.width !== frame.width || canvas.height !== viewportPx) {
-      canvas.width = frame.width;
+    const viewportPx = this.viewportHeightPx(frameW);
+    if (canvas.width !== frameW || canvas.height !== viewportPx) {
+      canvas.width = frameW;
       canvas.height = viewportPx;
     }
     canvas.style.transform = ''; // page 모드는 에코 transform을 쓰지 않는다
