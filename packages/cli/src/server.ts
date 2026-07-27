@@ -153,6 +153,28 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
       }
       return;
     }
+    // headed 리더 창의 입력 릴레이 — 발신 엔진을 제외한 모두에게 재생한다
+    const mirrorMatch = /^\/mirror\/([a-z-]+)\/event$/.exec(pathname);
+    if (mirrorMatch && req.method === 'POST') {
+      const sourceEngine = mirrorMatch[1] as EngineName;
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        try {
+          const command = JSON.parse(body) as MirrorCommand;
+          const followers = new Map(
+            [...options.sessions].filter(([engine]) => engine !== sourceEngine),
+          );
+          void mirrorCommandToSessions(followers, command);
+        } catch {
+          // 잘못된 페이로드 무시
+        }
+        res.writeHead(204).end();
+      });
+      return;
+    }
     void serveDashboardFile(dashboardDir, req, res);
   });
 

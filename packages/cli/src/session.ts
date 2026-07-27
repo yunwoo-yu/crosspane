@@ -98,6 +98,38 @@ export interface SessionOptions {
   emulateWebview: boolean;
   /** 저장된 로그인 세션(storageState)을 무시하고 깨끗하게 시작 */
   freshSession?: boolean;
+  /** 실창 모드 — 캡처 없이 진짜 브라우저 창을 띄운다 (렌더링 지연 0) */
+  headed?: boolean;
+  /** 리더 창의 입력을 서버로 릴레이할 엔드포인트 (headed 리더에만 주입) */
+  mirrorCaptureUrl?: string;
+}
+
+/**
+ * headed 리더 창에 주입되는 입력 캡처 — 사용자가 실창에서 직접 조작한 클릭/휠/키를
+ * sendBeacon(단순 요청, 프리플라이트 없음)으로 서버에 릴레이해 나머지 엔진에 미러링한다.
+ */
+function buildMirrorCaptureScript(endpoint: string): string {
+  return `(() => {
+  const post = (cmd) => {
+    try { navigator.sendBeacon(${JSON.stringify(endpoint)}, JSON.stringify(cmd)); } catch {}
+  };
+  addEventListener('click', (e) => {
+    post({ type: 'click', x: e.clientX / innerWidth, y: e.clientY / innerHeight });
+  }, true);
+  let acc = 0, timer = null;
+  addEventListener('wheel', (e) => {
+    acc += e.deltaY;
+    if (timer === null) timer = setTimeout(() => {
+      post({ type: 'scroll', deltaY: Math.round(acc) }); acc = 0; timer = null;
+    }, 33);
+  }, { passive: true, capture: true });
+  const SPECIAL = ['Enter','Backspace','Delete','Tab','Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    if (SPECIAL.includes(e.key)) post({ type: 'keypress', key: e.key });
+    else if (e.key.length === 1) post({ type: 'type', text: e.key });
+  }, true);
+})();`;
 }
 
 /**
@@ -184,6 +216,7 @@ export class EngineSession {
     const browser = await launchers[engine].launch({
       handleSIGINT: false,
       handleSIGTERM: false,
+      headless: options.headed !== true,
     });
     const contextOptions = {
       ...devicePreset,
@@ -211,6 +244,10 @@ export class EngineSession {
     if (options.injectScriptPath) {
       const script = await readFile(options.injectScriptPath, 'utf-8');
       await context.addInitScript({ content: script });
+    }
+    if (options.mirrorCaptureUrl) {
+      // 리더 실창의 조작을 나머지 엔진에 미러링 (headed 모드)
+      await context.addInitScript({ content: buildMirrorCaptureScript(options.mirrorCaptureUrl) });
     }
 
     const page = await context.newPage();

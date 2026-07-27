@@ -72,6 +72,8 @@ crosspane <url | :port> [options]
 --device <name>      Playwright device preset (default: "iPhone 15")
 --port <n>           dashboard port (default: 7788, auto-fallback when taken)
 --no-open            don't open the dashboard in your browser automatically
+--headed             open REAL browser windows (zero-latency) — drive the Chromium
+                     window, inputs mirror to the others; dashboard keeps logs/diff
 --inject <path>      JS injected into every page before load
 --user-agent <ua>    exact UA for every engine (reproduce your app's webview UA)
 --preset-ua          use Playwright preset UA instead of webview UA emulation
