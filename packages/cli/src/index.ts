@@ -10,6 +10,7 @@ import { resolvePaneSetup } from './pane-setup.js';
 import type { BrowserEngineName, EngineName, EngineStatus } from './protocol.js';
 import { startDashboardServer } from './server.js';
 import { EngineSession, type InputTarget, type SessionEvents } from './session.js';
+import { normalizeUrl, planUrlSync } from './url-sync.js';
 
 async function main(): Promise<void> {
   let argv = process.argv.slice(2);
@@ -66,6 +67,34 @@ async function main(): Promise<void> {
   const startingEngines = new Set<EngineName>();
   // 브라우저 자동 설치는 엔진당 1회만 시도 (실패 루프 방지)
   const browserInstallAttempted = new Set<EngineName>();
+
+  // URL 단일 소스: 리더 엔진 기준으로 우발적 어긋남을 자동 수렴시킨다.
+  // 같은 목표로 되돌렸는데 다시 어긋나면 실차이(엔진별 리다이렉트 등)로 보존.
+  const lastNavigationUrl = new Map<EngineName, string>();
+  const urlSyncAttempted = new Map<EngineName, string>();
+  let urlSyncTimer: NodeJS.Timeout | null = null;
+  const URL_SYNC_GRACE_MS = 800;
+  const scheduleUrlConvergence = (): void => {
+    if (urlSyncTimer) clearTimeout(urlSyncTimer);
+    urlSyncTimer = setTimeout(() => {
+      urlSyncTimer = null;
+      const syncable = [...sessions.keys()].filter(
+        (engine) => engine === 'chromium' || engine === 'webkit' || engine === 'firefox',
+      );
+      for (const plan of planUrlSync({
+        urls: lastNavigationUrl,
+        syncable,
+        attempted: urlSyncAttempted,
+      })) {
+        urlSyncAttempted.set(plan.engine, normalizeUrl(plan.target));
+        console.log(`  ↺ ${plan.engine} URL 수렴 → ${plan.target}`);
+        void sessions
+          .get(plan.engine)
+          ?.navigate(plan.target)
+          .catch(() => undefined);
+      }
+    }, URL_SYNC_GRACE_MS);
+  };
 
   const browserLaunchOptions = {
     url: options.url,
@@ -189,8 +218,14 @@ async function main(): Promise<void> {
       server.broadcastEvent({ type: 'network', engine, ...entry, ts: Date.now() }),
     onStatus: (engine: EngineName, status: EngineStatus, detail?: string, viewOnly?: boolean) =>
       server.broadcastEvent({ type: 'engine-status', engine, status, detail, viewOnly }),
-    onNavigation: (engine, url) =>
-      server.broadcastEvent({ type: 'navigation', engine, url, ts: Date.now() }),
+    onNavigation: (engine, url) => {
+      lastNavigationUrl.set(engine, url);
+      // 리더가 새 URL로 이동하면 이전 수렴 기록은 무효 — 다음 어긋남에 다시 1회 수렴
+      const leaderMoved = engine === 'chromium' || sessions.size === 0;
+      if (leaderMoved) urlSyncAttempted.clear();
+      scheduleUrlConvergence();
+      server.broadcastEvent({ type: 'navigation', engine, url, ts: Date.now() });
+    },
   };
 
   const dashboardUrl = `http://localhost:${server.port}`;
