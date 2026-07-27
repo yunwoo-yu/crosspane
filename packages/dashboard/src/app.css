@@ -1,3 +1,18 @@
+@import "tailwindcss";
+
+/* 기존 팔레트를 Tailwind 토큰으로 승격 — 유틸리티(bg-panel 등)와 shadcn풍
+   컴포넌트가 같은 색을 쓴다. 아래 :root 변수는 레거시 규칙과의 호환용 */
+@theme {
+  --color-app: #0f1115;
+  --color-panel: #171a21;
+  --color-line: #262b36;
+  --color-fg: #d7dae0;
+  --color-fg-muted: #7d8590;
+  --color-accent: #4f8ef7;
+  --color-danger: #f26d6d;
+  --color-warn: #e3b341;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -66,22 +81,6 @@ body {
   font-size: 13px;
 }
 
-.toolbar button {
-  background: #21262f;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.toolbar button + button {
-  margin-left: 0;
-}
-.toolbar button:hover {
-  border-color: var(--accent);
-}
-
 .grid {
   display: grid;
   gap: 12px;
@@ -126,31 +125,6 @@ body {
   background: var(--warn);
 }
 
-.pane-btn {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 11px;
-  padding: 1px 7px;
-  cursor: pointer;
-  line-height: 1.4;
-}
-.pane-btn:hover {
-  color: var(--text);
-  border-color: var(--accent);
-}
-
-.start-btn {
-  background: var(--accent);
-  color: #fff;
-  border: 0;
-  border-radius: 8px;
-  padding: 10px 18px;
-  font-size: 14px;
-  cursor: pointer;
-}
-
 .pane-hidden {
   display: none;
 }
@@ -160,35 +134,6 @@ body {
 }
 .pane-slot > .pane {
   flex: 1;
-}
-
-.toolbar .url-bar {
-  flex: 1;
-  max-width: 420px;
-}
-.toolbar .url-bar input {
-  width: 100%;
-  background: #10131a;
-  color: var(--accent);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 10px;
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.toolbar .url-bar input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.view-only-chip {
-  font-size: 10px;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 1px 7px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .pane-url {
@@ -206,29 +151,9 @@ body {
   font-weight: 700;
 }
 
-.err-badge {
-  background: var(--error);
-  color: #fff;
-  font-size: 11px;
-  border-radius: 999px;
-  padding: 1px 7px;
-}
-.pane-head .err-badge:first-of-type {
-  margin-left: auto;
-}
-.pane-url + .err-badge {
-  margin-left: 0;
-}
-
-.pane-screen:focus {
+.pane-url + .pane-screen:focus {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-
-.toolbar .sync-warning {
-  background: #3a2f1c;
-  color: var(--warn);
-  border-color: var(--warn);
 }
 
 /* 스크린샷 전체가 항상 보이도록 맞추고(레터박스), 로컬 스크롤은 막는다 —
@@ -284,19 +209,6 @@ body {
 .filters {
   display: flex;
   gap: 4px;
-}
-.filters button {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 11px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-.filters button.active {
-  color: var(--text);
-  border-color: var(--accent);
 }
 
 .console-body {

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ENGINE_LABEL, WHEEL_COALESCE_MS } from '../constants';
 import { toDisplayPath } from '../log-utils';
 import type { ClientCommand, EngineName, EngineState, FrameListener } from '../types';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 
 interface EnginePaneProps {
   engine: EngineName;
@@ -152,39 +154,39 @@ export function EnginePane({
       <div className="pane-head">
         <span className={`dot ${state?.status ?? 'starting'}`} />
         <span className="pane-title">{ENGINE_LABEL[engine]}</span>
-        {viewOnly && <span className="view-only-chip">view-only</span>}
+        {viewOnly && <Badge variant="outline">view-only</Badge>}
         {state?.currentUrl && (
           <span className={`pane-url ${urlDesynced ? 'desynced' : ''}`} title={state.currentUrl}>
             {toDisplayPath(state.currentUrl)}
           </span>
         )}
-        {errorCount > 0 && <span className="err-badge">{errorCount}</span>}
-        <button
-          type="button"
-          className="pane-btn"
+        {errorCount > 0 && <Badge variant="destructive">{errorCount}</Badge>}
+        <Button
+          variant="ghost"
+          size="icon"
           title={focused ? '포커스 해제 (Esc)' : '이 pane만 크게'}
           onClick={onToggleFocus}
         >
           {focused ? '⤢' : '⤡'}
-        </button>
+        </Button>
         {stopped ? (
-          <button
-            type="button"
-            className="pane-btn"
+          <Button
+            variant="ghost"
+            size="icon"
             title="이 엔진 시작"
             onClick={() => onSendCommand({ type: 'start-engine', engine })}
           >
             ▶
-          </button>
+          </Button>
         ) : (
-          <button
-            type="button"
-            className="pane-btn"
+          <Button
+            variant="ghost"
+            size="icon"
             title="이 엔진 중지 (리소스 반환)"
             onClick={() => onSendCommand({ type: 'stop-engine', engine })}
           >
             ■
-          </button>
+          </Button>
         )}
       </div>
       <div
@@ -229,13 +231,13 @@ export function EnginePane({
         {!hasFrame && (
           <div className="placeholder">
             {stopped ? (
-              <button
-                type="button"
-                className="start-btn"
+              <Button
+                variant="default"
+                size="md"
                 onClick={() => onSendCommand({ type: 'start-engine', engine })}
               >
                 ▶ Start {engine}
-              </button>
+              </Button>
             ) : state?.status === 'error' ? (
               `failed: ${state.detail ?? 'unknown'}`
             ) : (

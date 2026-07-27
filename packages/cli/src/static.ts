@@ -17,15 +17,17 @@ const MIME_TYPES: Record<string, string> = {
 /**
  * 대시보드 정적 파일 위치 (우선순위순):
  * 1. CROSSPANE_DASHBOARD_DIR 환경변수 — 테스트/커스텀 빌드용
- * 2. dist/public — npm 배포물에 번들된 빌드 (scripts/bundle-dashboard.mjs)
- * 3. 모노레포 상대경로 — 저장소에서 직접 실행하는 개발 흐름
+ * 2. 모노레포 상대경로 — 저장소 개발 흐름 (항상 최신 빌드)
+ * 3. dist/public — npm 배포물에 번들된 빌드 (scripts/bundle-dashboard.mjs)
  */
 export function resolveDashboardDir(): string {
   if (process.env.CROSSPANE_DASHBOARD_DIR) return process.env.CROSSPANE_DASHBOARD_DIR;
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const bundledDir = path.join(here, 'public');
-  if (existsSync(bundledDir)) return bundledDir;
-  return path.resolve(here, '../../dashboard/dist');
+  // 모노레포 개발 경로를 번들보다 우선한다 — 대시보드만 다시 빌드했을 때
+  // cli 재번들 없이 최신이 서빙되도록. 배포본에는 이 경로가 없어 번들로 폴백된다
+  const monorepoDir = path.resolve(here, '../../dashboard/dist');
+  if (existsSync(monorepoDir)) return monorepoDir;
+  return path.join(here, 'public');
 }
 
 export async function serveDashboardFile(

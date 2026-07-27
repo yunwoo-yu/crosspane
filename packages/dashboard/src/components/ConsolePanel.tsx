@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EngineName, LogEntry } from '../types';
+import { Button } from './ui/button';
 
 interface ConsolePanelProps {
   logs: LogEntry[];
@@ -33,14 +34,15 @@ export function ConsolePanel({ logs, engines }: ConsolePanelProps) {
         <span>console</span>
         <div className="filters">
           {(['all', ...engines] as LogFilter[]).map((f) => (
-            <button
+            <Button
               key={f}
-              type="button"
-              className={filter === f ? 'active' : ''}
+              variant="ghost"
+              size="icon"
+              className={filter === f ? 'border-accent text-fg' : ''}
               onClick={() => setFilter(f)}
             >
               {f}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

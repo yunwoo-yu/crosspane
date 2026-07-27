@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { normalizeUrlInput } from '../log-utils';
 import type { ClientCommand, HelloEvent } from '../types';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
 
 interface ToolbarProps {
   connected: boolean;
@@ -35,7 +37,7 @@ export function Toolbar({
         {connected ? 'connected' : 'disconnected'}
       </span>
       <form
-        className="url-bar"
+        className="url-bar max-w-md flex-1"
         onSubmit={(event) => {
           event.preventDefault();
           if (urlInput.trim()) {
@@ -43,7 +45,7 @@ export function Toolbar({
           }
         }}
       >
-        <input
+        <Input
           type="text"
           value={urlInput}
           onChange={(event) => setUrlInput(event.target.value)}
@@ -54,27 +56,24 @@ export function Toolbar({
       </form>
       {hello && <span className="device">{hello.device}</span>}
       {urlDesynced && syncTargetUrl && (
-        <button
-          type="button"
-          className="sync-warning"
+        <Button
+          variant="warn"
           title={`모든 엔진을 ${syncTargetUrl}로 이동`}
           onClick={() => onSendCommand({ type: 'navigate', url: syncTargetUrl })}
         >
           ⚠ URL 어긋남 — 재동기화
-        </button>
+        </Button>
       )}
-      <button type="button" onClick={() => onSendCommand({ type: 'back' })} title="뒤로가기">
+      <Button className="ml-auto" onClick={() => onSendCommand({ type: 'back' })} title="뒤로가기">
         ←
-      </button>
-      <button type="button" onClick={() => onSendCommand({ type: 'forward' })} title="앞으로가기">
+      </Button>
+      <Button onClick={() => onSendCommand({ type: 'forward' })} title="앞으로가기">
         →
-      </button>
-      <button type="button" onClick={() => onSendCommand({ type: 'reload' })}>
-        ⟳ reload all
-      </button>
-      <button type="button" onClick={onClearLogs}>
+      </Button>
+      <Button onClick={() => onSendCommand({ type: 'reload' })}>⟳ reload all</Button>
+      <Button variant="ghost" onClick={onClearLogs}>
         clear logs
-      </button>
+      </Button>
     </header>
   );
 }
