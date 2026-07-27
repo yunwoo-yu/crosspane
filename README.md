@@ -1,21 +1,14 @@
 # crosspane
 
-Preview one URL across **Chromium, WebKit and Firefox** — side by side, in a single dashboard.
+Preview one URL across **Chromium, WebKit, Firefox — and real devices (Android emulator,
+iOS Simulator)** — side by side, in a single dashboard.
 
-Point it at your local dev server (`pnpm dev`) and see how your webview screens render on every engine at once, with mirrored clicks/scrolls and per-engine console logs. WebKit gives you a close approximation of iOS Safari / WKWebView without touching a device.
+Point it at your local dev server (`pnpm dev`) and see how your webview screens render
+everywhere at once, with mirrored clicks/scrolls/typing and per-engine console, error and
+HTTP-failure logs. Built for teams shipping webview-based apps (React Native WebView,
+in-app browsers) who need to catch production-environment bugs before deploying.
 
-```
-┌─────────────────────────────────────────────────────┐
-│ crosspane   http://localhost:3000   iPhone 15  ⟳    │
-├───────────────┬────────────────┬────────────────────┤
-│  Chromium     │  WebKit        │  Firefox           │
-│  (Android WV) │  (iOS WKWV)    │  (Gecko)           │
-│   [screen]    │   [screen]     │   [screen]         │
-├───────────────┴────────────────┴────────────────────┤
-│ console  [all|chromium|webkit|firefox]              │
-│ WEBKIT  error  TypeError: x.flatMap is not a func…  │
-└─────────────────────────────────────────────────────┘
-```
+![crosspane dashboard — Chromium/WebKit/Firefox + real Android emulator + real iOS Simulator](docs/dashboard-full.png)
 
 ## Quick start
 
@@ -113,16 +106,20 @@ CI runs the full build and test suite on all three operating systems.
 
 ## Known limits
 
-- Playwright WebKit ≈ iOS WKWebView, but not pixel-identical (font rendering, some CSS quirks)
-- Firefox ignores mobile emulation (`isMobile`) — viewport is applied, touch is not
-- Text input mirroring is minimal (`keypress` only) — full IME/typing support is on the roadmap
+- Engine panes approximate webview components (same engine, correct UA/constraints) —
+  the real-device panes close most of the remaining gap; a WKWebView/WebView shell app
+  for component-level parity is on the roadmap
+- iOS Simulator pane is view-only (no input injection channel without a shell app)
+- IME (e.g. Korean) composition input is not mirrored yet — ASCII typing works
 
 ## Roadmap
 
+- [ ] Runtime pane control from the dashboard (start/stop engines, focus mode, URL bar)
+- [ ] Login session persistence across runs (`storageState`)
+- [ ] Network panel — compare requests/status/timing across engines
 - [ ] Screenshot diff between engines (pixelmatch) with mismatch highlighting
-- [ ] `crosspane.config.ts` — device matrix, bridge mock presets, safe-area overlays
-- [ ] Full keyboard/text input mirroring
-- [ ] npm publish (`npx crosspane :3000`) with bundled dashboard
+- [ ] WKWebView / Android WebView shell apps — component-level parity + iOS input + IME
+- [ ] `crosspane.config.ts` — device matrix, bridge mock presets
 
 ## Development
 
