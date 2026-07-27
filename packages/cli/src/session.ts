@@ -144,7 +144,7 @@ const IDLE_CAPTURE_INTERVAL_MS = 400;
 const NO_VIEWER_SLEEP_MS = 60_000;
 // 로그인 세션 주기 저장 — 강제 종료(kill)에도 세션이 남도록
 const STATE_SAVE_INTERVAL_MS = 30_000;
-const ACTIVE_CAPTURE_INTERVAL_MS = 75;
+const ACTIVE_CAPTURE_INTERVAL_MS = 16; // 활성 중 백투백 캡처 (스크린샷 소요가 실질 간격)
 const ACTIVITY_WINDOW_MS = 2_000;
 
 export class EngineSession {

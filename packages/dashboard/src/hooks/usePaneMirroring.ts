@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { ScrollEcho } from '../scroll-echo';
+import { createScrollStreamer, type ScrollStreamer } from '../scroll-streamer';
 import type { ClientCommand, EngineName, FrameListener } from '../types';
 import { useFrameChannel } from './useFrameChannel';
 import { useKeyboardMirroring } from './useKeyboardMirroring';
@@ -37,6 +38,13 @@ export function usePaneMirroring({
   const sendCommandRef = useRef(sendCommand);
   sendCommandRef.current = sendCommand;
   const stableSendRef = useRef((command: ClientCommand) => sendCommandRef.current(command));
+  // 휠/드래그 공용 스크롤 스트리머 — 로컬 에코 즉시 반영 + 코얼레싱 전송
+  const streamerRef = useRef<ScrollStreamer | null>(null);
+  streamerRef.current ??= createScrollStreamer({
+    sendCommand: stableSendRef.current,
+    echo: echoRef.current,
+    getCanvas: () => canvasRef.current,
+  });
 
   const hasFrame = useFrameChannel({
     engine,
@@ -48,13 +56,13 @@ export function usePaneMirroring({
   useWheelMirroring({
     enabled: !viewOnly,
     screenRef,
-    canvasRef,
-    echo: echoRef.current,
-    sendCommand: stableSendRef.current,
+    streamer: streamerRef.current,
   });
   const canvasHandlers = usePointerGestures({
     enabled: !viewOnly,
     onGesture: stableSendRef.current,
+    streamer: streamerRef.current,
+    getCanvas: () => canvasRef.current,
     focusTarget: keyInputRef,
   });
   const keyInputHandlers = useKeyboardMirroring({ sendCommand: stableSendRef.current });

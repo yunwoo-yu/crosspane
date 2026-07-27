@@ -1,5 +1,6 @@
 import { useRef } from 'react';
-import { type PointerSample, resolvePointerGesture } from '../input-utils';
+import { DRAG_THRESHOLD_PX, type PointerSample, resolvePointerGesture } from '../input-utils';
+import type { ScrollStreamer } from '../scroll-streamer';
 import type { ClientCommand } from '../types';
 
 function sampleFromPointer(event: React.PointerEvent<HTMLCanvasElement>): PointerSample {
@@ -14,34 +15,91 @@ function sampleFromPointer(event: React.PointerEvent<HTMLCanvasElement>): Pointe
   };
 }
 
+/** 클릭 지점 리플 — 왕복을 기다리지 않는 즉각적 시각 피드백 */
+function spawnRipple(screen: HTMLElement | null, clientX: number, clientY: number): void {
+  if (!screen) return;
+  const rect = screen.getBoundingClientRect();
+  const ripple = document.createElement('span');
+  ripple.className = 'click-ripple';
+  ripple.style.left = `${clientX - rect.left}px`;
+  ripple.style.top = `${clientY - rect.top}px`;
+  screen.appendChild(ripple);
+  ripple.addEventListener('animationend', () => ripple.remove());
+}
+
+type GestureMode = 'pending' | 'scroll' | 'horizontal';
+
 /**
- * 포인터 제스처 — pointerdown~up 한 쌍을 클릭/드래그로 분류해
- * 하나의 커맨드로 만든다 (분류 규칙은 input-utils의 순수 함수).
+ * 포인터 제스처 — pointermove 중 세로 이동은 **실시간 스크롤 스트리밍**으로
+ * 손가락을 즉시 따라가게 하고(로컬 에코), 가로 드래그만 pointerup에서
+ * drag 커맨드 하나로 보낸다. 미세 이동은 클릭.
  */
 export function usePointerGestures(options: {
   enabled: boolean;
   onGesture: (command: ClientCommand) => void;
+  streamer: ScrollStreamer;
+  /** 표시 px → 엔진 px 환산용 (1:1 손가락 추적) */
+  getCanvas: () => HTMLCanvasElement | null;
   /** pointerdown 시 포커스를 줄 대상 (키 입력 라우팅) */
   focusTarget: React.RefObject<HTMLElement | null>;
 }) {
-  const { enabled, onGesture, focusTarget } = options;
-  const gestureStartRef = useRef<PointerSample | null>(null);
+  const { enabled, onGesture, streamer, getCanvas, focusTarget } = options;
+  const startRef = useRef<PointerSample | null>(null);
+  const modeRef = useRef<GestureMode>('pending');
+  const lastPyRef = useRef(0);
 
   if (!enabled) return {};
+
+  const displayToEngineScale = (): number => {
+    const canvas = getCanvas();
+    if (!canvas || canvas.clientHeight === 0) return 1;
+    return canvas.height / canvas.clientHeight;
+  };
+
   return {
     onPointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => {
       focusTarget.current?.focus();
       event.currentTarget.setPointerCapture(event.pointerId);
-      gestureStartRef.current = sampleFromPointer(event);
+      startRef.current = sampleFromPointer(event);
+      modeRef.current = 'pending';
+      lastPyRef.current = event.clientY;
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLCanvasElement>) => {
+      const start = startRef.current;
+      if (!start) return;
+      if (modeRef.current === 'pending') {
+        const dx = event.clientX - start.px;
+        const dy = event.clientY - start.py;
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+        // 세로 위주면 실시간 스크롤, 아니면 pointerup에서 가로 드래그로
+        modeRef.current = Math.abs(dy) > Math.abs(dx) * 1.2 ? 'scroll' : 'horizontal';
+        lastPyRef.current = start.py;
+      }
+      if (modeRef.current === 'scroll') {
+        // 드래그 위로 = 콘텐츠 아래로 (터치 스크롤 방향)
+        const deltaY = (lastPyRef.current - event.clientY) * displayToEngineScale();
+        lastPyRef.current = event.clientY;
+        if (deltaY !== 0) streamer.add(deltaY, Date.now());
+      }
     },
     onPointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => {
-      const start = gestureStartRef.current;
-      gestureStartRef.current = null;
+      const start = startRef.current;
+      startRef.current = null;
       if (!start) return;
-      onGesture(resolvePointerGesture(start, sampleFromPointer(event)));
+      const end = sampleFromPointer(event);
+      if (modeRef.current === 'scroll') {
+        streamer.flush(); // 남은 델타 즉시 전송
+        return;
+      }
+      const command = resolvePointerGesture(start, end);
+      if (command.type === 'click') {
+        spawnRipple(event.currentTarget.parentElement, event.clientX, event.clientY);
+      }
+      onGesture(command);
     },
     onPointerCancel: () => {
-      gestureStartRef.current = null;
+      if (modeRef.current === 'scroll') streamer.flush();
+      startRef.current = null;
     },
   };
 }

@@ -196,6 +196,52 @@ describe('EnginePane', () => {
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'click', x: 0.5, y: 0.25 });
   });
 
+  it('세로 드래그는 끌고 있는 동안 실시간으로 scroll을 스트리밍한다', () => {
+    vi.useFakeTimers();
+    (Element.prototype as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 200,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const onSendCommand = vi.fn();
+    const { emitFrame } = renderEnginePane({ onSendCommand });
+    emitFrame();
+    const canvas = screen.getByLabelText('chromium');
+    fireEvent.pointerDown(canvas, { clientX: 50, clientY: 160 });
+    fireEvent.pointerMove(canvas, { clientX: 50, clientY: 100 }); // 위로 60px 끌기
+    fireEvent.pointerMove(canvas, { clientX: 50, clientY: 40 }); // 추가 60px
+    // pointerup 전에 코얼레싱 타이머가 돌면 이미 scroll이 나간다 (실시간 추종)
+    vi.advanceTimersByTime(50);
+    expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 120 });
+    fireEvent.pointerUp(canvas, { clientX: 50, clientY: 40 });
+    // drag 커맨드는 보내지 않는다 (이미 스크롤로 재생됨)
+    expect(onSendCommand.mock.calls.every(([c]) => c.type !== 'drag')).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('가로 드래그는 pointerup에서 drag 커맨드 하나로 보낸다', () => {
+    (Element.prototype as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 200,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const onSendCommand = vi.fn();
+    const { emitFrame } = renderEnginePane({ onSendCommand });
+    emitFrame();
+    const canvas = screen.getByLabelText('chromium');
+    fireEvent.pointerDown(canvas, { clientX: 20, clientY: 100 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 102 });
+    fireEvent.pointerUp(canvas, { clientX: 80, clientY: 102 });
+    expect(onSendCommand).toHaveBeenCalledTimes(1);
+    expect(onSendCommand.mock.calls[0][0]).toMatchObject({ type: 'drag' });
+  });
+
   it('임계 이상 이동한 포인터 제스처는 drag 커맨드로 보낸다', () => {
     (Element.prototype as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () =>
       ({

@@ -405,6 +405,29 @@ body {
   word-break: break-word;
 }
 
+/* 클릭 리플 — 왕복을 기다리지 않는 즉각 피드백 */
+.click-ripple {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 2px solid rgba(49, 130, 246, 0.9);
+  pointer-events: none;
+  animation: ripple-out 0.35s ease-out forwards;
+  z-index: 5;
+}
+@keyframes ripple-out {
+  from {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
 /* ── 토스트 ───────────────────────────────────────── */
 
 .toast-stack {

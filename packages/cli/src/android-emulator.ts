@@ -226,7 +226,7 @@ export class AndroidEmulatorSession implements InputTarget {
   async clickAt(normalizedX: number, normalizedY: number): Promise<void> {
     const x = Math.round(normalizedX * this.screen.width);
     const y = Math.round(normalizedY * this.screen.height);
-    await this.shell(['input', 'tap', String(x), String(y)]);
+    this.runInputCommand(['input', 'tap', x, y]);
   }
 
   async dragBetween(
@@ -238,14 +238,14 @@ export class AndroidEmulatorSession implements InputTarget {
   ): Promise<void> {
     // input swipe는 진짜 터치 제스처다 — 네이티브 스크롤/스와이프가 그대로 동작한다
     const duration = Math.max(40, Math.min(1_000, Math.round(durationMs)));
-    await this.shell([
+    this.runInputCommand([
       'input',
       'swipe',
-      String(Math.round(fromX * this.screen.width)),
-      String(Math.round(fromY * this.screen.height)),
-      String(Math.round(toX * this.screen.width)),
-      String(Math.round(toY * this.screen.height)),
-      String(duration),
+      Math.round(fromX * this.screen.width),
+      Math.round(fromY * this.screen.height),
+      Math.round(toX * this.screen.width),
+      Math.round(toY * this.screen.height),
+      duration,
     ]);
   }
 
@@ -255,12 +255,12 @@ export class AndroidEmulatorSession implements InputTarget {
     const x = Math.round(this.screen.width / 2);
     const startY = Math.round(this.screen.height / 2 + distance / 2);
     const endY = startY - distance;
-    await this.shell(['input', 'swipe', String(x), String(startY), String(x), String(endY), '80']);
+    this.runInputCommand(['input', 'swipe', x, startY, x, endY, 80]);
   }
 
   async pressKey(key: string): Promise<void> {
     const keycode = ANDROID_KEYCODES[key];
-    if (keycode !== undefined) await this.shell(['input', 'keyevent', String(keycode)]);
+    if (keycode !== undefined) this.runInputCommand(['input', 'keyevent', keycode]);
   }
 
   async typeText(text: string): Promise<void> {
@@ -347,6 +347,7 @@ export class AndroidEmulatorSession implements InputTarget {
 
   async dispose(): Promise<void> {
     this.stopped = true;
+    this.inputShell?.kill();
     this.videoProcess?.kill('SIGKILL');
     this.captureLoop?.stop();
     // 다음 실행이 빨라지도록 에뮬레이터는 부팅 상태로 둔다
@@ -354,6 +355,24 @@ export class AndroidEmulatorSession implements InputTarget {
 
   private shell(args: string[]): Promise<{ stdout: string; stderr: string }> {
     return adb(this.adbPath, this.serial, ['shell', ...args]);
+  }
+
+  // ── 입력 핫패스: 상주 adb shell ─────────────────────────
+  // 입력마다 adb 프로세스를 새로 띄우면 스폰 비용(~50-150ms)이 그대로 지연이 된다.
+  // `adb shell`을 하나 상주시키고 stdin으로 명령만 흘려 ~10ms로 줄인다.
+  private inputShell: ReturnType<typeof spawn> | null = null;
+
+  /** 인자 안전성: 이 경로는 숫자/키코드 인자 전용 (임의 문자열 금지 — text는 exec 경로 사용) */
+  private runInputCommand(parts: (string | number)[]): void {
+    if (!this.inputShell || this.inputShell.exitCode !== null) {
+      this.inputShell = spawn(this.adbPath, ['-s', this.serial, 'shell'], {
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      this.inputShell.on('error', () => {
+        this.inputShell = null;
+      });
+    }
+    this.inputShell.stdin?.write(`${parts.join(' ')}\n`);
   }
 }
 
