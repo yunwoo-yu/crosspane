@@ -41,7 +41,7 @@ export function Toolbar({
         {connected ? 'connected' : 'disconnected'}
       </span>
       {/* 엔진 pane 토글 — 클릭으로 pane 추가/제거. 실기기 pane은 부팅에 시간이 걸린다 */}
-      <div className="flex items-center gap-1" role="group" aria-label="engine panes">
+      <fieldset className="m-0 flex items-center gap-1 border-0 p-0" aria-label="engine panes">
         {(hello?.engines ?? []).map((engine) => {
           const status = engineStates[engine]?.status ?? 'stopped';
           const active = status !== 'stopped';
@@ -62,7 +62,7 @@ export function Toolbar({
             </Button>
           );
         })}
-      </div>
+      </fieldset>
       <form
         className="url-bar max-w-md flex-1"
         onSubmit={(event) => {

@@ -133,7 +133,6 @@ export default function App() {
       </main>
 
       <section className="console" style={{ flexBasis: panelHeight }}>
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: 패널 높이 드래그 핸들 */}
         <div
           className="h-1.5 shrink-0 cursor-row-resize bg-line/40 hover:bg-accent/60"
           onPointerDown={startPanelResize}

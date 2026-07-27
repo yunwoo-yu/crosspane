@@ -32,6 +32,8 @@ packages/*/CLAUDE.md           ← 도메인 모듈 맵 (해당 디렉터리 작
 ## 공통 규칙 (항상 적용)
 
 - 검증 순서: biome → `pnpm test` → `pnpm build` → 동작이 바뀌는 변경이면 `pnpm smoke`
+- push 전에는 `./node_modules/.bin/biome ci .`로 확인 — `check --write`가 통과해도
+  `ci`(=CI와 동일 판정)는 실패할 수 있다 (suppression 유효성, 일부 a11y 룰)
 - 커밋: conventional commits. pre-commit(husky)이 biome를 강제, CI(3-OS + smoke)가 최종 게이트
 - 성능 원칙: 프레임은 React 상태에 넣지 않는다 / 유휴 시 WS 트래픽 0을 유지한다
 - 크로스 플랫폼: OS별 경로·실행파일 분기는 순수 함수로 분리해 유닛테스트할 것
