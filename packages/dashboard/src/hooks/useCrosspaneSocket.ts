@@ -5,6 +5,7 @@ import {
   ENGINE_NAMES_BY_CODE,
   type EngineName,
   type EngineState,
+  FRAME_HEADER_BYTES,
   type FrameListener,
   type HelloEvent,
   type LogEntry,
@@ -119,13 +120,15 @@ export function useCrosspaneSocket(): CrosspaneConnection {
   const handleFramePacket = useCallback((packet: ArrayBuffer) => {
     const bytes = new Uint8Array(packet);
     const engine = ENGINE_NAMES_BY_CODE[bytes[0]];
-    if (!engine) return;
+    if (!engine || bytes.length <= FRAME_HEADER_BYTES) return;
     const listeners = frameListenersRef.current.get(engine);
     if (!listeners || listeners.size === 0) return;
-    const jpegBlob = new Blob([bytes.subarray(1)], { type: 'image/jpeg' });
+    // 헤더의 scrollY: 이 프레임이 반영하는 실제 스크롤 위치 (로컬 에코 보정용)
+    const scrollY = new DataView(packet).getInt32(1, true);
+    const jpegBlob = new Blob([bytes.subarray(FRAME_HEADER_BYTES)], { type: 'image/jpeg' });
     // createImageBitmap은 디코딩을 메인 스레드 밖에서 수행한다
     void createImageBitmap(jpegBlob).then((frame) => {
-      for (const listener of listeners) listener(frame);
+      for (const listener of listeners) listener(frame, scrollY);
       frame.close();
     });
   }, []);

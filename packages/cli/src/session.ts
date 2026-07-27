@@ -1,18 +1,42 @@
 import { readFile } from 'node:fs/promises';
 import { type Browser, chromium, devices, firefox, type Page, webkit } from 'playwright';
 import type { Viewport } from './devices.js';
-import type { EngineName, EngineStatus, LogLevel } from './protocol.js';
+import {
+  type BrowserEngineName,
+  type EngineName,
+  type EngineStatus,
+  type LogLevel,
+  SCROLL_Y_UNKNOWN,
+} from './protocol.js';
 
 const launchers = { chromium, webkit, firefox } as const;
 
 export interface SessionEvents {
-  onFrame(engine: EngineName, jpeg: Buffer): void;
+  /** scrollY: 프레임 캡처 시점의 세로 스크롤 위치(CSS px). 알 수 없으면 SCROLL_Y_UNKNOWN */
+  onFrame(engine: EngineName, jpeg: Buffer, scrollY: number): void;
   onConsole(engine: EngineName, level: LogLevel, text: string): void;
   onPageError(engine: EngineName, message: string): void;
   onRequestFailed(engine: EngineName, url: string, error: string): void;
   onHttpError(engine: EngineName, url: string, status: number): void;
   onStatus(engine: EngineName, status: EngineStatus, detail?: string): void;
   onNavigation(engine: EngineName, url: string): void;
+}
+
+/**
+ * 입력 미러링 대상의 공통 인터페이스.
+ * EngineSession(Playwright)과 IosSimulatorSession(실기기 시뮬레이터)이 구현한다.
+ */
+export interface InputTarget {
+  clickAt(normalizedX: number, normalizedY: number): Promise<void>;
+  scrollBy(deltaY: number): Promise<void>;
+  pressKey(key: string): Promise<void>;
+  typeText(text: string): Promise<void>;
+  goBack(): Promise<void>;
+  goForward(): Promise<void>;
+  reload(): Promise<void>;
+  navigate(url: string): Promise<void>;
+  markActivity(): void;
+  dispose(): Promise<void>;
 }
 
 /**
@@ -48,7 +72,7 @@ export interface SessionOptions {
  * - Firefox: 대응되는 웹뷰가 없으므로 프리셋 유지
  */
 export function buildWebviewUserAgent(
-  engine: EngineName,
+  engine: BrowserEngineName,
   presetUserAgent: string,
 ): string | undefined {
   if (engine === 'chromium') {
@@ -78,14 +102,14 @@ export class EngineSession {
   private lastFrame: Buffer | null = null;
 
   private constructor(
-    readonly engine: EngineName,
+    readonly engine: BrowserEngineName,
     private readonly browser: Browser,
     private readonly page: Page,
     private readonly viewport: Viewport,
   ) {}
 
   static async launch(
-    engine: EngineName,
+    engine: BrowserEngineName,
     options: SessionOptions,
     events: SessionEvents,
   ): Promise<EngineSession> {
@@ -175,7 +199,14 @@ export class EngineSession {
   private async startCdpScreencast(events: SessionEvents): Promise<void> {
     const cdp = await this.page.context().newCDPSession(this.page);
     cdp.on('Page.screencastFrame', (frame) => {
-      if (!this.disposed) events.onFrame(this.engine, Buffer.from(frame.data, 'base64'));
+      if (!this.disposed) {
+        // metadata.scrollOffsetY: 캡처 시점의 실제 스크롤 위치 — 로컬 에코 보정용
+        events.onFrame(
+          this.engine,
+          Buffer.from(frame.data, 'base64'),
+          Math.round(frame.metadata.scrollOffsetY ?? 0),
+        );
+      }
       // ack를 보내지 않으면 다음 프레임이 오지 않는다
       void cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {});
     });
@@ -203,6 +234,10 @@ export class EngineSession {
 
   private async captureAndEmitFrame(events: SessionEvents): Promise<void> {
     try {
+      // 캡처 직전의 스크롤 위치 — 대시보드가 로컬 에코를 실제 위치로 보정하는 데 쓴다
+      const scrollY = await this.page
+        .evaluate(() => (globalThis as unknown as { scrollY: number }).scrollY)
+        .catch(() => SCROLL_Y_UNKNOWN);
       const jpeg = await this.page.screenshot({
         type: 'jpeg',
         quality: JPEG_QUALITY,
@@ -212,7 +247,7 @@ export class EngineSession {
       // 변화 없는 프레임은 전송하지 않는다 — 유휴 상태에서 트래픽이 0이 된다
       if (this.lastFrame?.equals(jpeg)) return;
       this.lastFrame = jpeg;
-      events.onFrame(this.engine, jpeg);
+      events.onFrame(this.engine, jpeg, scrollY);
     } catch {
       // 내비게이션/리로드 중에는 스크린샷이 일시적으로 실패할 수 있다 — 루프는 유지
     }

@@ -24,6 +24,7 @@ describe('parseCliArguments', () => {
       device: 'iPhone 15',
       port: 7788,
       emulateWebview: true,
+      iosSimulator: false,
     });
   });
 

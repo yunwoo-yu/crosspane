@@ -23,6 +23,7 @@ function renderEnginePane(overrides: {
   errorCount?: number;
   currentUrl?: string;
   urlDesynced?: boolean;
+  viewOnly?: boolean;
 }) {
   let capturedListener: FrameListener | undefined;
   const subscribeToFrames = (_engine: EngineName, listener: FrameListener) => {
@@ -39,15 +40,16 @@ function renderEnginePane(overrides: {
       }}
       errorCount={overrides.errorCount ?? 0}
       urlDesynced={overrides.urlDesynced ?? false}
+      viewOnly={overrides.viewOnly ?? false}
       onSendCommand={overrides.onSendCommand ?? vi.fn()}
       subscribeToFrames={subscribeToFrames}
     />,
   );
   return {
     view,
-    emitFrame: () => {
+    emitFrame: (scrollY = 0) => {
       if (!capturedListener) throw new Error('frame listener not captured');
-      act(() => capturedListener?.(fakeFrame));
+      act(() => capturedListener?.(fakeFrame, scrollY));
     },
   };
 }
@@ -154,10 +156,28 @@ describe('EnginePane', () => {
     expect(onSendCommand).toHaveBeenCalledTimes(1);
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'scroll', deltaY: 70 });
 
-    // 새 프레임이 도착하면 에코가 해제된다
-    emitFrame();
+    // 아직 목표(70)에 못 미친 프레임(scrollY=30) — 남은 40만큼 에코 유지 (고무줄 방지)
+    emitFrame(30);
+    expect(canvas.style.transform).toContain('translateY');
+    // 목표를 따라잡은 프레임 — 에코 해제, 실제 화면으로 스냅
+    emitFrame(70);
     expect(canvas.style.transform).toBe('');
     vi.useRealTimers();
+  });
+
+  it('view-only pane은 입력을 전혀 보내지 않는다', () => {
+    const onSendCommand = vi.fn();
+    const { view, emitFrame } = renderEnginePane({ onSendCommand, viewOnly: true });
+    emitFrame();
+    const paneScreen = view.container.querySelector('.pane-screen');
+    const canvas = view.container.querySelector('canvas');
+    if (!paneScreen || !canvas) throw new Error('pane elements not found');
+
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10 });
+    fireEvent.keyDown(paneScreen, { key: 'a' });
+    fireEvent.wheel(paneScreen, { deltaY: 30 });
+    expect(onSendCommand).not.toHaveBeenCalled();
+    expect(screen.getByText('view-only')).toBeTruthy();
   });
 
   it('키 입력을 엔진으로 포워딩한다 (문자는 type, 특수키는 keypress)', () => {

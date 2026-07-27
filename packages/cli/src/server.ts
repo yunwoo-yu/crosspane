@@ -8,28 +8,28 @@ import {
   type HelloEvent,
   type ServerEvent,
 } from './protocol.js';
-import type { EngineSession } from './session.js';
+import type { InputTarget } from './session.js';
 import { resolveDashboardDir, serveDashboardFile } from './static.js';
 
 export interface DashboardServer {
   /** 실제로 바인딩된 포트. options.port에 0을 주면 OS가 할당한 임의 포트가 들어온다 */
   port: number;
   broadcastEvent(event: ServerEvent): void;
-  broadcastFrame(engine: EngineName, jpeg: Buffer): void;
+  broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number): void;
   close(): void;
 }
 
 export interface DashboardServerOptions {
   port: number;
   hello: () => HelloEvent;
-  sessions: ReadonlyMap<EngineName, EngineSession>;
+  sessions: ReadonlyMap<EngineName, InputTarget>;
 }
 
 // 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
 const EVENT_HISTORY_LIMIT = 300;
 
 /** 입력 커맨드 하나를 특정 엔진 세션에 재생한다 */
-function applyCommandToSession(session: EngineSession, command: ClientCommand): Promise<void> {
+function applyCommandToSession(session: InputTarget, command: ClientCommand): Promise<void> {
   switch (command.type) {
     case 'click':
       return session.clickAt(command.x, command.y);
@@ -55,7 +55,7 @@ function applyCommandToSession(session: EngineSession, command: ClientCommand): 
  * 특정 엔진이 실패(내비게이션 중 등)해도 나머지는 계속돼야 하므로 allSettled를 쓴다.
  */
 async function mirrorCommandToSessions(
-  sessions: ReadonlyMap<EngineName, EngineSession>,
+  sessions: ReadonlyMap<EngineName, InputTarget>,
   command: ClientCommand,
 ): Promise<void> {
   await Promise.allSettled(
@@ -148,8 +148,8 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
           recordForReplay(event);
           sendToAllClients(JSON.stringify(event));
         },
-        broadcastFrame(engine: EngineName, jpeg: Buffer) {
-          const packet = encodeFramePacket(engine, jpeg);
+        broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number) {
+          const packet = encodeFramePacket(engine, jpeg, scrollY);
           lastFramePacketByEngine.set(engine, packet);
           sendToAllClients(packet);
         },

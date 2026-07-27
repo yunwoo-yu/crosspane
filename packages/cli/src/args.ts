@@ -1,4 +1,4 @@
-import type { EngineName } from './protocol.js';
+import type { BrowserEngineName } from './protocol.js';
 
 export const HELP_TEXT = `crosspane — preview one URL across Chromium, WebKit and Firefox in a single dashboard
 
@@ -17,6 +17,7 @@ Options:
   --inject <path>      JS file injected into every page before load (bridge mocks etc.)
   --user-agent <ua>    Exact UA for every engine (reproduce your app's custom webview UA)
   --preset-ua          Use Playwright's browser preset UA instead of webview UA emulation
+  --ios-sim            Add a REAL iOS Simulator pane (requires Xcode; view-only)
   -h, --help           Show this help
 
 By default crosspane emulates deployed webview environments: Chromium gets a real
@@ -26,7 +27,9 @@ Android WebView UA (with the "wv" token) and WebKit gets a real WKWebView UA
 
 export interface CliOptions {
   url: string;
-  engines: EngineName[];
+  engines: BrowserEngineName[];
+  /** 실제 iOS 시뮬레이터 pane 추가 (Xcode 필요, view-only) */
+  iosSimulator: boolean;
   device: string;
   port: number;
   injectScriptPath?: string;
@@ -36,7 +39,7 @@ export interface CliOptions {
   emulateWebview: boolean;
 }
 
-const SUPPORTED_ENGINES: readonly EngineName[] = ['chromium', 'webkit', 'firefox'];
+const SUPPORTED_ENGINES: readonly BrowserEngineName[] = ['chromium', 'webkit', 'firefox'];
 
 const DEFAULT_OPTIONS = {
   engines: SUPPORTED_ENGINES,
@@ -44,14 +47,14 @@ const DEFAULT_OPTIONS = {
   port: 7788,
 } as const;
 
-function parseEngineList(value: string): EngineName[] {
+function parseEngineList(value: string): BrowserEngineName[] {
   const engines = value.split(',').map((engine) => engine.trim());
   for (const engine of engines) {
     if (!(SUPPORTED_ENGINES as readonly string[]).includes(engine)) {
       throw new Error(`Unknown engine "${engine}" (valid: ${SUPPORTED_ENGINES.join(', ')})`);
     }
   }
-  return engines as EngineName[];
+  return engines as BrowserEngineName[];
 }
 
 function parsePositiveNumberFlag(flag: string, value: string): number {
@@ -78,6 +81,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     device: DEFAULT_OPTIONS.device,
     port: DEFAULT_OPTIONS.port,
     emulateWebview: true,
+    iosSimulator: false,
   };
 
   while (args.length > 0) {
@@ -86,6 +90,10 @@ export function parseCliArguments(argv: string[]): CliOptions {
     // 값이 없는 불리언 플래그
     if (flag === '--preset-ua') {
       options.emulateWebview = false;
+      continue;
+    }
+    if (flag === '--ios-sim') {
+      options.iosSimulator = true;
       continue;
     }
     const value = args.shift();

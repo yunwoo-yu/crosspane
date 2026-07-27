@@ -1,15 +1,23 @@
-export type EngineName = 'chromium' | 'webkit' | 'firefox';
+export type EngineName = 'chromium' | 'webkit' | 'firefox' | 'ios-sim';
 
 export type EngineStatus = 'starting' | 'ready' | 'error';
 
-/** 바이너리 프레임 패킷의 1바이트 엔진 식별자 → 엔진 이름 (cli protocol.ts와 동기화) */
-export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = ['chromium', 'webkit', 'firefox'];
+/** 바이너리 프레임 패킷 [엔진코드 u8][scrollY int32LE][JPEG] — cli protocol.ts와 동기화 */
+export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = [
+  'chromium',
+  'webkit',
+  'firefox',
+  'ios-sim',
+];
+export const FRAME_HEADER_BYTES = 5;
 
 export interface HelloEvent {
   type: 'hello';
   url: string;
   device: string;
   engines: EngineName[];
+  /** 입력 미러링이 불가능한 보기 전용 엔진 (예: iOS 시뮬레이터) */
+  viewOnlyEngines?: EngineName[];
   viewport: { width: number; height: number };
 }
 
@@ -50,4 +58,5 @@ export interface LogEntry {
   ts: number;
 }
 
-export type FrameListener = (frame: ImageBitmap) => void;
+/** scrollY: 프레임 캡처 시점의 스크롤 위치(CSS px), 모르면 음수 */
+export type FrameListener = (frame: ImageBitmap, scrollY: number) => void;

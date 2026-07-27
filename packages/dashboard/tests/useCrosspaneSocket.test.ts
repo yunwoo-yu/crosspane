@@ -37,8 +37,12 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(event) });
   }
 
-  receiveFramePacket(engineCode: number, jpegBytes: number[]): void {
-    this.onmessage?.({ data: new Uint8Array([engineCode, ...jpegBytes]).buffer });
+  receiveFramePacket(engineCode: number, scrollY: number, jpegBytes: number[]): void {
+    const packet = new Uint8Array(5 + jpegBytes.length);
+    packet[0] = engineCode;
+    new DataView(packet.buffer).setInt32(1, scrollY, true);
+    packet.set(jpegBytes, 5);
+    this.onmessage?.({ data: packet.buffer });
   }
 }
 
@@ -94,16 +98,21 @@ describe('useCrosspaneSocket', () => {
     expect(socket.binaryType).toBe('arraybuffer');
 
     const receivedFrames: unknown[] = [];
+    const receivedScrollYs: number[] = [];
     act(() => {
-      result.current.subscribeToFrames('chromium', (frame) => receivedFrames.push(frame));
+      result.current.subscribeToFrames('chromium', (frame, scrollY) => {
+        receivedFrames.push(frame);
+        receivedScrollYs.push(scrollY);
+      });
     });
 
     await act(async () => {
-      socket.receiveFramePacket(0, [1, 2, 3]); // 0 = chromium
+      socket.receiveFramePacket(0, 320, [1, 2, 3]); // 0 = chromium
       await Promise.resolve();
     });
 
     expect(receivedFrames).toEqual([fakeBitmap]);
+    expect(receivedScrollYs).toEqual([320]); // 헤더의 scrollY가 함께 전달된다
     expect(fakeBitmap.close).toHaveBeenCalled(); // 전달 후 비트맵은 해제된다
   });
 
@@ -113,7 +122,7 @@ describe('useCrosspaneSocket', () => {
 
     renderHook(() => useCrosspaneSocket());
     await act(async () => {
-      FakeWebSocket.instances[0].receiveFramePacket(1, [1, 2, 3]); // webkit — 구독자 없음
+      FakeWebSocket.instances[0].receiveFramePacket(1, 0, [1, 2, 3]); // webkit — 구독자 없음
       await Promise.resolve();
     });
 

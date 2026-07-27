@@ -16,8 +16,17 @@ export default function App() {
   );
 
   const engineNames = hello?.engines ?? [];
-  const urlDesynced = detectUrlDesync(engineStates);
+  const viewOnlyEngines = hello?.viewOnlyEngines ?? [];
+  // view-only 엔진(iOS 시뮬레이터)은 클릭을 따라가지 못해 URL이 뒤처지는 게 정상 —
+  // desync 판단은 미러링되는 엔진끼리만 한다
+  const mirroredStates = Object.fromEntries(
+    Object.entries(engineStates).filter(
+      ([engine]) => !viewOnlyEngines.includes(engine as EngineName),
+    ),
+  );
+  const urlDesynced = detectUrlDesync(mirroredStates);
   const syncTargetUrl = engineNames
+    .filter((engine) => !viewOnlyEngines.includes(engine))
     .map((engine) => engineStates[engine]?.currentUrl)
     .find((url) => Boolean(url));
 
@@ -43,6 +52,7 @@ export default function App() {
             state={engineStates[engine]}
             errorCount={errorCountFor(engine)}
             urlDesynced={urlDesynced}
+            viewOnly={viewOnlyEngines.includes(engine)}
             onSendCommand={sendCommand}
             subscribeToFrames={subscribeToFrames}
           />
