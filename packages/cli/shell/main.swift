@@ -18,6 +18,7 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
   private let frameIntervalFast: TimeInterval = 1.0 / 25.0
   private let frameIntervalIdle: TimeInterval = 0.5
   private var frameInterval: TimeInterval = 1.0 / 15.0
+  private var framesPaused = false
   private var lastFrameHash = 0
   private var unchangedFrames = 0
   // 스트림 프레임의 px/pt 비율 — 대시보드 스크롤 델타(프레임 px)를 pt로 환산한다
@@ -88,6 +89,7 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
     let scheduleNext = { (interval: TimeInterval) in
       DispatchQueue.main.asyncAfter(deadline: .now() + interval) { self.streamFrames() }
     }
+    if framesPaused { return scheduleNext(1.0) }
     // drawHierarchy는 WK 컴포지터의 비동기 서피스를 찍어 스크롤 중에도 80%가
     // 동일 프레임(실측) — WebKit이 직접 렌더하는 takeSnapshot을 저해상도로 쓴다
     let config = WKSnapshotConfiguration()
@@ -269,6 +271,7 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
       if let raw = command["url"] as? String, let url = URL(string: raw) {
         webView.load(URLRequest(url: url))
       }
+    case "pauseFrames": framesPaused = true
     case "reload": webView.reload()
     case "back": webView.goBack()
     case "forward": webView.goForward()

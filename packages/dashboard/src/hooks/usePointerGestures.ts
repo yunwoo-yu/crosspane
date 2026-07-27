@@ -67,6 +67,7 @@ export function usePointerGestures(options: {
         const sample = sampleFromPointer(event);
         startRef.current = sample;
         lastPyRef.current = event.clientY;
+        lastTouchMoveTsRef.current = 0; // 첫 move는 스로틀 없이 즉시 — slop을 빨리 넘긴다
         onGesture({
           type: 'touch',
           phase: 'down',

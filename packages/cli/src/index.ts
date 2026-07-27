@@ -130,9 +130,12 @@ async function main(): Promise<void> {
           );
         }
         sessions.set(engine, session);
-        // Android는 스크린샷 폴링 대신 진짜 화면 스트림(H.264)을 쓴다
+        // 실기기는 스크린샷 폴링 대신 진짜 화면 스트림(H.264)을 쓴다
         if (session instanceof AndroidEmulatorSession) {
           session.startVideoStream((chunk) => server.broadcastVideoChunk('android', chunk));
+        }
+        if (session instanceof IosSimulatorSession) {
+          session.startVideoStream((chunk) => server.broadcastVideoChunk('ios-sim', chunk));
         }
         console.log(`  ✓ ${engine} ready`);
       } catch (err) {
@@ -172,7 +175,9 @@ async function main(): Promise<void> {
     // 새 대시보드 접속 → 비디오 스트림을 키프레임부터 재시작 (늦은 접속자 대응)
     onClientConnect() {
       for (const session of sessions.values()) {
-        if (session instanceof AndroidEmulatorSession) session.restartVideoStream();
+        if ('restartVideoStream' in session) {
+          (session as AndroidEmulatorSession | IosSimulatorSession).restartVideoStream();
+        }
       }
     },
     // pane별 시청 신호 — 아무도 안 보는 엔진(포커스 모드의 나머지, 클라이언트 0명 전체)은

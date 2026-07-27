@@ -87,11 +87,15 @@ export function useVideoStreams(onFrame: DecodedFrameSink) {
       }
       const active = pipeline;
 
-      if (active.flushTimer !== null) window.clearTimeout(active.flushTimer);
-      active.flushTimer = window.setTimeout(() => {
-        active.flushTimer = null;
-        for (const unit of active.parser.flushPending()) decodeUnit(engine, active, unit);
-      }, IDLE_FLUSH_MS);
+      // 트레일링 플러시는 청크 경계 == NAL 경계가 보장되는 소스(scrcpy)에만.
+      // idb는 파이프 경계가 임의라 잘린 NAL이 디코더를 죽인다 (IDR 재전송 없음 → 영구 정지 실측)
+      if (engine === 'android') {
+        if (active.flushTimer !== null) window.clearTimeout(active.flushTimer);
+        active.flushTimer = window.setTimeout(() => {
+          active.flushTimer = null;
+          for (const unit of active.parser.flushPending()) decodeUnit(engine, active, unit);
+        }, IDLE_FLUSH_MS);
+      }
 
       for (const unit of active.parser.push(bytes)) decodeUnit(engine, active, unit);
     },

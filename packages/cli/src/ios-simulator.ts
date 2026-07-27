@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
@@ -22,6 +22,12 @@ const ACTIVITY_WINDOW_MS = 5_000;
 const MAX_QUEUED_COMMANDS = 200;
 
 const XCODE_DEVELOPER_DIR = '/Applications/Xcode.app/Contents/Developer';
+// idb(옵션): IOSurface 직결 30fps 스트림 — 없으면 셸 takeSnapshot 폴백
+const IDB_CANDIDATES = [
+  join(homedir(), '.crosspane', 'idb-venv', 'bin', 'idb'),
+  '/opt/homebrew/bin/idb',
+  join(homedir(), '.local', 'bin', 'idb'),
+];
 const SHELL_BUNDLE_ID = 'dev.crosspane.shell';
 
 /** 셸앱 Swift 소스 위치 — dist/../shell (모노레포/배포 패키지 동일 상대경로) */
@@ -143,6 +149,9 @@ export class IosSimulatorSession implements InputTarget {
   private commandWaiter: ((commands: Record<string, unknown>[]) => void) | null = null;
   private captureLoop: CaptureLoop | null = null;
   private viewersActive = true;
+  private videoProcess: ReturnType<typeof import('node:child_process').spawn> | null = null;
+  private videoChunkHandler: ((chunk: Buffer) => void) | null = null;
+  private stoppedVideo = false;
   private events: SessionEvents | null = null;
 
   private constructor(
@@ -369,7 +378,58 @@ export class IosSimulatorSession implements InputTarget {
 
   setViewersActive(active: boolean): void {
     this.viewersActive = active;
-    if (active) this.captureLoop?.wake();
+    if (active) {
+      this.captureLoop?.wake();
+      if (this.videoChunkHandler && !this.videoProcess) this.spawnVideoStream();
+    } else if (this.videoProcess) {
+      const proc = this.videoProcess;
+      this.videoProcess = null;
+      proc.kill('SIGKILL');
+    }
+  }
+
+  /** idb가 있으면 30fps H.264 실스트림 — 셸 스냅샷(5Hz)을 대체한다 */
+  startVideoStream(onChunk: (chunk: Buffer) => void): void {
+    const idb = IDB_CANDIDATES.find((path) => existsSync(path));
+    if (!idb) return;
+    this.videoChunkHandler = onChunk;
+    this.spawnVideoStream(idb);
+  }
+
+  restartVideoStream(): void {
+    if (this.videoChunkHandler && this.videoProcess) this.videoProcess.kill('SIGKILL');
+  }
+
+  private spawnVideoStream(idbPath?: string): void {
+    const idb = idbPath ?? IDB_CANDIDATES.find((path) => existsSync(path));
+    if (this.stoppedVideo || !this.videoChunkHandler || !idb) return;
+    const proc = spawn(
+      idb,
+      ['video-stream', '--udid', this.udid, '--fps', '30', '--format', 'h264'],
+      {
+        // PYTHONUNBUFFERED 필수 — 파이썬 stdout 블록 버퍼링(64KB)이 프레임을 묶어
+        // 초 단위 지연을 만든다 (실측: 60KB 덩어리 2개/드래그)
+        env: { ...process.env, DEVELOPER_DIR: this.developerDir, PYTHONUNBUFFERED: '1' },
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    );
+    this.videoProcess = proc;
+    let sawData = false;
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      if (!sawData) {
+        sawData = true;
+        // 실스트림 확보 — 셸의 스냅샷 프레임 스트리밍을 중지시킨다 (CPU 절약 + 소스 단일화)
+        this.enqueue({ type: 'pauseFrames' });
+        this.captureLoop?.stop();
+      }
+      this.videoChunkHandler?.(chunk);
+    });
+    proc.on('error', () => undefined);
+    proc.on('exit', () => {
+      if (!this.stoppedVideo && this.viewersActive && this.videoProcess === proc) {
+        setTimeout(() => this.spawnVideoStream(), 400);
+      }
+    });
   }
 
   async navigate(url: string): Promise<void> {
@@ -421,6 +481,8 @@ export class IosSimulatorSession implements InputTarget {
   }
 
   async dispose(): Promise<void> {
+    this.stoppedVideo = true;
+    this.videoProcess?.kill('SIGKILL');
     this.captureLoop?.stop();
     this.commandWaiter?.([]);
     this.commandWaiter = null;

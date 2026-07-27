@@ -584,7 +584,8 @@ async function bootHeadlessEmulator(sdkDir: string, adbPath: string): Promise<st
     .find((row) => row.length > 0 && !row.includes(' '));
   if (!avd) throw new Error('No Android AVD found — create one with avdmanager');
 
-  spawn(emulatorPath, ['-avd', avd, '-no-window', '-no-audio', '-no-boot-anim'], {
+  // -gpu host: 호스트 GPU 가속 — 헤드리스에서도 WebView 렌더/인코딩 fps가 크게 오른다
+  spawn(emulatorPath, ['-avd', avd, '-no-window', '-no-audio', '-no-boot-anim', '-gpu', 'host'], {
     detached: true,
     stdio: 'ignore',
   }).unref();

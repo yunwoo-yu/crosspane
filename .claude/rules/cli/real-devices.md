@@ -64,3 +64,12 @@ paths:
 - 셸 통신은 iOS와 동일 규약(`/shell/android/{commands,event}` 롱폴) — 컨트롤 포트는
   `adb reverse`로 기기에 노출한다 (에뮬레이터의 localhost ≠ 호스트)
 - 입력(터치/키)은 시스템 레벨(motionevent/input)이라 셸 앱과 무관하게 동작한다
+
+## 실스트림 (idb / scrcpy)
+
+- iOS: idb 있으면 30fps H.264 스트림이 셸 스냅샷을 대체한다(pauseFrames).
+  **idb 스폰에 PYTHONUNBUFFERED=1 필수** — 파이썬 stdout 64KB 블록 버퍼링이
+  프레임을 묶어 초 단위 지연을 만든다 (실측 5fps→20fps 차이의 원인)
+- H264 트레일링 플러시는 scrcpy(Android) 전용 — idb는 청크 경계가 NAL 경계가
+  아니라 잘린 NAL이 디코더를 영구 정지시킨다 (IDR 재전송 없음)
+- 에뮬레이터 부팅에 `-gpu host` 유지 — 헤드리스 렌더 fps의 핵심 (7→16fps 실측)

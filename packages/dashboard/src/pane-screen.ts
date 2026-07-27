@@ -25,7 +25,7 @@ export class PaneScreen {
      * - relative: scrollY 미상 + 스트림 지연(Android 비디오) — 델타를 시간 감쇠로
      *   선행 표시해 스트림 지연(~0.5s)을 체감에서 지운다
      */
-    private readonly echoMode: 'absolute' | 'relative' = 'absolute',
+    private echoMode: 'absolute' | 'relative' = 'absolute',
   ) {}
 
   // relative 에코 상태 — 각 델타는 ECHO_DECAY_MS에 걸쳐 0으로 감쇠 (스트림이 따라오는 시간)
@@ -71,6 +71,8 @@ export class PaneScreen {
       }
       canvas.getContext('2d')?.drawImage(frame, 0, 0);
       this.lastCanvas = canvas;
+      // scrollY 미상 스트림(idb 등)으로 전환된 pane은 절대 에코가 불가능 — 상대 에코로 강등
+      if (scrollY < 0 && this.echoMode === 'absolute') this.echoMode = 'relative';
       if (this.echoMode === 'relative') {
         // 프레임 도착이 에코를 리셋하지 않는다 — 스트림은 항상 과거라 리셋하면 뒤로 튄다
         this.applyRelativeEcho(now);
