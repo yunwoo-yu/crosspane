@@ -1,7 +1,8 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import * as net from 'node:net';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { ensureAndroidShellApk } from './android-shell.js';
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
@@ -215,6 +216,7 @@ export class AndroidEmulatorSession implements InputTarget {
   private videoProcess: ReturnType<typeof spawn> | null = null;
   private videoChunkHandler: ((chunk: Buffer) => void) | null = null;
   private videoBytesReceived = 0;
+  private scrcpySocket: net.Socket | null = null;
 
   private startPolling(events: SessionEvents): void {
     this.captureLoop = startCaptureLoop({
@@ -418,7 +420,66 @@ export class AndroidEmulatorSession implements InputTarget {
     if (this.videoChunkHandler && this.videoProcess) this.videoProcess.kill('SIGKILL');
   }
 
+  /** brew 설치 scrcpy의 서버 jar — 인코더 직결이라 screenrecord(~300ms)보다 지연이 한 자릿수 낮다 */
+  private static scrcpyServerJar(): string | undefined {
+    const candidates = [
+      '/opt/homebrew/share/scrcpy/scrcpy-server',
+      '/usr/local/share/scrcpy/scrcpy-server',
+    ];
+    return candidates.find((path) => existsSync(path));
+  }
+
   private spawnVideoStream(): void {
+    if (this.stopped || !this.videoChunkHandler) return;
+    const jar = AndroidEmulatorSession.scrcpyServerJar();
+    if (jar) {
+      void this.spawnScrcpyStream(jar).catch(() => this.spawnScreenrecordStream());
+      return;
+    }
+    this.spawnScreenrecordStream();
+  }
+
+  /**
+   * scrcpy 서버 스트림 — MediaCodec 직결 raw H.264 (Annex-B).
+   * 소켓/서버는 1회용: 끊기면 exit 핸들러가 재기동한다 (키프레임 재시작 겸용).
+   */
+  private async spawnScrcpyStream(jar: string): Promise<void> {
+    await adb(this.adbPath, this.serial, ['push', jar, '/data/local/tmp/scrcpy-server.jar']);
+    const version = basename(dirname(jar)) === 'scrcpy' ? await scrcpyVersion() : '4.1';
+    const proc = spawn(
+      this.adbPath,
+      [
+        '-s',
+        this.serial,
+        'shell',
+        `CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server ${version} tunnel_forward=true video=true audio=false control=false cleanup=false raw_stream=true max_size=1200 video_bit_rate=4000000`,
+      ],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    );
+    this.videoProcess = proc;
+    proc.on('error', () => this.spawnScreenrecordStream());
+    proc.on('exit', () => {
+      this.scrcpySocket?.destroy();
+      this.scrcpySocket = null;
+      if (!this.stopped && this.viewersActive && this.videoProcess === proc) {
+        setTimeout(() => this.spawnVideoStream(), 300);
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 700)); // 서버 리슨 대기
+    const port = 27100 + Math.floor(Math.random() * 800);
+    await adb(this.adbPath, this.serial, ['forward', `tcp:${port}`, 'localabstract:scrcpy']);
+    const socket = net.connect(port, '127.0.0.1');
+    this.scrcpySocket = socket;
+    socket.on('data', (chunk: Buffer) => {
+      this.videoBytesReceived += chunk.length;
+      if (this.videoBytesReceived > 100_000) this.captureLoop?.stop();
+      this.videoChunkHandler?.(chunk);
+    });
+    socket.on('error', () => proc.kill('SIGKILL'));
+    socket.on('close', () => proc.kill('SIGKILL'));
+  }
+
+  private spawnScreenrecordStream(): void {
     if (this.stopped || !this.videoChunkHandler) return;
     const proc = spawn(
       this.adbPath,
@@ -485,6 +546,16 @@ export class AndroidEmulatorSession implements InputTarget {
       });
     }
     this.inputShell.stdin?.write(`${parts.join(' ')}\n`);
+  }
+}
+
+/** scrcpy CLI 버전 — 서버 jar와 버전 문자열이 일치해야 한다 */
+async function scrcpyVersion(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('scrcpy', ['--version'], { timeout: 5_000 });
+    return /scrcpy (\S+)/.exec(stdout)?.[1] ?? '4.1';
+  } catch {
+    return '4.1';
   }
 }
 
