@@ -16,24 +16,49 @@ describe('resolveTargetUrl', () => {
 });
 
 describe('parseCliArguments', () => {
-  it('타깃만 주면 기본값이 채워진다 (웹뷰 에뮬레이션 기본 켜짐)', () => {
+  it('기본 프로필은 webview — Chromium+WebKit 2-pane, 실기기 pane 꺼짐', () => {
     const options = parseCliArguments([':3000']);
-    expect(options).toEqual({
+    expect(options).toMatchObject({
       url: 'http://localhost:3000',
-      engines: ['chromium', 'webkit', 'firefox'],
+      profile: 'webview',
+      engines: ['chromium', 'webkit'], // 웹뷰 QA에 Firefox(Gecko)는 대응물이 없다
+      iosSimulator: false,
+      android: false,
       device: 'iPhone 15',
       port: 7788,
       emulateWebview: true,
     });
-    // 실기기 pane은 명시 플래그가 없으면 SDK 감지에 따라 자동 결정된다
-    expect(options.iosSimulator).toBeUndefined();
+  });
+
+  it('--profile web은 Firefox를 추가한다 (모바일 웹 크로스브라우징)', () => {
+    const options = parseCliArguments([':3000', '--profile', 'web']);
+    expect(options.engines).toEqual(['chromium', 'webkit', 'firefox']);
+    expect(options.iosSimulator).toBe(false);
+  });
+
+  it('--profile device는 실기기 pane을 SDK 자동 감지로 켠다', () => {
+    const options = parseCliArguments([':3000', '--profile', 'device']);
+    expect(options.engines).toEqual(['chromium', 'webkit']);
+    expect(options.iosSimulator).toBeUndefined(); // undefined = SDK 감지 시 자동
     expect(options.android).toBeUndefined();
   });
 
+  it('명시 플래그가 프로필보다 우선한다 (플래그 순서 무관)', () => {
+    const options = parseCliArguments([':3000', '--ios-sim', '--profile', 'webview']);
+    expect(options.iosSimulator).toBe(true); // webview 프로필이어도 강제 활성화
+    const options2 = parseCliArguments([':3000', '--profile', 'full', '--no-android']);
+    expect(options2.android).toBe(false);
+  });
+
+  it('알 수 없는 프로필이면 던진다', () => {
+    expect(() => parseCliArguments([':3000', '--profile', 'nope'])).toThrow(/Unknown profile/);
+  });
+
   it('--no-ios-sim / --android 플래그를 반영한다', () => {
-    expect(parseCliArguments([':3000', '--no-ios-sim']).iosSimulator).toBe(false);
+    expect(parseCliArguments([':3000', '--profile', 'device', '--no-ios-sim']).iosSimulator).toBe(
+      false,
+    );
     expect(parseCliArguments([':3000', '--android']).android).toBe(true);
-    expect(parseCliArguments([':3000', '--no-android']).android).toBe(false);
   });
 
   it('--user-agent와 --preset-ua를 반영한다', () => {

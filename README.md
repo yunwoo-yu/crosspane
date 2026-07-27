@@ -55,7 +55,12 @@ node packages/cli/dist/index.js :3000
 ```
 crosspane <url | :port> [options]
 
---engines <list>     chromium,webkit,firefox (default: all)
+--profile <name>     webview (default) | web | device | full
+                       webview: Chromium+WebKit — in-app webview engines, fast loop
+                       web:     +Firefox — mobile web cross-browsing
+                       device:  webview + REAL Android emulator / iOS Simulator
+                       full:    everything
+--engines <list>     override engine list (chromium,webkit,firefox)
 --device <name>      Playwright device preset (default: "iPhone 15")
 --port <n>           dashboard port (default: 7788)
 --inject <path>      JS injected into every page before load

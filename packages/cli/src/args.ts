@@ -1,25 +1,30 @@
 import type { BrowserEngineName } from './protocol.js';
 
-export const HELP_TEXT = `crosspane — preview one URL across Chromium, WebKit and Firefox in a single dashboard
+export const HELP_TEXT = `crosspane — preview one URL across engines and real devices in a single dashboard
 
 Usage:
   crosspane <url | :port> [options]
 
 Examples:
-  crosspane :3000
-  crosspane http://localhost:5173 --engines chromium,webkit
-  crosspane :3000 --device "iPhone 15" --inject ./bridge-mock.js
+  crosspane :3000                      # webview profile: Chromium(wv) + WebKit(WKWebView)
+  crosspane :3000 --profile device     # + real Android emulator / iOS Simulator panes
+  crosspane :3000 --user-agent "MyApp/1.0 (WebView)"
 
 Options:
-  --engines <list>     Comma-separated engines (default: chromium,webkit,firefox)
+  --profile <name>     Pane preset — webview | web | device | full (default: webview)
+                         webview  Chromium + WebKit (in-app webview engines, fast loop)
+                         web      + Firefox (mobile web cross-browsing)
+                         device   webview + REAL Android emulator / iOS Simulator panes
+                         full     everything
+  --engines <list>     Override engine list (chromium,webkit,firefox)
   --device <name>      Playwright device preset (default: "iPhone 15")
   --port <n>           Dashboard port (default: 7788)
   --inject <path>      JS file injected into every page before load (bridge mocks etc.)
   --user-agent <ua>    Exact UA for every engine (reproduce your app's custom webview UA)
   --preset-ua          Use Playwright's browser preset UA instead of webview UA emulation
-  --ios-sim            Force the real iOS Simulator pane (auto-enabled when Xcode exists)
+  --ios-sim            Force the real iOS Simulator pane regardless of profile
   --no-ios-sim         Disable the iOS Simulator pane
-  --android            Force the real Android pane (auto-enabled when the SDK exists)
+  --android            Force the real Android pane regardless of profile
   --no-android         Disable the Android pane
   -h, --help           Show this help
 
@@ -28,12 +33,15 @@ Android WebView UA (with the "wv" token) and WebKit gets a real WKWebView UA
 (no Safari token) with service workers blocked, matching production behavior.
 `;
 
+export type ProfileName = 'webview' | 'web' | 'device' | 'full';
+
 export interface CliOptions {
   url: string;
+  profile: ProfileName;
   engines: BrowserEngineName[];
-  /** 실제 iOS 시뮬레이터 pane (Xcode 감지 시 자동 활성화, view-only). undefined = 자동 */
+  /** 실제 iOS 시뮬레이터 pane. undefined = SDK 감지 시 자동 (device/full 프로필) */
   iosSimulator?: boolean;
-  /** 실제 Android pane (SDK 감지 시 자동 활성화, 완전 인터랙티브). undefined = 자동 */
+  /** 실제 Android pane. undefined = SDK 감지 시 자동 (device/full 프로필) */
   android?: boolean;
   device: string;
   port: number;
@@ -46,11 +54,27 @@ export interface CliOptions {
 
 const SUPPORTED_ENGINES: readonly BrowserEngineName[] = ['chromium', 'webkit', 'firefox'];
 
-const DEFAULT_OPTIONS = {
-  engines: SUPPORTED_ENGINES,
-  device: 'iPhone 15',
-  port: 7788,
-} as const;
+/**
+ * 프로필 = 유스케이스별 pane 프리셋.
+ * 웹뷰 앱 QA에는 Gecko 웹뷰가 존재하지 않으므로 Firefox를 빼고,
+ * 무거운 실기기 pane은 배포 전 확인(device/full)에서만 켠다.
+ */
+const PROFILES: Record<ProfileName, { engines: BrowserEngineName[]; realDevicePanes: boolean }> = {
+  webview: { engines: ['chromium', 'webkit'], realDevicePanes: false },
+  web: { engines: ['chromium', 'webkit', 'firefox'], realDevicePanes: false },
+  device: { engines: ['chromium', 'webkit'], realDevicePanes: true },
+  full: { engines: ['chromium', 'webkit', 'firefox'], realDevicePanes: true },
+};
+
+const DEFAULT_DEVICE = 'iPhone 15';
+const DEFAULT_PORT = 7788;
+
+function parseProfile(value: string): ProfileName {
+  if (!(value in PROFILES)) {
+    throw new Error(`Unknown profile "${value}" (valid: ${Object.keys(PROFILES).join(', ')})`);
+  }
+  return value as ProfileName;
+}
 
 function parseEngineList(value: string): BrowserEngineName[] {
   const engines = value.split(',').map((engine) => engine.trim());
@@ -75,64 +99,84 @@ export function resolveTargetUrl(target: string): string {
   return /^:?\d+$/.test(target) ? `http://localhost:${target.replace(':', '')}` : target;
 }
 
+/** 플래그를 순서와 무관하게 수집한 뒤, 프로필 기본값 위에 명시 플래그를 덮어쓴다 */
 export function parseCliArguments(argv: string[]): CliOptions {
   const args = [...argv];
   const target = args.shift();
   if (target === undefined) throw new Error(HELP_TEXT);
 
-  const options: CliOptions = {
-    url: resolveTargetUrl(target),
-    engines: [...DEFAULT_OPTIONS.engines],
-    device: DEFAULT_OPTIONS.device,
-    port: DEFAULT_OPTIONS.port,
-    emulateWebview: true,
-  };
+  let profile: ProfileName = 'webview';
+  let explicitEngines: BrowserEngineName[] | undefined;
+  let explicitIosSimulator: boolean | undefined;
+  let explicitAndroid: boolean | undefined;
+  let device = DEFAULT_DEVICE;
+  let port = DEFAULT_PORT;
+  let injectScriptPath: string | undefined;
+  let customUserAgent: string | undefined;
+  let emulateWebview = true;
 
   while (args.length > 0) {
     const flag = args.shift();
     if (flag === undefined) break;
     // 값이 없는 불리언 플래그
     if (flag === '--preset-ua') {
-      options.emulateWebview = false;
+      emulateWebview = false;
       continue;
     }
     if (flag === '--ios-sim') {
-      options.iosSimulator = true;
+      explicitIosSimulator = true;
       continue;
     }
     if (flag === '--no-ios-sim') {
-      options.iosSimulator = false;
+      explicitIosSimulator = false;
       continue;
     }
     if (flag === '--android') {
-      options.android = true;
+      explicitAndroid = true;
       continue;
     }
     if (flag === '--no-android') {
-      options.android = false;
+      explicitAndroid = false;
       continue;
     }
     const value = args.shift();
     if (value === undefined) throw new Error(`Missing value for ${flag}`);
     switch (flag) {
+      case '--profile':
+        profile = parseProfile(value);
+        break;
       case '--user-agent':
-        options.customUserAgent = value;
+        customUserAgent = value;
         break;
       case '--engines':
-        options.engines = parseEngineList(value);
+        explicitEngines = parseEngineList(value);
         break;
       case '--device':
-        options.device = value;
+        device = value;
         break;
       case '--port':
-        options.port = parsePositiveNumberFlag(flag, value);
+        port = parsePositiveNumberFlag(flag, value);
         break;
       case '--inject':
-        options.injectScriptPath = value;
+        injectScriptPath = value;
         break;
       default:
         throw new Error(`Unknown option ${flag}`);
     }
   }
-  return options;
+
+  const preset = PROFILES[profile];
+  return {
+    url: resolveTargetUrl(target),
+    profile,
+    engines: explicitEngines ?? [...preset.engines],
+    // 실기기 pane: 명시 플래그 > 프로필. 프로필이 켠 경우에만 undefined(SDK 자동 감지)를 남긴다
+    iosSimulator: explicitIosSimulator ?? (preset.realDevicePanes ? undefined : false),
+    android: explicitAndroid ?? (preset.realDevicePanes ? undefined : false),
+    device,
+    port,
+    injectScriptPath,
+    customUserAgent,
+    emulateWebview,
+  };
 }
