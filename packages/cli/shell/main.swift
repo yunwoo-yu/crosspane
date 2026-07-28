@@ -197,12 +197,15 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
       let x = command["x"] as? Double ?? 0
       let y = command["y"] as? Double ?? 0
       // 정규화 좌표 → 뷰포트 좌표. focus+click으로 입력 필드/버튼 모두 대응.
-      // 결과/에러를 debug 콘솔로 릴레이해 무반응 클릭을 진단 가능하게 한다
+      // 결과/에러를 debug 콘솔로 릴레이해 무반응 클릭을 진단 가능하게 한다.
+      // 페이지 뷰포트는 automatic safe-area 인셋만큼 상태바 아래에서 시작하므로
+      // 화면 기준 좌표에서 상단 인셋을 빼야 정합된다 (실측: 62pt 어긋남)
+      let topInset = webView.scrollView.adjustedContentInset.top
       let js = """
         (function () {
           // 대시보드 좌표는 스크린샷(=디바이스 스크린) 기준 정규화 —
           // clientHeight는 iOS 100vh 문제로 어긋나므로 screen 크기로 매핑한다
-          const px = \(x) * screen.width, py = \(y) * screen.height;
+          const px = \(x) * screen.width, py = \(y) * screen.height - \(topInset);
           const el = document.elementFromPoint(px, py);
           if (!el) return 'no element @' + px.toFixed(0) + ',' + py.toFixed(0);
           if (el.focus) el.focus();
@@ -218,9 +221,11 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
       // 델타는 프레임 px → pt 환산. 좌표가 있으면 그 지점의 내부 스크롤 컨테이너 우선
       let deltaY = CGFloat(command["deltaY"] as? Double ?? 0) / lastPixelsPerPoint
       if let nx = command["x"] as? Double, let ny = command["y"] as? Double {
+        let scrollInset = webView.scrollView.adjustedContentInset.top
         let js = """
           (function () {
-            let el = document.elementFromPoint(\(nx) * screen.width, \(ny) * screen.height);
+            let el = document.elementFromPoint(
+              \(nx) * screen.width, \(ny) * screen.height - \(scrollInset));
             while (el && el !== document.scrollingElement) {
               const s = getComputedStyle(el);
               if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
@@ -258,10 +263,11 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
           duration: min(0.5, max(0.2, durationMs / 1000 + 0.15)))
         return
       }
+      let dragInset = webView.scrollView.adjustedContentInset.top
       let js = """
         (function () {
-          const fx = \(fromX) * screen.width, fy = \(fromY) * screen.height;
-          const tx = \(toX) * screen.width, ty = \(toY) * screen.height;
+          const fx = \(fromX) * screen.width, fy = \(fromY) * screen.height - \(dragInset);
+          const tx = \(toX) * screen.width, ty = \(toY) * screen.height - \(dragInset);
           const dx = tx - fx, dy = ty - fy;
           const el = document.elementFromPoint(fx, fy) || document.body;
           const opts = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true });

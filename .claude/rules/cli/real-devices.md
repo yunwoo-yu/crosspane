@@ -19,8 +19,12 @@ paths:
 
 - 1순위는 셸앱(`shell/main.swift`, 진짜 WKWebView 컴포넌트 + 입력/콘솔),
   실패 시 Safari view-only 폴백 — 폴백 경로를 지우지 말 것
-- 셸 클릭 좌표는 **screen.width/height 매핑 유지** — clientHeight/innerHeight로
-  바꾸면 iOS 100vh 문제로 어긋난다 (실측: 중앙 클릭이 BODY에 떨어짐)
+- 셸 클릭 좌표는 **screen.width/height 매핑 + 상단 인셋 보정** —
+  `py = ny * screen.height - adjustedContentInset.top` (네이티브 값 주입).
+  WKWebView automatic safe-area 인셋 때문에 페이지 뷰포트가 상태바 아래(62pt)에서
+  시작해, 보정 없이는 클릭이 그만큼 아래를 찍는다 (실측: "위를 눌러야 눌림").
+  clientHeight/innerHeight 매핑으로 바꾸는 것도 금물 — iOS 100vh 문제로 어긋난다.
+  click/scroll(내부 스크롤러 탐색)/drag(pointer 시퀀스) 세 경로 모두 같은 보정 필요
 - 셸 빌드는 소스 해시로 ~/.crosspane/shell에 캐시 — Swift 소스 수정만으로 재빌드됨
 - 시뮬레이터의 localhost == 호스트 맥 — 컨트롤 브릿지가 이 가정 위에 있다
 - **Safari 폴백: 선실행 → openurl 순서를 바꾸지 말 것**: 헤드리스 부팅 직후
