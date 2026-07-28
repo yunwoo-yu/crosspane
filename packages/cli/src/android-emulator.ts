@@ -14,6 +14,7 @@ import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
 import { EmulatorGrpc } from './emulator-grpc.js';
 import type { InputTarget, SessionEvents } from './session.js';
 import { createShellCommandChannel } from './shell-command-queue.js';
+import { parseShellEvent } from './shell-events.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -298,15 +299,15 @@ export class AndroidEmulatorSession implements InputTarget {
     return this.commandChannel.waitForCommands();
   }
 
-  /** 셸앱이 POST한 이벤트(콘솔/에러/내비게이션) → 세션 이벤트 */
+  /** 셸앱이 POST한 이벤트(콘솔/에러/내비게이션) → 세션 이벤트 (iOS와 동일 규약) */
   handleShellEvent(payload: unknown): void {
-    if (!this.events || typeof payload !== 'object' || payload === null) return;
-    const event = payload as { kind?: string; level?: string; text?: string; url?: string };
-    if (event.kind === 'console') {
-      this.events.onConsole(ENGINE, event.level ?? 'log', event.text ?? '');
-    } else if (event.kind === 'pageerror') {
-      this.events.onPageError(ENGINE, event.text ?? '');
-    } else if (event.kind === 'navigation' && event.url) {
+    if (!this.events) return;
+    const event = parseShellEvent(payload);
+    if (!event) return;
+    if (event.kind === 'console') this.events.onConsole(ENGINE, event.level, event.text);
+    else if (event.kind === 'pageerror') this.events.onPageError(ENGINE, event.text);
+    else if (event.url !== this.currentUrl) {
+      // 같은 URL 중복 내비게이션 억제 — 에러 배지 구간이 매번 리셋되지 않게
       this.currentUrl = event.url;
       this.events.onNavigation(ENGINE, event.url);
     }

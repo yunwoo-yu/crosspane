@@ -56,3 +56,25 @@ describe('startCaptureLoop', () => {
     loop.stop();
   });
 });
+
+describe('shouldCapture 게이팅 (시청자 0명 = 캡처 0회)', () => {
+  it('shouldCapture가 false면 캡처를 건너뛰고, wake로 즉시 재개된다', async () => {
+    const capture = vi.fn(async () => {});
+    let viewers = false;
+    const loop = startCaptureLoop({
+      capture,
+      isActive: () => false,
+      shouldCapture: () => viewers,
+      activeIntervalMs: 1,
+      idleIntervalMs: 5,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(capture).not.toHaveBeenCalled(); // 시청자 없음 — 캡처 0회 (성능 계약)
+
+    viewers = true;
+    loop.wake();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(capture).toHaveBeenCalled(); // wake 즉시 재개
+    loop.stop();
+  });
+});

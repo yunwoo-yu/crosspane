@@ -3,6 +3,7 @@ import {
   countErrorsSinceLastNavigation,
   detectUrlDesync,
   filterLogs,
+  formatLogTime,
   isNearBottom,
   normalizeUrlInput,
   toDisplayPath,
@@ -121,5 +122,12 @@ describe('isNearBottom', () => {
   it('바닥 근처면 true, 위로 스크롤했으면 false', () => {
     expect(isNearBottom({ scrollTop: 990, scrollHeight: 1200, clientHeight: 200 })).toBe(true);
     expect(isNearBottom({ scrollTop: 100, scrollHeight: 1200, clientHeight: 200 })).toBe(false);
+  });
+});
+
+describe('formatLogTime', () => {
+  it('로컬 시각을 HH:MM:SS로 0채움 표기한다', () => {
+    const ts = new Date(2026, 6, 28, 9, 5, 3).getTime(); // 로컬 09:05:03
+    expect(formatLogTime(ts)).toBe('09:05:03');
   });
 });
