@@ -1,5 +1,16 @@
 # crosspane
 
+## 0.6.2
+
+### Patch Changes
+
+- 42e5f29: Docs: new from-scratch Android setup guide (docs/android-setup.md) with an error→fix table, linked from README and from the Android error messages themselves. README CLI reference synced with the actual flags (`--host`, `--ios-runtime`, `--version`, corrected `--port`/`--engines` semantics), CI coverage described accurately, ARCHITECTURE.md updated to the current module map and iOS/Android shell reality.
+- 9c3479c: All user-facing text is now English — dashboard UI (toasts, empty states, tooltips, placeholders, diff/network/console panels) and CLI runtime messages (install prompts, fallback warnings, URL convergence logs). Matches the English README and npm listing.
+- 857b358: Runtime safety net: global `unhandledRejection`/`uncaughtException` handlers now log the full stack and run the normal shutdown path (previously the process died silently, orphaning browsers/emulators/stream children). Fatal errors keep their stack trace instead of printing only the message. New `--verbose` flag (or `CROSSPANE_VERBOSE=1`) surfaces the causes behind silent fallbacks — CDP screencast failures, capture errors, shell/SCK/IME fallbacks — for actionable bug reports.
+- 5a93e19: Security hardening for the dashboard server: binds to 127.0.0.1 by default (new `--host` flag to opt into network exposure, with a warning), WebSocket connections now verify Origin against loopback/same-host (blocks cross-site WebSocket hijacking of the input-mirroring channel), shell bridge endpoints validate the engine name and cap request body size.
+- 374a1ac: Add `-v` / `--version` flag (previously it triggered the interactive prompt and then errored). The bug report template asks for the version — now there's a way to get it.
+- a1d22c8: Fix fixed/sticky chrome misplacement while dragging in WebKit panes (viewport-mode demotion via pinnedChrome edge probing). Internal refactors: socket hook split into event-log/frame-router/useEventBatcher/useFrameHub, App derived state extracted to session-view, unified shell event parser, expanded test coverage (209 tests).
+
 ## 0.6.1
 
 ### Patch Changes
