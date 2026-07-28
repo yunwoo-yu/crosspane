@@ -6,6 +6,7 @@ import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { ensureAndroidShellApk } from './android-shell.js';
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
+import { EmulatorGrpc } from './emulator-grpc.js';
 import type { InputTarget, SessionEvents } from './session.js';
 
 const execFileAsync = promisify(execFile);
@@ -172,9 +173,14 @@ export class AndroidEmulatorSession implements InputTarget {
         console.warn(`  ⚠ android: WebView 셸 실패 → Chrome 폴백: ${reason.slice(0, 200)}`);
       }
     }
+    session.grpc = (await EmulatorGrpc.connect(sdkDir, 8554)) ?? null;
+    if (session.grpc) detail += ' · gRPC';
+
     events.onStatus(ENGINE, 'ready', detail);
     session.events = events;
     session.startPolling(events);
+    // 화면은 scrcpy h264가 최적(RAW는 WS 대역폭 배압으로 역효과 실측) —
+    // gRPC는 입력(sendTouch, 왕복 수 ms) 전담
     return session;
   }
 
@@ -217,6 +223,8 @@ export class AndroidEmulatorSession implements InputTarget {
   private videoChunkHandler: ((chunk: Buffer) => void) | null = null;
   private videoBytesReceived = 0;
   private scrcpySocket: net.Socket | null = null;
+  /** 에뮬레이터 공식 gRPC — 연결되면 터치/화면이 이 경로를 쓴다 (adb/인코더 세금 제거) */
+  private grpc: EmulatorGrpc | null = null;
 
   private startPolling(events: SessionEvents): void {
     this.captureLoop = startCaptureLoop({
@@ -294,7 +302,7 @@ export class AndroidEmulatorSession implements InputTarget {
     }
   }
 
-  /** 시청자 0명이면 screenrecord 스트림도 멈춘다 (에뮬레이터 인코딩 비용 절약) */
+  /** 시청자 0명이면 화면 스트림도 멈춘다 */
   setViewersActive(active: boolean): void {
     if (this.viewersActive === active) return;
     this.viewersActive = active;
@@ -319,6 +327,12 @@ export class AndroidEmulatorSession implements InputTarget {
   async touchAt(phase: 'down' | 'move' | 'up', normalizedX: number, normalizedY: number) {
     const x = Math.round(normalizedX * this.screen.width);
     const y = Math.round(normalizedY * this.screen.height);
+    if (this.grpc) {
+      // gRPC 터치는 왕복 ~수 ms — 스로틀/백로그 관리가 필요 없다
+      this.grpc.sendTouch(x, y, phase === 'up' ? 0 : 1024);
+      this.markActivity();
+      return;
+    }
     if (phase === 'move') {
       this.pendingMove = { x, y };
       const wait = 40 - (Date.now() - this.lastMoveSentAt);
@@ -345,6 +359,11 @@ export class AndroidEmulatorSession implements InputTarget {
   async clickAt(normalizedX: number, normalizedY: number): Promise<void> {
     const x = Math.round(normalizedX * this.screen.width);
     const y = Math.round(normalizedY * this.screen.height);
+    if (this.grpc) {
+      this.grpc.sendTouch(x, y, 1024);
+      setTimeout(() => this.grpc?.sendTouch(x, y, 0), 50);
+      return;
+    }
     this.runInputCommand(['input', 'tap', x, y]);
   }
 
@@ -542,6 +561,7 @@ export class AndroidEmulatorSession implements InputTarget {
 
   async dispose(): Promise<void> {
     this.stopped = true;
+    this.grpc?.close();
     this.inputShell?.kill();
     this.videoProcess?.kill('SIGKILL');
     this.captureLoop?.stop();
@@ -607,10 +627,15 @@ async function bootHeadlessEmulator(sdkDir: string, adbPath: string): Promise<st
   if (!avd) throw new Error('No Android AVD found — create one with avdmanager');
 
   // -gpu host: 호스트 GPU 가속 — 헤드리스에서도 WebView 렌더/인코딩 fps가 크게 오른다
-  spawn(emulatorPath, ['-avd', avd, '-no-window', '-no-audio', '-no-boot-anim', '-gpu', 'host'], {
-    detached: true,
-    stdio: 'ignore',
-  }).unref();
+  spawn(
+    emulatorPath,
+    // -grpc: 공식 컨트롤 API (터치/화면 스트림 직결) — Android Studio 미러링과 동일 경로
+    ['-avd', avd, '-no-window', '-no-audio', '-no-boot-anim', '-gpu', 'host', '-grpc', '8554'],
+    {
+      detached: true,
+      stdio: 'ignore',
+    },
+  ).unref();
 
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {

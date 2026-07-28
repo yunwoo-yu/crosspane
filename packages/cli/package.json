@@ -53,15 +53,17 @@
     "prepublishOnly": "pnpm run build && pnpm test"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
     "playwright": "^1.49.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
+    "crosspane-dashboard": "workspace:*",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
-    "crosspane-dashboard": "workspace:*"
+    "vitest": "^3.0.0"
   },
   "engines": {
     "node": ">=20"

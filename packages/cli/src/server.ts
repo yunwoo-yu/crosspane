@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
-import { encodeFramePacket, encodeVideoPacket } from './frame-packet.js';
+import { encodeFramePacket, encodeRawPacket, encodeVideoPacket } from './frame-packet.js';
 import type { ClientCommand, EngineName, HelloEvent, ServerEvent } from './protocol.js';
 import type { InputTarget } from './session.js';
 import { resolveDashboardDir, serveDashboardFile } from './static.js';
@@ -13,6 +13,8 @@ export interface DashboardServer {
   broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags?: number): void;
   /** 실시간 비디오 스트림 조각 — 캐시하지 않는다 (늦은 접속자는 스트림 재시작으로 키프레임을 받는다) */
   broadcastVideoChunk(engine: EngineName, chunk: Buffer): void;
+  /** RAW RGBA 프레임 (gRPC 직결) — 캐시하지 않는다 (연속 스트림) */
+  broadcastRawFrame(engine: EngineName, rgba: Buffer, width: number, height: number): void;
   close(): void;
 }
 
@@ -296,6 +298,9 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
         },
         broadcastVideoChunk(engine: EngineName, chunk: Buffer) {
           sendToAllClients(encodeVideoPacket(engine, chunk));
+        },
+        broadcastRawFrame(engine: EngineName, rgba: Buffer, width: number, height: number) {
+          sendToAllClients(encodeRawPacket(engine, rgba, width, height));
         },
         close() {
           // httpServer.close()는 열린 소켓이 남아 있으면 대기하므로 클라이언트를 먼저 끊는다

@@ -8,6 +8,14 @@ function frameSize(frame: PaneFrame): { width: number; height: number } {
   return { width: frame.width, height: frame.height };
 }
 
+/** 소스 종류에 맞는 캔버스 드로우 — ImageData는 putImageData(복사 제로) */
+function drawFrame(canvas: HTMLCanvasElement, frame: PaneFrame): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  if (frame instanceof ImageData) ctx.putImageData(frame, 0, 0);
+  else ctx.drawImage(frame, 0, 0);
+}
+
 /**
  * pane 화면 렌더러 — 프레임 종류에 따라 두 모드를 오간다.
  *
@@ -82,7 +90,7 @@ export class PaneScreen {
         canvas.width = frameW;
         canvas.height = frameH;
       }
-      canvas.getContext('2d')?.drawImage(frame, 0, 0);
+      drawFrame(canvas, frame);
       this.lastCanvas = canvas;
       // scrollY 미상 스트림(idb 등)으로 전환된 pane은 절대 에코가 불가능 — 상대 에코로 강등
       if (scrollY < 0 && this.echoMode === 'absolute') this.echoMode = 'relative';
@@ -101,7 +109,8 @@ export class PaneScreen {
       this.backing.width = frameW;
       this.backing.height = frameH;
     }
-    this.backing.getContext('2d')?.drawImage(frame, 0, 0);
+    if (frame instanceof ImageData) this.backing.getContext('2d')?.putImageData(frame, 0, 0);
+    else this.backing.getContext('2d')?.drawImage(frame, 0, 0);
 
     const viewportPx = this.viewportHeightPx(frameW);
     if (canvas.width !== frameW || canvas.height !== viewportPx) {

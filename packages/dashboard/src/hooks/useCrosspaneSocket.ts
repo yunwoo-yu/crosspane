@@ -12,7 +12,9 @@ import {
   type LogEntry,
   type NetworkEntry,
   PACKET_TYPE_FRAME,
+  PACKET_TYPE_RAW,
   PACKET_TYPE_VIDEO,
+  RAW_HEADER_BYTES,
   SCROLL_Y_UNKNOWN,
   type ServerEvent,
   VIDEO_HEADER_BYTES,
@@ -84,12 +86,17 @@ export function useCrosspaneSocket(): CrosspaneConnection {
 
   /** 디코딩된 프레임(스냅샷/비디오 공통)을 구독자에게 전달하고 close한다 */
   const dispatchFrame = useCallback(
-    (engine: EngineName, frame: ImageBitmap | VideoFrame, scrollY: number, fullPage = false) => {
+    (
+      engine: EngineName,
+      frame: ImageBitmap | VideoFrame | ImageData,
+      scrollY: number,
+      fullPage = false,
+    ) => {
       const listeners = frameListenersRef.current.get(engine);
       if (listeners && listeners.size > 0) {
         for (const listener of listeners) listener(frame, scrollY, fullPage);
       }
-      frame.close();
+      if ('close' in frame) frame.close(); // ImageData는 close 불필요
     },
     [],
   );
@@ -190,6 +197,21 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       const bytes = new Uint8Array(packet);
       const engine = ENGINE_NAMES_BY_CODE[bytes[1]];
       if (!engine) return;
+      if (bytes[0] === PACKET_TYPE_RAW) {
+        // RAW RGBA — 디코딩 제로: ImageData로 감싸 바로 그린다
+        const view = new DataView(packet);
+        const width = view.getUint16(2, true);
+        const height = view.getUint16(4, true);
+        const pixels = new Uint8ClampedArray(packet, RAW_HEADER_BYTES);
+        if (pixels.length >= width * height * 4) {
+          dispatchFrame(
+            engine,
+            new ImageData(pixels.slice(0, width * height * 4), width, height),
+            -1,
+          );
+        }
+        return;
+      }
       if (bytes[0] === PACKET_TYPE_VIDEO) {
         if (bytes.length > VIDEO_HEADER_BYTES)
           pushVideoChunk(engine, bytes.subarray(VIDEO_HEADER_BYTES));

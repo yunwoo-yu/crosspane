@@ -26,6 +26,8 @@ const launchers = { chromium, webkit, firefox } as const;
 export interface SessionEvents {
   /** scrollY: 프레임 캡처 시점의 세로 스크롤 위치(CSS px). 알 수 없으면 SCROLL_Y_UNKNOWN */
   onFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags?: number): void;
+  /** RAW RGBA 프레임 (gRPC 직결 — 인코딩/디코딩 제로) */
+  onRawFrame?(engine: EngineName, rgba: Buffer, width: number, height: number): void;
   onConsole(engine: EngineName, level: LogLevel, text: string): void;
   onPageError(engine: EngineName, message: string): void;
   onRequestFailed(engine: EngineName, url: string, error: string): void;
