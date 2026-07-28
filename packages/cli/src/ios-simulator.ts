@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
+import { debugLog } from './debug.js';
 import { ensureSckHelper } from './ios-sck.js';
 import type { InputTarget, SessionEvents } from './session.js';
 import { createShellCommandChannel } from './shell-command-queue.js';
@@ -355,8 +356,9 @@ export class IosSimulatorSession implements InputTarget {
       console.log('  ▶ ios-sim: shell relaunched');
     } catch (err) {
       console.warn(
-        `  ⚠ ios-sim: 셸 재실행 실패 — 다음 감시 주기에 재시도 (${String(err).slice(0, 80)})`,
+        `  ⚠ ios-sim: shell relaunch failed — retrying next watchdog cycle (${String(err).slice(0, 80)})`,
       );
+      debugLog('ios-shell-relaunch', err);
     }
   }
 
@@ -575,8 +577,9 @@ export class IosSimulatorSession implements InputTarget {
       });
     } catch (err) {
       console.warn(
-        `  ⚠ ios-sim: SCK 헬퍼 빌드 실패 — 셸 스냅샷 유지 (${String(err).slice(0, 120)})`,
+        `  ⚠ ios-sim: SCK helper build failed — keeping shell snapshots (${String(err).slice(0, 120)})`,
       );
+      debugLog('ios-sck-build', err);
     }
   }
 

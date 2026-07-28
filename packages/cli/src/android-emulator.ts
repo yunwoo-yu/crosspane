@@ -11,6 +11,7 @@ import {
   IME_ID,
 } from './android-shell.js';
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
+import { debugLog } from './debug.js';
 import { EmulatorGrpc } from './emulator-grpc.js';
 import type { InputTarget, SessionEvents } from './session.js';
 import { createShellCommandChannel } from './shell-command-queue.js';
@@ -200,6 +201,7 @@ export class AndroidEmulatorSession implements InputTarget {
         console.warn(
           `  ⚠ android: WebView shell failed → falling back to Chrome: ${reason.slice(0, 200)}`,
         );
+        debugLog('android-shell', err);
       }
     }
     session.grpc = (await EmulatorGrpc.connect(sdkDir, 8554)) ?? null;
@@ -500,8 +502,9 @@ export class AndroidEmulatorSession implements InputTarget {
         this.events?.onConsole(
           ENGINE,
           'warning',
-          `[crosspane] 한글 IME 설치 실패 — 비ASCII 입력 불가 (${String(err).slice(0, 120)})`,
+          `[crosspane] IME install failed — non-ASCII typing unavailable (${String(err).slice(0, 120)})`,
         );
+        debugLog('android-ime', err);
         return false;
       }
     })();

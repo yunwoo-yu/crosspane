@@ -42,6 +42,8 @@ Options:
   --no-ios-sim         Disable the iOS Simulator pane
   --android            Force the real Android pane regardless of profile
   --no-android         Disable the Android pane
+  --verbose            Diagnostic logging (fallback/recovery causes, full stacks) —
+                       include this output when filing a bug report
   -h, --help           Show this help
   -v, --version        Print the crosspane version
 
@@ -77,6 +79,8 @@ export interface CliOptions {
   emulateWebview: boolean;
   /** 저장된 로그인 세션을 무시하고 깨끗하게 시작 */
   freshSession: boolean;
+  /** 진단 로깅 (--verbose 또는 CROSSPANE_VERBOSE=1) */
+  verbose: boolean;
   /** iOS 시뮬레이터 런타임 버전 (예: "17.2") — 구버전 iOS 재현용 */
   iosRuntime?: string;
 }
@@ -148,6 +152,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let openBrowser = true;
   let emulateWebview = true;
   let freshSession = false;
+  let verbose = false;
   let iosRuntime: string | undefined;
 
   while (args.length > 0) {
@@ -160,6 +165,10 @@ export function parseCliArguments(argv: string[]): CliOptions {
     }
     if (flag === '--fresh') {
       freshSession = true;
+      continue;
+    }
+    if (flag === '--verbose') {
+      verbose = true;
       continue;
     }
     if (flag === '--no-open') {
@@ -232,6 +241,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     customUserAgent,
     emulateWebview,
     freshSession,
+    verbose,
     iosRuntime,
   };
 }

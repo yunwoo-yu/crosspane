@@ -17,9 +17,11 @@ labels: bug
 
 - OS:
 - Node version:
-- crosspane version:
+- crosspane version: <!-- crosspane --version -->
 - Panes affected: <!-- chromium / webkit / firefox / android / ios-sim / dashboard -->
 
 ## Logs / screenshots
 
-<!-- CLI output, console panel contents, screenshots -->
+<!-- Re-run with `crosspane <target> --verbose` and paste the CLI output —
+     it includes fallback causes and full stacks that the default output hides.
+     Console panel contents and screenshots also help. -->

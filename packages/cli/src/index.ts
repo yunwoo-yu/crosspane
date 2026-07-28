@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { AndroidEmulatorSession, resolveAndroidSdkDir } from './android-emulator.js';
 import { cliVersion, HELP_TEXT, parseCliArguments } from './args.js';
 import { installPlaywrightBrowser, isMissingBrowserError } from './browser-install.js';
+import { setVerbose } from './debug.js';
 import { resolveDeviceViewport } from './devices.js';
 import { hasTargetArgument, probePort, promptForTarget } from './interactive.js';
 import { IosSimulatorSession, resolveDeveloperDir } from './ios-simulator.js';
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
   }
 
   const options = parseCliArguments(argv);
+  setVerbose(options.verbose || process.env.CROSSPANE_VERBOSE === '1');
   const viewport = resolveDeviceViewport(options.device);
 
   // 실기기 pane 가용성 — 없으면 pane 자체를 빼고 이유를 안내한다
@@ -287,14 +289,28 @@ async function main(): Promise<void> {
     }
   }
 
-  const shutdown = async (): Promise<void> => {
+  let shuttingDown = false;
+  const shutdown = async (code = 0): Promise<void> => {
+    if (shuttingDown) return; // 종료 중 재진입(중복 시그널/종료 중 에러) 방지
+    shuttingDown = true;
     console.log('\nshutting down…');
     await Promise.allSettled([...sessions.values()].map((session) => session.dispose()));
     server.close();
-    process.exit(0);
+    process.exit(code);
   };
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
+
+  // 놓친 rejection/예외로 조용히 죽으면 브라우저·에뮬레이터·스트림 자식 프로세스가
+  // 고아로 남는다 — 스택을 남기고 정리 경로(shutdown)를 태운다
+  const onFatal = (kind: string) => (err: unknown) => {
+    console.error(
+      `[crosspane] ${kind}: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+    );
+    void shutdown(1);
+  };
+  process.on('uncaughtException', onFatal('uncaughtException'));
+  process.on('unhandledRejection', onFatal('unhandledRejection'));
 }
 
 /** OS 기본 브라우저로 URL 열기 — 실패해도 조용히 무시 (사용자가 직접 열면 됨) */
@@ -311,6 +327,7 @@ function openInBrowser(url: string): void {
 }
 
 main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : err);
+  // 스택을 버리지 않는다 — 사용자가 이슈에 붙일 수 있는 유일한 단서다
+  console.error(err instanceof Error ? (err.stack ?? err.message) : err);
   process.exit(1);
 });

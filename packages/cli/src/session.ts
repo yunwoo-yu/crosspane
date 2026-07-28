@@ -11,6 +11,7 @@ import {
   type Page,
   webkit,
 } from 'playwright';
+import { debugLog } from './debug.js';
 import type { Viewport } from './devices.js';
 import {
   type BrowserEngineName,
@@ -322,8 +323,9 @@ export class EngineSession implements InputTarget {
       try {
         await this.startCdpScreencast(events);
         return;
-      } catch {
+      } catch (err) {
         // CDP를 열 수 없으면 폴링으로 폴백
+        debugLog('cdp-screencast', err);
       }
     }
     this.startAdaptivePolling(events);
@@ -449,8 +451,9 @@ export class EngineSession implements InputTarget {
       if (this.lastFrame?.equals(jpeg)) return;
       this.lastFrame = jpeg;
       events.onFrame(this.engine, jpeg, scrollY, fullPage ? FRAME_FLAG_FULL_PAGE : 0);
-    } catch {
+    } catch (err) {
       // 내비게이션/리로드 중에는 스크린샷이 일시적으로 실패할 수 있다 — 루프는 유지
+      debugLog('capture', err);
     }
   }
 
