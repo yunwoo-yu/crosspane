@@ -26,6 +26,10 @@ paths:
   clientHeight/innerHeight 매핑으로 바꾸는 것도 금물 — iOS 100vh 문제로 어긋난다.
   click/scroll(내부 스크롤러 탐색)/drag(pointer 시퀀스) 세 경로 모두 같은 보정 필요
 - 셸 빌드는 소스 해시로 ~/.crosspane/shell에 캐시 — Swift 소스 수정만으로 재빌드됨
+- **상태바 backdrop(systemChromeMaterial)을 지우지 말 것** — 웹뷰가 전면이라
+  콘텐츠가 상태바 뒤로 스크롤되면 그대로 비쳐 보인다 (SCK 창 캡처에 노출, 실측).
+  웹뷰를 safe-area 아래로 줄이는 방식은 금물 — screen.width/height 좌표 매핑과
+  스냅샷 프레임 화면비가 전면 웹뷰를 전제한다. backdrop은 터치 비활성 오버레이만
 - 시뮬레이터의 localhost == 호스트 맥 — 컨트롤 브릿지가 이 가정 위에 있다
 - **Safari 폴백: 선실행 → openurl 순서를 바꾸지 말 것**: 헤드리스 부팅 직후
   openurl은 타임아웃된다 (`launch com.apple.mobilesafari` 후에만 안정)
@@ -41,6 +45,25 @@ paths:
   기본 브라우저 미지정 이미지에서 일반 인텐트는 해석 실패
 - 실행 파일 경로는 `adbExecutableName`/`emulatorExecutableName`/`androidSdkCandidateDirs`
   헬퍼만 사용 (Windows `.exe`, OS별 SDK 경로가 여기 몰려 있음)
+
+## iOS sticky/fixed 워밍업 (실측)
+
+- **didFinish의 ±2pt 나노 스크롤을 지우지 말 것** — 페이지 로드 후 "첫"
+  프로그래매틱 스크롤(setContentOffset)에서만 sticky/fixed 요소가 한 커밋 늦게
+  따라와 이탈해 보인다 (실측: salgu 첫 드래그에서 헤더 위 빈 띠, 실터치(idb HID)는
+  첫 스크롤부터 정상 = 웹페이지 문제 아님). 워밍업 커밋 후에는 첫 드래그부터 고정된다
+- 나노 스크롤의 복원은 **한 커밋 간격(150ms) 후에** — 같은 틱에 되돌리면
+  넷제로로 합쳐져 워밍업이 안 될 수 있다
+
+## 스트림 자가 복구 (실기동 검증)
+
+- **셸 생존 신호는 롱폴이다** — 유휴에도 ~8초마다 재폴링하므로 25초 끊기면 사망.
+  프레임 부재를 신호로 쓰지 말 것 (정적 화면과 구분 불가 → 유휴 폴링 오발동).
+  감시가 사망을 감지하면 셸을 재실행하고(터미네이트→launch, controlUrl 보존),
+  SCK 부재 시에만 simctl 폴링 폴백을 임시로 되살린다
+- Android 비디오 exit 시 `resumeCaptureFallback()` — 재spawn 연속 실패에도 pane이
+  굳지 않게 폴링을 되살린다. 스트림 복구 시 다음 청크가 폴링을 자가 정지시킨다
+  (videoBytesReceived 검사) — 이 자가 정지 구조를 제거하지 말 것
 
 ## 입력 반응성 (실측으로 얻은 구조)
 
@@ -95,7 +118,17 @@ paths:
 - iOS 30fps급 무결점의 정답은 **SCK 창 캡처**(shell-sck) — 시뮬 창 노출 + 화면기록
   권한 필요. 타이틀바 크롭은 기기 화면비 인자 기반 (클릭 좌표 정합)
 - SCK는 **무한 재시도**(10초) — 권한을 세션 도중 허용해도 자동 활성돼야 한다.
-  단 `open -a Simulator`는 첫 2회만 — 재시도마다 부르면 포커스를 계속 뺏는다
+  `open -g -a Simulator`는 매 재시도 안전 (-g라 포커스를 뺏지 않는다)
+- 시청자 0명이면 SCK를 **의도적 정지**(sckPausedForNoViewers)로 멈춘다 — 사망과
+  구분되는 플래그라 폴백/재시도가 걸리지 않고, 복귀 시 resumeFrames → SCK 재부착
+  핸드오프로 이어진다 (실기동 E2E 검증). 플래그 없이 kill만 하면 사망 복구 경로가
+  잘못 발동한다
+- **SCK가 세션 도중 죽으면(창 닫힘 등) 반드시 셸 스냅샷을 되살릴 것** —
+  붙을 때 `pauseFrames`로 셸을 멈추므로, `resumeFrames`(해시 리셋 포함) +
+  captureLoop 재기동 없이는 pane이 마지막 SCK 프레임에서 굳는다 (실측).
+  사망 후에도 재시도는 계속 — 창이 복구되면 자동 재부착된다
+- 셸 스냅샷 폴백에는 상태바가 없다(webView.takeSnapshot은 웹뷰만 캡처) —
+  "상태바가 사라졌다"는 리포트는 SCK가 떨어져 폴백 중이라는 신호다
 - Android 입력은 에뮬레이터 gRPC sendTouch(수 ms) — adb input으로 되돌리지 말 것
 - idb H.264는 멀티슬라이스 AU 수정 후에도 반복 드래그에서 고스팅 재발(실앱 실측,
   인코더 참조 구조 특성) — 기본 승격 금지, 옵트인 유지. iOS 화면 소스 우선순위는

@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
 import { ensureSckHelper } from './ios-sck.js';
 import type { InputTarget, SessionEvents } from './session.js';
+import { createShellCommandChannel } from './shell-command-queue.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -145,9 +146,11 @@ export class IosSimulatorSession implements InputTarget {
   private currentUrl: string;
   /** shell = 진짜 WKWebView 컴포넌트 + 입력/콘솔 지원, safari = 브라우저 view-only 폴백 */
   private mode: 'shell' | 'safari' = 'safari';
-  private readonly commandQueue: Record<string, unknown>[] = [];
-  /** 롱폴 중인 셸의 응답 콜백 — 명령이 들어오면 즉시 전달된다 */
-  private commandWaiter: ((commands: Record<string, unknown>[]) => void) | null = null;
+  private readonly commandChannel = createShellCommandChannel({
+    longPollMs: COMMAND_LONG_POLL_MS,
+    maxQueued: MAX_QUEUED_COMMANDS,
+    onEnqueue: () => this.markActivity(),
+  });
   private captureLoop: CaptureLoop | null = null;
   private viewersActive = true;
   private videoProcess: ReturnType<typeof import('node:child_process').spawn> | null = null;
@@ -220,9 +223,11 @@ export class IosSimulatorSession implements InputTarget {
           timeout: 60_000,
         });
         session.mode = 'shell';
+        session.shellControlUrl = options.controlUrl;
         // 셸 모드는 입력 미러링이 가능하다 — view-only 해제
         events.onStatus(ENGINE, 'ready', `${device.name} · WKWebView (${runtimeLabel})`, false);
         session.startPolling(events);
+        session.startShellWatchdog();
         return session;
       } catch (err) {
         // 셸 빌드/설치 실패 — Safari 폴백으로 계속하되, 이유를 남겨야
@@ -249,11 +254,6 @@ export class IosSimulatorSession implements InputTarget {
     return session;
   }
 
-  /** 서버의 /shell 브릿지가 호출 — 셸앱이 폴링으로 가져갈 명령을 드레인 */
-  drainShellCommands(): Record<string, unknown>[] {
-    return this.commandQueue.splice(0, this.commandQueue.length);
-  }
-
   private shellFrameCount = 0;
 
   /**
@@ -265,7 +265,9 @@ export class IosSimulatorSession implements InputTarget {
     if (jpeg.length === 0) return;
     this.shellFrameCount += 1;
     if (this.shellFrameCount > 10) this.captureLoop?.stop();
-    this.markActivity();
+    // markActivity()는 입력 경로 전용 — 프레임 수신을 활동으로 치면 셸이 유휴에도
+    // 프레임을 밀 때 세션이 영구 active가 돼, 폴링 폴백이 재기동된 뒤 유휴에도
+    // 활성 주기(400ms)로 돈다
     this.events?.onFrame(ENGINE, jpeg, scrollY);
   }
 
@@ -296,39 +298,75 @@ export class IosSimulatorSession implements InputTarget {
   }
 
   private enqueue(command: Record<string, unknown>): void {
-    this.commandQueue.push(command);
-    // 셸이 롱폴 대기 중이면 즉시 전달 — 폴링 주기만큼의 입력 지연을 없앤다
-    if (this.commandWaiter) {
-      const waiter = this.commandWaiter;
-      this.commandWaiter = null;
-      waiter(this.commandQueue.splice(0));
-    } else if (this.commandQueue.length > MAX_QUEUED_COMMANDS) {
-      // 셸앱이 폴링을 멈춘 상태(크래시 등)에서 입력이 계속 오면 무한 성장한다 — 상한
-      this.commandQueue.splice(0, this.commandQueue.length - MAX_QUEUED_COMMANDS);
-    }
-    this.markActivity();
+    this.commandChannel.enqueue(command);
   }
 
-  /**
-   * 셸의 명령 롱폴 — 큐가 비어 있으면 명령이 올 때까지(최대 COMMAND_LONG_POLL_MS) 대기.
-   * 새 폴이 오면 이전 waiter는 빈 응답으로 해제한다 (셸 재시작 등 중복 폴 대비).
-   */
+  /** 셸의 명령 롱폴 — 규약 구현은 shell-command-queue.ts (Android와 공유) */
   waitForShellCommands(): Promise<unknown[]> {
-    if (this.commandQueue.length > 0) {
-      return Promise.resolve(this.commandQueue.splice(0));
+    // 셸 생존 신호 — 유휴에도 ~8초마다 재폴링하므로 끊기면 셸이 죽은 것이다
+    // (프레임 부재는 정적 화면과 구분이 안 돼 생존 신호로 못 쓴다)
+    this.lastShellPollAt = Date.now();
+    if (this.shellStallFallbackActive) {
+      this.shellStallFallbackActive = false;
+      console.log(
+        '  ▶ ios-sim: 셸 폴링 복귀 — 스크린샷 폴백 해제 예정 (셸 프레임이 재개되면 자동)',
+      );
     }
-    this.commandWaiter?.([]);
-    return new Promise((resolve) => {
-      const waiter = (commands: Record<string, unknown>[]): void => {
-        clearTimeout(timer);
-        resolve(commands);
-      };
-      const timer = setTimeout(() => {
-        if (this.commandWaiter === waiter) this.commandWaiter = null;
-        resolve([]);
-      }, COMMAND_LONG_POLL_MS);
-      this.commandWaiter = waiter;
-    });
+    return this.commandChannel.waitForCommands();
+  }
+
+  private lastShellPollAt = 0;
+  private shellWatchdogTimer: NodeJS.Timeout | null = null;
+  private shellStallFallbackActive = false;
+  private shellRelaunching = false;
+  private shellControlUrl: string | undefined;
+
+  /**
+   * 셸 생존 감시 — 셸앱이 크래시하면 프레임도 입력도 조용히 죽는데,
+   * 프레임 스트림 확립 후에는 captureLoop가 멈춰 있어 pane이 영구히 굳는다.
+   * 롱폴 신호가 끊기면 셸을 재실행하고, 그동안 simctl 스크린샷 폴링으로
+   * 화면을 유지한다 (SCK가 살아 있으면 화면은 SCK 담당이라 폴백 불필요).
+   */
+  startShellWatchdog(): void {
+    this.shellWatchdogTimer = setInterval(() => {
+      if (this.stoppedVideo) return;
+      const stalled = this.lastShellPollAt > 0 && Date.now() - this.lastShellPollAt > 25_000;
+      if (!stalled || this.shellRelaunching) return;
+      console.warn('  ⚠ ios-sim: 셸 폴링이 끊겼습니다 — 셸 재실행 시도');
+      if (!this.sckProcess && !this.shellStallFallbackActive) {
+        this.shellStallFallbackActive = true;
+        this.captureLoop?.stop();
+        if (this.events) this.startPolling(this.events);
+      }
+      this.shellRelaunching = true;
+      void this.relaunchShell().finally(() => {
+        this.shellRelaunching = false;
+        this.lastShellPollAt = Date.now(); // 재실행 직후 판정 유예
+      });
+    }, 10_000);
+  }
+
+  private async relaunchShell(): Promise<void> {
+    if (!this.shellControlUrl) return;
+    try {
+      await simctl(this.developerDir, ['terminate', this.udid, SHELL_BUNDLE_ID]).catch(
+        () => undefined,
+      );
+      await execFileAsync('xcrun', ['simctl', 'launch', this.udid, SHELL_BUNDLE_ID], {
+        env: {
+          ...process.env,
+          DEVELOPER_DIR: this.developerDir,
+          SIMCTL_CHILD_CROSSPANE_URL: this.currentUrl,
+          SIMCTL_CHILD_CROSSPANE_CONTROL: this.shellControlUrl,
+        },
+        timeout: 60_000,
+      });
+      console.log('  ▶ ios-sim: 셸 재실행 완료');
+    } catch (err) {
+      console.warn(
+        `  ⚠ ios-sim: 셸 재실행 실패 — 다음 감시 주기에 재시도 (${String(err).slice(0, 80)})`,
+      );
+    }
   }
 
   /**
@@ -387,14 +425,30 @@ export class IosSimulatorSession implements InputTarget {
   }
 
   setViewersActive(active: boolean): void {
+    if (this.viewersActive === active) return; // 접속/watch마다 반복 유입 — 동일값이면 무시
     this.viewersActive = active;
     if (active) {
       this.captureLoop?.wake();
       if (this.videoChunkHandler && !this.videoProcess) this.spawnVideoStream();
-    } else if (this.videoProcess) {
-      const proc = this.videoProcess;
-      this.videoProcess = null;
-      proc.kill('SIGKILL');
+      // 시청자 복귀: 셸 스냅샷을 먼저 되살려 즉시 화면을 채우고, SCK가 재부착되면
+      // 다시 pauseFrames로 넘겨받는다 (사망 복구 경로와 동일한 핸드오프)
+      if (this.sckPausedForNoViewers) {
+        this.sckPausedForNoViewers = false;
+        this.enqueue({ type: 'resumeFrames' });
+        void this.startSckStream();
+      }
+    } else {
+      if (this.videoProcess) {
+        const proc = this.videoProcess;
+        this.videoProcess = null;
+        proc.kill('SIGKILL');
+      }
+      // 시청자 0명이면 SCK 30fps 캡처도 낭비다 — 의도적 정지로 표시해
+      // exit 핸들러가 폴백 재생/재시도를 걸지 않게 한다
+      if (this.sckProcess) {
+        this.sckPausedForNoViewers = true;
+        this.sckProcess.kill('SIGKILL');
+      }
     }
   }
 
@@ -423,8 +477,13 @@ export class IosSimulatorSession implements InputTarget {
 
   private sckRetries = 0;
   private sckWarned = false;
+  private sckRetryTimer: NodeJS.Timeout | null = null;
+  /** 시청자 0명이라 SCK를 의도적으로 멈춘 상태 — 사망 복구(폴백/재시도)와 구분한다 */
+  private sckPausedForNoViewers = false;
 
   private async startSckStream(): Promise<void> {
+    // dispose 이후 예약돼 있던 재시도가 세션을 되살리지 않게 (stopped pane 프레임 유출 방지)
+    if (this.stoppedVideo) return;
     try {
       const helper = await ensureSckHelper();
       // 베젤 아트가 켜져 있으면 창에 타이틀바+베젤이 섞여 고정비 크롭이 어긋난다
@@ -466,6 +525,8 @@ export class IosSimulatorSession implements InputTarget {
         timeout: 30_000,
       }).catch(() => undefined);
       await new Promise((resolve) => setTimeout(resolve, 4_000)); // 창 렌더 대기
+      // 비동기 준비(빌드/open/대기) 중 상태가 바뀌었으면 spawn하지 않는다
+      if (this.stoppedVideo || this.sckPausedForNoViewers) return;
       const viewport = '0.4613'; // iPhone 세로 화면비(w/h) 근사 — 타이틀바 크롭용
       const proc = spawn(helper, [viewport], { stdio: ['ignore', 'pipe', 'pipe'] });
       this.sckProcess = proc;
@@ -500,15 +561,24 @@ export class IosSimulatorSession implements InputTarget {
           );
         }
       });
-      proc.on('exit', (code) => {
+      proc.on('exit', () => {
         clearTimeout(watchdog);
         if (this.sckProcess === proc) this.sckProcess = null;
-        // 초기 창 레이스든 TCC 미승인이든 — 무한 재시도해 권한을 나중에
-        // 허용해도 재실행 없이 자동 활성되게 한다 (시도 비용: 헬퍼 spawn 1회)
-        if (!sawFrame && !this.stoppedVideo) {
-          this.sckRetries += 1;
-          setTimeout(() => void this.startSckStream(), 10_000);
+        if (this.stoppedVideo) return;
+        // 시청자 0명으로 인한 의도적 정지 — 폴백 재생도 재시도도 하지 않는다
+        // (복귀는 setViewersActive(true)가 담당)
+        if (this.sckPausedForNoViewers) return;
+        if (sawFrame) {
+          // 세션 도중 사망(Simulator 창 닫힘 등) — 붙을 때 셸 프레임을 pause했으므로
+          // 되살리지 않으면 pane이 마지막 SCK 프레임에서 굳는다
+          console.warn('  ⚠ ios-sim: SCK 캡처가 끊겼습니다 — 셸 스냅샷으로 폴백, 10초마다 재시도');
+          this.enqueue({ type: 'resumeFrames' });
+          if (this.events) this.startPolling(this.events);
         }
+        // 초기 창 레이스든 TCC 미승인이든 세션 도중 사망이든 — 무한 재시도해
+        // 나중에 권한 허용/창 복구 시 재실행 없이 자동 활성되게 한다
+        this.sckRetries += 1;
+        this.sckRetryTimer = setTimeout(() => void this.startSckStream(), 10_000);
       });
     } catch (err) {
       console.warn(
@@ -519,6 +589,8 @@ export class IosSimulatorSession implements InputTarget {
 
   /** SCK 헬퍼의 JPEG 연속 스트림(FFD8…FFD9)을 프레임으로 분리한다 */
   private consumeJpegStream(chunk: Buffer): void {
+    // dispose/의도적 정지 후 도착한 잔여 청크가 프레임으로 흘러가지 않게
+    if (this.stoppedVideo || this.sckPausedForNoViewers) return;
     this.jpegBuffer = Buffer.concat([this.jpegBuffer, chunk]);
     while (true) {
       const start = this.jpegBuffer.indexOf(Buffer.from([0xff, 0xd8]));
@@ -623,11 +695,14 @@ export class IosSimulatorSession implements InputTarget {
 
   async dispose(): Promise<void> {
     this.stoppedVideo = true;
+    if (this.sckRetryTimer) clearTimeout(this.sckRetryTimer);
+    this.sckRetryTimer = null;
+    if (this.shellWatchdogTimer) clearInterval(this.shellWatchdogTimer);
+    this.shellWatchdogTimer = null;
     this.sckProcess?.kill('SIGKILL');
     this.videoProcess?.kill('SIGKILL');
     this.captureLoop?.stop();
-    this.commandWaiter?.([]);
-    this.commandWaiter = null;
+    this.commandChannel.dispose();
     // 다음 실행이 빨라지도록 시뮬레이터는 부팅 상태로 둔다
   }
 }

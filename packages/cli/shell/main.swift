@@ -77,6 +77,20 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
     webView.navigationDelegate = self
     view.addSubview(webView)
 
+    // 상태바 배경 — 웹뷰가 전면(full-screen)이라 콘텐츠가 상태바 뒤로 스크롤되면
+    // 그대로 비쳐 보인다(SCK 창 캡처에 노출). 웹뷰 레이아웃/좌표 보정은 건드리지 않고
+    // safe-area 상단만 시스템 크롬 머티리얼로 덮어 실제 앱 상태바처럼 보이게 한다.
+    let statusBarBackdrop = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    statusBarBackdrop.isUserInteractionEnabled = false
+    statusBarBackdrop.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(statusBarBackdrop)
+    NSLayoutConstraint.activate([
+      statusBarBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
+      statusBarBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      statusBarBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      statusBarBackdrop.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+    ])
+
     if let url = URL(string: targetURL) {
       webView.load(URLRequest(url: url))
     }
@@ -90,7 +104,11 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
   private func streamFrames() {
     // 고정 케이던스 + 동시 2장 파이프라이닝 — takeSnapshot 왕복 지연을 숨겨 fps를 올린다
     DispatchQueue.main.asyncAfter(deadline: .now() + frameInterval) { self.streamFrames() }
-    if framesPaused || inflightSnapshots >= 2 { return }
+    // 유휴 중엔 동시 1장만 — 풀해상도 스냅샷(~700ms)이 슬롯 2개를 다 점유하면
+    // 입력 직후 fast 스냅샷이 시작을 못 해 드래그 애니메이션 중간 프레임이
+    // 전부 유실된다 (실측: 유휴→첫 드래그가 최종 프레임만 찍힘)
+    let maxInflight = frameInterval == frameIntervalIdle ? 1 : 2
+    if framesPaused || inflightSnapshots >= maxInflight { return }
     inflightSnapshots += 1
     let scheduleNext = { (_: TimeInterval) in } // 완료 콜백은 더 이상 스케줄하지 않는다
     // drawHierarchy는 WK 컴포지터의 비동기 서피스를 찍어 스크롤 중에도 80%가
@@ -160,6 +178,20 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
   func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
     if let url = webView.url?.absoluteString {
       postEvent(["kind": "navigation", "url": url])
+    }
+  }
+
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    // 스크롤 트리 워밍업 — 페이지 로드 후 "첫" 프로그래매틱 스크롤에서만
+    // sticky/fixed 요소가 한 커밋 늦게 따라와 이탈해 보인다 (실측: salgu 첫 드래그,
+    // 실터치는 정상). ±2pt 나노 스크롤을 미리 커밋시켜 사용자의 첫 드래그부터
+    // 고정 요소가 제자리에 붙게 한다. 즉시 되돌리면 넷제로로 합쳐질 수 있어
+    // 한 커밋 간격(150ms)을 두고 복원한다.
+    let sv = webView.scrollView
+    let origin = sv.contentOffset
+    sv.setContentOffset(CGPoint(x: origin.x, y: origin.y + 2), animated: false)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+      sv.setContentOffset(origin, animated: false)
     }
   }
 
@@ -312,6 +344,11 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
         webView.load(URLRequest(url: url))
       }
     case "pauseFrames": framesPaused = true
+    case "resumeFrames":
+      // SCK 등 상위 스트림이 죽었을 때 호스트가 스냅샷 스트림을 되살린다.
+      // 해시를 리셋해 화면이 정적이어도 첫 프레임을 즉시 push한다 (pane 정지 방지)
+      framesPaused = false
+      lastFrameHash = 0
     case "reload": webView.reload()
     case "back": webView.goBack()
     case "forward": webView.goForward()
