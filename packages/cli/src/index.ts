@@ -68,10 +68,9 @@ async function main(): Promise<void> {
   // 브라우저 자동 설치는 엔진당 1회만 시도 (실패 루프 방지)
   const browserInstallAttempted = new Set<EngineName>();
 
-  // URL 단일 소스: 리더 엔진 기준으로 우발적 어긋남을 자동 수렴시킨다.
-  // 같은 목표로 되돌렸는데 다시 어긋나면 실차이(엔진별 리다이렉트 등)로 보존.
+  // URL 단일 소스: 어긋남은 이유 불문 리더로 계속 수렴한다 (쿨다운으로 루프만 방지)
   const lastNavigationUrl = new Map<EngineName, string>();
-  const urlSyncAttempted = new Map<EngineName, string>();
+  const urlSyncAttempted = new Map<EngineName, { target: string; ts: number }>();
   let urlSyncTimer: NodeJS.Timeout | null = null;
   const URL_SYNC_GRACE_MS = 800;
   const scheduleUrlConvergence = (): void => {
@@ -81,18 +80,31 @@ async function main(): Promise<void> {
       const syncable = [...sessions.keys()].filter(
         (engine) => engine === 'chromium' || engine === 'webkit' || engine === 'firefox',
       );
-      for (const plan of planUrlSync({
+      const plans = planUrlSync({
         urls: lastNavigationUrl,
         syncable,
         attempted: urlSyncAttempted,
-      })) {
-        urlSyncAttempted.set(plan.engine, normalizeUrl(plan.target));
+        now: Date.now(),
+      });
+      for (const plan of plans) {
+        urlSyncAttempted.set(plan.engine, { target: normalizeUrl(plan.target), ts: Date.now() });
         console.log(`  ↺ ${plan.engine} URL 수렴 → ${plan.target}`);
         void sessions
           .get(plan.engine)
           ?.navigate(plan.target)
           .catch(() => undefined);
       }
+      // 쿨다운으로 미뤄진 어긋남이 남아 있으면 재시도 예약 — 일치할 때까지 계속
+      const leaderUrl = lastNavigationUrl.get(syncable[0]);
+      const stillDiverged = syncable.some((engine) => {
+        const current = lastNavigationUrl.get(engine);
+        return (
+          leaderUrl !== undefined &&
+          current !== undefined &&
+          normalizeUrl(current) !== normalizeUrl(leaderUrl)
+        );
+      });
+      if (stillDiverged) scheduleUrlConvergence();
     }, URL_SYNC_GRACE_MS);
   };
 
@@ -233,9 +245,7 @@ async function main(): Promise<void> {
       server.broadcastEvent({ type: 'engine-status', engine, status, detail, viewOnly }),
     onNavigation: (engine, url) => {
       lastNavigationUrl.set(engine, url);
-      // 리더가 새 URL로 이동하면 이전 수렴 기록은 무효 — 다음 어긋남에 다시 1회 수렴
-      const leaderMoved = engine === 'chromium' || sessions.size === 0;
-      if (leaderMoved) urlSyncAttempted.clear();
+      if (engine === 'chromium') urlSyncAttempted.clear(); // 리더 이동 — 즉시 재수렴
       scheduleUrlConvergence();
       server.broadcastEvent({ type: 'navigation', engine, url, ts: Date.now() });
     },

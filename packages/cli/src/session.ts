@@ -63,7 +63,7 @@ export interface InputTarget {
     toY: number,
     durationMs: number,
   ): Promise<void>;
-  scrollBy(deltaY: number): Promise<void>;
+  scrollBy(deltaY: number, normalizedX?: number, normalizedY?: number): Promise<void>;
   pressKey(key: string): Promise<void>;
   typeText(text: string): Promise<void>;
   goBack(): Promise<void>;
@@ -386,8 +386,12 @@ export class EngineSession {
           const g = globalThis as unknown as {
             scrollY: number;
             document: { documentElement: { scrollHeight: number } };
+            __crosspaneScroller?: { scrollTop: number; isConnected: boolean } | null;
           };
-          return [g.scrollY, g.document.documentElement.scrollHeight] as const;
+          // 내부 컨테이너가 스크롤 중이면 그 기준으로 — 로컬 에코 정합
+          const scroller = g.__crosspaneScroller;
+          const scrollY = scroller?.isConnected ? scroller.scrollTop : g.scrollY;
+          return [scrollY, g.document.documentElement.scrollHeight] as const;
         })
         .catch(() => [SCROLL_Y_UNKNOWN, 0] as const);
       // 폴링 엔진(WebKit/Firefox)의 이원 전략:
@@ -470,10 +474,51 @@ export class EngineSession {
    * 애니메이션 속도가 달라 위치가 어긋난다. 세 엔진이 항상 같은 픽셀만큼
    * 움직이도록 JS scrollBy를 주입해 즉시 스크롤한다.
    */
-  async scrollBy(deltaY: number): Promise<void> {
-    await this.page.evaluate((dy) => {
-      (globalThis as unknown as { scrollBy: (x: number, y: number) => void }).scrollBy(0, dy);
-    }, deltaY);
+  async scrollBy(deltaY: number, normalizedX?: number, normalizedY?: number): Promise<void> {
+    // 실무 앱은 window가 아니라 내부 컨테이너(overflow)가 스크롤하는 경우가 많다 —
+    // 포인터 아래에서 실제 스크롤 가능한 조상을 찾아 스크롤한다 (window는 폴백).
+    // 찾은 컨테이너는 전역에 마킹해 프레임 scrollY 리포트가 같은 기준을 쓰게 한다.
+    await this.page.evaluate(
+      ([dy, nx, ny]) => {
+        type El = {
+          scrollHeight: number;
+          clientHeight: number;
+          scrollTop: number;
+          parentElement: El | null;
+        };
+        const g = globalThis as unknown as {
+          innerWidth: number;
+          innerHeight: number;
+          scrollBy: (x: number, y: number) => void;
+          document: {
+            elementFromPoint(x: number, y: number): El | null;
+            scrollingElement: El | null;
+          };
+          getComputedStyle: (el: El) => { overflowY: string };
+          __crosspaneScroller?: El | null;
+        };
+        const findScroller = (): El | null => {
+          if (nx === undefined || ny === undefined) return g.__crosspaneScroller ?? null;
+          let el = g.document.elementFromPoint(nx * g.innerWidth, ny * g.innerHeight);
+          while (el && el !== g.document.scrollingElement) {
+            const style = g.getComputedStyle(el);
+            if (
+              (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+              el.scrollHeight > el.clientHeight + 1
+            ) {
+              return el;
+            }
+            el = el.parentElement;
+          }
+          return null;
+        };
+        const scroller = findScroller();
+        g.__crosspaneScroller = scroller;
+        if (scroller) scroller.scrollTop += dy as number;
+        else g.scrollBy(0, dy as number);
+      },
+      [deltaY, normalizedX, normalizedY] as [number, number | undefined, number | undefined],
+    );
   }
 
   async pressKey(key: string): Promise<void> {

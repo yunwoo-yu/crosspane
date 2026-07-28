@@ -244,14 +244,14 @@ describe('startDashboardServer', () => {
     // engine 지정 스크롤은 그 세션에만 (pane 독립 스크롤)
     client.sendCommand({ type: 'scroll', deltaY: 55, engine: 'webkit' });
     await vi.waitFor(() => {
-      expect(b.scrollBy).toHaveBeenCalledWith(55);
+      expect(b.scrollBy).toHaveBeenCalledWith(55, undefined, undefined);
     });
-    expect(a.scrollBy).not.toHaveBeenCalledWith(55);
+    expect(a.scrollBy).not.toHaveBeenCalledWith(55, undefined, undefined);
 
-    client.sendCommand({ type: 'scroll', deltaY: 120 });
+    client.sendCommand({ type: 'scroll', deltaY: 120, x: 0.5, y: 0.4 });
     await vi.waitFor(() => {
-      expect(a.scrollBy).toHaveBeenCalledWith(120);
-      expect(b.scrollBy).toHaveBeenCalledWith(120);
+      expect(a.scrollBy).toHaveBeenCalledWith(120, 0.5, 0.4);
+      expect(b.scrollBy).toHaveBeenCalledWith(120, 0.5, 0.4);
       expect(a.markActivity).toHaveBeenCalled();
     });
 

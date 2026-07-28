@@ -205,10 +205,31 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
         self.postEvent(["kind": "console", "level": "debug", "text": "[shell] click → " + summary])
       }
     case "scroll":
-      // JS scrollBy가 아니라 진짜 네이티브 스크롤 경로(UIScrollView) — 공개 API.
-      // 델타는 대시보드 프레임 px 단위 → pt로 환산
+      // 델타는 프레임 px → pt 환산. 좌표가 있으면 그 지점의 내부 스크롤 컨테이너 우선
       let deltaY = CGFloat(command["deltaY"] as? Double ?? 0) / lastPixelsPerPoint
-      setNativeScroll(y: webView.scrollView.contentOffset.y + deltaY, animated: false)
+      if let nx = command["x"] as? Double, let ny = command["y"] as? Double {
+        let js = """
+          (function () {
+            let el = document.elementFromPoint(\(nx) * screen.width, \(ny) * screen.height);
+            while (el && el !== document.scrollingElement) {
+              const s = getComputedStyle(el);
+              if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
+                el.scrollTop += \(deltaY);
+                return true;
+              }
+              el = el.parentElement;
+            }
+            return false;
+          })();
+          """
+        webView.evaluateJavaScript(js) { result, _ in
+          if (result as? Bool) != true {
+            self.setNativeScroll(y: self.webView.scrollView.contentOffset.y + deltaY, animated: false)
+          }
+        }
+      } else {
+        setNativeScroll(y: webView.scrollView.contentOffset.y + deltaY, animated: false)
+      }
     case "drag":
       // 합성 터치는 WKWebView 네이티브 스크롤을 움직이지 못한다 —
       // 세로 위주 드래그는 scrollBy로 재현하고, 그 외(캐러셀 등)는 pointer 시퀀스로 전달

@@ -109,8 +109,9 @@ export type ClientCommand =
       durationMs: number;
       engine?: EngineName;
     }
-  /** engine 지정 시 그 pane만 스크롤 — 엔진마다 스크롤 물리가 달라 미러링하면 어긋난다 */
-  | { type: 'scroll'; deltaY: number; engine?: EngineName }
+  /** engine 지정 시 그 pane만 스크롤. x/y(0~1)는 포인터 위치 — 그 아래의 실제
+      스크롤 컨테이너를 찾는다 (window 고정이면 내부 스크롤 레이아웃에서 죽는다) */
+  | { type: 'scroll'; deltaY: number; engine?: EngineName; x?: number; y?: number }
   | { type: 'keypress'; key: string }
   | { type: 'type'; text: string }
   | { type: 'back' }

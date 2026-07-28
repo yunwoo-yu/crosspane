@@ -142,10 +142,11 @@ export function usePointerGestures(options: {
         lastPyRef.current = start.py;
       }
       if (modeRef.current === 'scroll') {
-        // 드래그 위로 = 콘텐츠 아래로 (터치 스크롤 방향)
+        // 드래그 위로 = 콘텐츠 아래로 (터치 스크롤 방향). 시작 지점 좌표를 실어
+        // 엔진이 그 아래의 실제 스크롤 컨테이너를 스크롤하게 한다
         const deltaY = (lastPyRef.current - event.clientY) * displayToEngineScale();
         lastPyRef.current = event.clientY;
-        if (deltaY !== 0) streamer.add(deltaY, Date.now());
+        if (deltaY !== 0) streamer.add(deltaY, Date.now(), start.nx, start.ny);
       }
     },
     onPointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => {

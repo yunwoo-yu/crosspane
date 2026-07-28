@@ -14,20 +14,27 @@ describe('planUrlSync', () => {
       ]),
       syncable: ['chromium', 'webkit', 'firefox'],
       attempted: new Map(),
+      now: 0,
     });
     expect(plans).toEqual([{ engine: 'webkit', target: 'http://localhost:3000/detail' }]);
   });
 
-  it('같은 목표로 이미 수렴 시도한 엔진은 보존한다 (실차이 신호)', () => {
-    const plans = planUrlSync({
+  it('같은 목표 재시도는 쿨다운 내에는 미루고, 지나면 다시 수렴한다', () => {
+    const attempted = new Map([
+      ['webkit' as const, { target: normalizeUrl('http://localhost:3000/page'), ts: 1_000 }],
+    ]);
+    const input = {
       urls: urls([
         ['chromium', 'http://localhost:3000/page'],
-        ['webkit', 'http://localhost:3000/login'], // 수렴시켰는데 또 리다이렉트됨
+        ['webkit', 'http://localhost:3000/login'],
       ]),
-      syncable: ['chromium', 'webkit'],
-      attempted: new Map([['webkit', normalizeUrl('http://localhost:3000/page')]]),
-    });
-    expect(plans).toEqual([]);
+      syncable: ['chromium', 'webkit'] as const,
+      attempted,
+    };
+    expect(planUrlSync({ ...input, now: 2_000 })).toEqual([]); // 쿨다운 중
+    expect(planUrlSync({ ...input, now: 5_500 })).toEqual([
+      { engine: 'webkit', target: 'http://localhost:3000/page' },
+    ]); // 쿨다운 경과 — 계속 되돌린다
   });
 
   it('트레일링 슬래시 차이는 어긋남으로 보지 않는다', () => {
@@ -38,6 +45,7 @@ describe('planUrlSync', () => {
       ]),
       syncable: ['chromium', 'webkit'],
       attempted: new Map(),
+      now: 0,
     });
     expect(plans).toEqual([]);
   });
@@ -47,6 +55,7 @@ describe('planUrlSync', () => {
       urls: urls([['chromium', 'http://localhost:3000/a']]),
       syncable: ['chromium', 'webkit'],
       attempted: new Map(),
+      now: 0,
     });
     expect(plans).toEqual([]);
   });

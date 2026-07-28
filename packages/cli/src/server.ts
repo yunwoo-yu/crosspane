@@ -78,7 +78,7 @@ function applyCommandToSession(session: InputTarget, command: MirrorCommand): Pr
         command.durationMs,
       );
     case 'scroll':
-      return session.scrollBy(command.deltaY);
+      return session.scrollBy(command.deltaY, command.x, command.y);
     case 'keypress':
       return session.pressKey(command.key);
     case 'type':

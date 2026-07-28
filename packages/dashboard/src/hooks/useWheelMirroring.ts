@@ -23,7 +23,11 @@ export function useWheelMirroring(options: {
       event.preventDefault();
       const canvas = getCanvas();
       const scale = canvas && canvas.clientHeight > 0 ? canvas.height / canvas.clientHeight : 1;
-      streamer.add(event.deltaY * scale, Date.now());
+      // 휠 위치 정규화 — 엔진이 그 지점의 실제 스크롤 컨테이너를 찾는다
+      const rect = canvas?.getBoundingClientRect();
+      const nx = rect && rect.width > 0 ? (event.clientX - rect.left) / rect.width : undefined;
+      const ny = rect && rect.height > 0 ? (event.clientY - rect.top) / rect.height : undefined;
+      streamer.add(event.deltaY * scale, Date.now(), nx, ny);
     };
     screen.addEventListener('wheel', handleWheel, { passive: false });
     return () => {

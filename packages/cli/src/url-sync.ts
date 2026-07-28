@@ -3,11 +3,12 @@ import type { EngineName } from './protocol.js';
 /**
  * URL 단일 소스 수렴 계획 — 리더 엔진의 URL을 기준으로 어긋난 팔로워를 되돌린다.
  *
- * 원칙:
- * - 우발적 어긋남(클릭 미러링 누락, 일시적 실패)은 자동 수렴으로 제거한다
- * - 같은 목표로 이미 되돌렸는데 다시 어긋난 엔진은 건드리지 않는다 —
- *   그건 진짜 동작 차이(엔진별 리다이렉트 등)이고, 이 툴이 드러내야 할 버그 신호다
+ * 원칙: 어긋남은 이유 불문 리더로 수렴한다 (사용자 요구 — 일치가 최우선).
+ * 단 같은 목표로의 재시도는 쿨다운을 둔다 — 엔진별 리다이렉트(로그인 등)와
+ * 수렴이 무한 루프로 싸우지 않게 하되, 계속 되돌리기는 유지한다.
  */
+
+export const SYNC_RETRY_COOLDOWN_MS = 3_000;
 
 /** 리더 우선순위 — 가장 안정적인 엔진 순 */
 const LEADER_PRIORITY: readonly EngineName[] = ['chromium', 'webkit', 'firefox'];
@@ -38,8 +39,9 @@ export function planUrlSync(input: {
   urls: ReadonlyMap<EngineName, string>;
   /** 수렴 명령을 보낼 수 있는 엔진 (실행 중 + 브라우저 엔진) */
   syncable: readonly EngineName[];
-  /** 엔진별로 이미 시도한 수렴 목표 (같은 목표 재시도 방지) */
-  attempted: ReadonlyMap<EngineName, string>;
+  /** 엔진별 마지막 수렴 시도 (같은 목표는 쿨다운 후 재시도) */
+  attempted: ReadonlyMap<EngineName, { target: string; ts: number }>;
+  now: number;
 }): UrlSyncPlan[] {
   const leader = pickLeader(input.syncable);
   if (!leader) return [];
@@ -53,7 +55,10 @@ export function planUrlSync(input: {
     const current = input.urls.get(engine);
     if (current === undefined) continue; // 아직 내비게이션 전 — 판단 불가
     if (normalizeUrl(current) === normalizedTarget) continue;
-    if (input.attempted.get(engine) === normalizedTarget) continue; // 실차이로 보존
+    const last = input.attempted.get(engine);
+    if (last && last.target === normalizedTarget && input.now - last.ts < SYNC_RETRY_COOLDOWN_MS) {
+      continue; // 쿨다운 — 곧 재시도된다
+    }
     plans.push({ engine, target });
   }
   return plans;
