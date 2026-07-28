@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { ENGINE_CODES, type EngineName, type HelloEvent, type ServerEvent } from '../src/protocol';
-import { type DashboardServer, type PaneController, startDashboardServer } from '../src/server';
+import {
+  type DashboardServer,
+  isAllowedWsOrigin,
+  type PaneController,
+  startDashboardServer,
+} from '../src/server';
 import type { EngineSession, InputTarget } from '../src/session';
 
 /** 실제 브라우저 없이 입력 미러링을 검증하기 위한 EngineSession 대역 */
@@ -520,5 +525,104 @@ describe('startDashboardServer', () => {
     const response = await fetch(`http://127.0.0.1:${server.port}/`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('test-dashboard');
+  });
+
+  it('크로스사이트 Origin의 WS 접속을 거부한다 (CSWSH 차단)', async () => {
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
+    const rejected = new Promise<Error>((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${server?.port}/ws`, {
+        headers: { origin: 'http://evil.example' },
+      });
+      ws.once('error', resolve);
+      ws.once('open', () => resolve(new Error('connection should have been rejected')));
+    });
+    expect(String(await rejected)).toMatch(/401/);
+  });
+
+  it('루프백 Origin의 WS 접속은 허용한다', async () => {
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+    });
+    const opened = new Promise<boolean>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${server?.port}/ws`, {
+        headers: { origin: `http://localhost:${server?.port}` },
+      });
+      ws.once('open', () => {
+        ws.terminate();
+        resolve(true);
+      });
+      ws.once('error', reject);
+    });
+    await expect(opened).resolves.toBe(true);
+  });
+
+  it('셸 엔드포인트는 미지의 엔진 이름에 404를 반환한다', async () => {
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+      shellBridge: {
+        waitForCommands: async () => [],
+        handleEvent: () => {},
+        handleFrame: () => {},
+      },
+    });
+    const response = await fetch(`http://127.0.0.1:${server.port}/shell/not-an-engine/event`, {
+      method: 'POST',
+      body: '{}',
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it('셸 이벤트 바디가 상한을 넘으면 413으로 끊는다', async () => {
+    const handleEvent = vi.fn();
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions: new Map(),
+      paneController: fakeController(),
+      shellBridge: { waitForCommands: async () => [], handleEvent, handleFrame: () => {} },
+    });
+    const response = await fetch(`http://127.0.0.1:${server.port}/shell/ios-sim/event`, {
+      method: 'POST',
+      body: 'x'.repeat(2 * 1024 * 1024),
+    }).catch((err: Error) => err);
+    // 서버가 조기 종료하므로 413 응답 또는 소켓 절단 중 하나로 나타난다
+    if (response instanceof Response) expect(response.status).toBe(413);
+    expect(handleEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('isAllowedWsOrigin', () => {
+  it('Origin 없는 접속(비브라우저 클라이언트)은 허용한다', () => {
+    expect(isAllowedWsOrigin(undefined, 'localhost:7788')).toBe(true);
+  });
+
+  it('루프백 Origin은 Host와 무관하게 허용한다', () => {
+    expect(isAllowedWsOrigin('http://localhost:7788', 'localhost:7788')).toBe(true);
+    expect(isAllowedWsOrigin('http://127.0.0.1:9999', 'localhost:7788')).toBe(true);
+  });
+
+  it('외부 Origin은 거부한다', () => {
+    expect(isAllowedWsOrigin('http://evil.example', 'localhost:7788')).toBe(false);
+    expect(isAllowedWsOrigin('https://evil.example:7788', 'localhost:7788')).toBe(false);
+  });
+
+  it('LAN 노출 시 대시보드를 연 호스트(Host 헤더)와 같은 오리진만 허용한다', () => {
+    expect(isAllowedWsOrigin('http://192.168.0.5:7788', '192.168.0.5:7788')).toBe(true);
+    expect(isAllowedWsOrigin('http://192.168.0.5:7788', '192.168.0.9:7788')).toBe(false);
+  });
+
+  it('파싱 불가능한 Origin은 거부한다', () => {
+    expect(isAllowedWsOrigin('not a url', 'localhost:7788')).toBe(false);
   });
 });

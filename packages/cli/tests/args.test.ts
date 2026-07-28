@@ -25,9 +25,14 @@ describe('parseCliArguments', () => {
       autoStartRealDevices: false,
       device: 'iPhone 15',
       port: 7788,
+      host: '127.0.0.1', // 원격 제어 채널이므로 기본 로컬 전용
       emulateWebview: true,
       freshSession: false,
     });
+  });
+
+  it('--host로 바인드 주소를 바꿀 수 있다', () => {
+    expect(parseCliArguments([':3000', '--host', '0.0.0.0']).host).toBe('0.0.0.0');
   });
 
   it('--profile web은 Firefox를 자동 시작에 추가한다', () => {

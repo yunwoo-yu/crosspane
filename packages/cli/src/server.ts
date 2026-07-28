@@ -34,6 +34,11 @@ export interface DashboardServerOptions {
   port: number;
   /** 포트가 사용 중일 때 +1씩 시도할 최대 횟수 (기본 1 = 폴백 없음) */
   portAttempts?: number;
+  /**
+   * 바인드 주소 (기본 127.0.0.1). 이 서버는 뷰어가 아니라 브라우저 세션에
+   * 클릭/타이핑을 주입하는 원격 제어 채널이므로 기본은 로컬 전용이다.
+   */
+  host?: string;
   hello: () => HelloEvent;
   sessions: ReadonlyMap<EngineName, InputTarget>;
   paneController: PaneController;
@@ -61,6 +66,36 @@ type MirrorCommand = Exclude<
 >;
 
 const ALL_ENGINES: readonly EngineName[] = ['chromium', 'webkit', 'firefox', 'ios-sim', 'android'];
+
+// 셸 push 엔드포인트는 무인증이므로 바디 누적에 상한을 둔다 (메모리 고갈 방지)
+const MAX_SHELL_FRAME_BYTES = 8 * 1024 * 1024; // 풀해상도 JPEG 스냅샷도 수백 KB 수준
+const MAX_SHELL_EVENT_BYTES = 1024 * 1024;
+
+function isKnownEngine(name: string): name is EngineName {
+  return (ALL_ENGINES as readonly string[]).includes(name);
+}
+
+/**
+ * WS Origin 검증 — 임의 웹사이트의 JS가 ws://localhost로 붙어 입력을 주입하는
+ * 크로스사이트 WebSocket 하이재킹(CSWSH)을 막는다.
+ * Origin이 없는 접속(비브라우저 클라이언트: CLI/스모크/셸)은 허용하고,
+ * 브라우저 접속은 루프백이거나 대시보드를 연 호스트(Host 헤더)와 같아야 한다.
+ */
+export function isAllowedWsOrigin(
+  origin: string | undefined,
+  hostHeader: string | undefined,
+): boolean {
+  if (origin === undefined) return true;
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') return true;
+    // LAN 노출(--host) 시: 같은 오리진에서 열린 대시보드만 허용 (evil.com ≠ Host 헤더)
+    return hostHeader !== undefined && parsed.host === hostHeader;
+  } catch {
+    return false;
+  }
+}
 
 /** 입력 커맨드 하나를 특정 엔진 세션에 재생한다 */
 function applyCommandToSession(session: InputTarget, command: MirrorCommand): Promise<void> {
@@ -124,12 +159,26 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     const [pathname, query] = (req.url ?? '').split('?');
     const shellMatch = /^\/shell\/([a-z-]+)\/(commands|event|frame)$/.exec(pathname);
     if (shellMatch && options.shellBridge) {
-      const engine = shellMatch[1] as EngineName;
+      const engine = shellMatch[1];
+      if (!isKnownEngine(engine)) {
+        res.writeHead(404).end();
+        return;
+      }
       if (shellMatch[2] === 'frame') {
         // 셸 push 프레임 — 바이너리 JPEG body + scrollY 쿼리(프레임 픽셀 단위)
         const chunks: Buffer[] = [];
-        req.on('data', (chunk: Buffer) => chunks.push(chunk));
+        let received = 0;
+        req.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          if (received > MAX_SHELL_FRAME_BYTES) {
+            res.writeHead(413).end();
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
+        });
         req.on('end', () => {
+          if (res.writableEnded) return;
           const scrollY = Number(new URLSearchParams(query).get('scrollY') ?? Number.NaN);
           options.shellBridge?.handleFrame(
             engine,
@@ -158,8 +207,13 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
         let body = '';
         req.on('data', (chunk) => {
           body += chunk;
+          if (body.length > MAX_SHELL_EVENT_BYTES) {
+            res.writeHead(413).end();
+            req.destroy();
+          }
         });
         req.on('end', () => {
+          if (res.writableEnded) return;
           try {
             options.shellBridge?.handleEvent(engine, JSON.parse(body));
           } catch {
@@ -173,7 +227,12 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     void serveDashboardFile(dashboardDir, req, res);
   });
 
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/ws',
+    verifyClient: (info: { req: http.IncomingMessage }) =>
+      isAllowedWsOrigin(info.req.headers.origin, info.req.headers.host),
+  });
   // http 서버의 EADDRINUSE 등이 wss로도 전파되는데, 핸들러가 없으면
   // unhandled 'error'로 프로세스가 크래시한다. 처리는 httpServer.once('error')가 담당.
   wss.on('error', () => {});
@@ -278,7 +337,9 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     const maxAttempts = Math.max(1, options.portAttempts ?? 1);
     let attempt = 0;
     const tryListen = (): void => {
-      httpServer.listen(options.port + attempt);
+      // 기본 루프백 바인딩 — 시뮬레이터(localhost==호스트)와 adb reverse 모두
+      // 루프백 경유라 실기기 브릿지에는 영향이 없다
+      httpServer.listen(options.port + attempt, options.host ?? '127.0.0.1');
     };
     const onStartupError = (err: Error): void => {
       const isAddrInUse = (err as NodeJS.ErrnoException).code === 'EADDRINUSE';

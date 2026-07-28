@@ -182,8 +182,14 @@ async function main(): Promise<void> {
     },
   };
 
+  if (options.host !== '127.0.0.1' && options.host !== 'localhost') {
+    console.warn(
+      `  ⚠ Dashboard bound to ${options.host} — anyone who can reach this machine can drive your browser sessions`,
+    );
+  }
   const server = await startDashboardServer({
     port: options.port,
+    host: options.host,
     // 명시된 포트는 존중하고, 기본 포트는 사용 중이면 +1씩 폴백
     portAttempts: options.portExplicit ? 1 : 10,
     sessions,

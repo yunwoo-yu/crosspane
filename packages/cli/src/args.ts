@@ -19,7 +19,10 @@ Options:
   --engines <list>     Engines to auto-start (chromium,webkit,firefox) — others stay
                        available as stopped panes you can start from the dashboard
   --device <name>      Playwright device preset (default: "iPhone 15")
-  --port <n>           Dashboard port (default: 7788, auto-fallback when taken)
+  --port <n>           Dashboard port (default: 7788; the default port falls back +1
+                       when taken — an explicitly given port does not)
+  --host <addr>        Dashboard bind address (default: 127.0.0.1 — local only;
+                       use 0.0.0.0 to expose on your network, e.g. for phone testing)
   --no-open            Don't open the dashboard in your browser automatically
   --inject <path>      JS file injected into every page before load (bridge mocks etc.)
   --user-agent <ua>    Exact UA for every engine (reproduce your app's custom webview UA)
@@ -53,6 +56,8 @@ export interface CliOptions {
   port: number;
   /** --port로 명시했는지 — 명시 시 자동 폴백 없이 그 포트만 시도한다 */
   portExplicit: boolean;
+  /** 대시보드 바인드 주소 — 기본 127.0.0.1 (로컬 전용). 원격 제어 채널이므로 기본 비노출 */
+  host: string;
   /** 기동 후 대시보드를 기본 브라우저로 여는지 (기본 켜짐, --no-open으로 끔) */
   openBrowser: boolean;
   injectScriptPath?: string;
@@ -82,6 +87,7 @@ const PROFILES: Record<ProfileName, { engines: BrowserEngineName[]; realDevicePa
 
 const DEFAULT_DEVICE = 'iPhone 15';
 const DEFAULT_PORT = 7788;
+const DEFAULT_HOST = '127.0.0.1';
 
 function parseProfile(value: string): ProfileName {
   if (!(value in PROFILES)) {
@@ -125,6 +131,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let explicitAndroid: boolean | undefined;
   let device = DEFAULT_DEVICE;
   let port = DEFAULT_PORT;
+  let host = DEFAULT_HOST;
   let injectScriptPath: string | undefined;
   let customUserAgent: string | undefined;
   let portExplicit = false;
@@ -184,6 +191,9 @@ export function parseCliArguments(argv: string[]): CliOptions {
         port = parsePositiveNumberFlag(flag, value);
         portExplicit = true;
         break;
+      case '--host':
+        host = value;
+        break;
       case '--inject':
         injectScriptPath = value;
         break;
@@ -206,6 +216,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     device,
     port,
     portExplicit,
+    host,
     openBrowser,
     injectScriptPath,
     customUserAgent,
