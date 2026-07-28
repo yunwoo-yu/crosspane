@@ -1,5 +1,8 @@
 # Contributing to crosspane
 
+By participating you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
+Security issues: see [SECURITY.md](SECURITY.md) — please report privately.
+
 ## Setup
 
 Requires **Node ≥ 20** and **pnpm 10** (CI uses Node 20/22 and pnpm 10).

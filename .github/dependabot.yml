@@ -1,0 +1,19 @@
+# 보안 민감 의존성(playwright, ws, grpc-js 등)의 수동 관리 탈피 —
+# 주 1회 묶음 PR로 소음은 낮게, 취약점 패치는 놓치지 않게
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        dependency-type: development
+      production-dependencies:
+        dependency-type: production
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
