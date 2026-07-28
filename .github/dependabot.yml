@@ -17,3 +17,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # 액션 버전 범프는 개별 PR로 쪼개면 소음만 크다 — 주 1회 PR 하나로 묶는다
+    groups:
+      github-actions:
+        patterns: ['*']
