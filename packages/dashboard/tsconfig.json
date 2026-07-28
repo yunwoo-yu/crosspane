@@ -11,7 +11,7 @@
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "crosspane/protocol": ["../cli/src/protocol.ts"]
+      "@crosspane/protocol": ["../protocol/src/index.ts"]
     }
   },
   "include": ["src", "../cli/src/protocol.ts"]

@@ -1,22 +1,27 @@
 # packages/dashboard
 
+허브에 접속해 라이브 세션을 보여주고, `.crosspane.json` 캡처 파일을 리플레이한다.
+
 ## 모듈 맵
 
-- `hooks/useCrosspaneSocket.ts` — WS 연결/자동 재접속, 이벤트→상태, 바이너리 프레임
-  디코드 → 구독자 디스패치 허브 (`subscribeToFrames`)
-- `components/EnginePane.tsx` — canvas 렌더링 + 로컬 에코(스크롤 예측) + 클릭/휠/키 캡처
-- `components/Toolbar.tsx` — back/forward/reload, URL 어긋남 재동기화 버튼
-- `components/ConsolePanel.tsx` — 엔진 필터 + 내비게이션 구분선 타임라인
-- `log-utils.ts` — 배지 카운트/desync 감지/URL 표시용 순수 함수
-- `types.ts` — 프로토콜은 `crosspane/protocol`(cli 단일 소스) 재수출 + UI 전용 타입
-- `components/ui/` — shadcn 스타일 기본 컴포넌트(Button/Badge/Input, cva variant).
-  **새 UI는 반드시 이걸로** — 원시 <button>/<input>에 커스텀 css 클래스를 새로 만들지 말 것
-- `lib/cn.ts` — clsx + tailwind-merge. 스타일은 Tailwind 유틸리티(@theme 토큰: app/panel/
-  line/fg/fg-muted/accent/danger/warn), 레이아웃성 규칙만 app.css에 유지
+- `hooks/useCrosspaneSocket.ts` — WS 연결/자동 재접속 + 조립 (로직은 아래 모듈에)
+- `event-log.ts` — 이벤트 → 세션 상태/로그/네트워크 엔트리 (순수 함수)
+- `capture-file.ts` — 캡처 파일 파싱 → 라이브와 **같은 엔트리 모양** (패널 코드 공유)
+- `hooks/useEventBatcher.ts` — 로그 폭주 시 리렌더 상한 (EVENT_BATCH_MS)
+- `components/` — SessionList / ConsolePanel / NetworkPanel
+- `components/ui/` — shadcn 스타일 기본 컴포넌트. **새 UI는 반드시 이걸로**
+- `lib/cn.ts` — clsx + tailwind-merge. 스타일은 Tailwind 유틸리티(@theme 토큰)
 
-## 불변 규칙 위치
+## 불변식
 
-세부 규칙은 path-scoped로 자동 로드된다 (`.claude/rules/`):
+- 라이브와 리플레이는 **같은 패널을 쓴다** — 변환은 capture-file.ts에서만
+- `hello`는 세션 경계다 — 서버가 재접속마다 히스토리를 전량 재생하므로
+  hello 수신 시 배칭 버퍼를 비우지 않으면 로그가 중복 누적된다 (실측 버그)
+- 좀비 소켓 가드: 이전 소켓의 늦은 close/message가 새 소켓 상태를 덮어쓰지 않게
+  `socketRef.current !== socket` 검사 유지
+- **app.css에 unlayered 전역 규칙을 넣지 말 것** — Tailwind v4는 유틸리티를 @layer에
+  두므로 레이어 밖 규칙이 모든 p-*/m-*를 무효화한다 (실측)
 
-- 렌더링/입력/로컬 에코 → `.claude/rules/dashboard/frame-rendering.md`
-- 테스트(jsdom 제약) → `.claude/rules/dashboard/testing-jsdom.md`
+## 테스트
+
+jsdom 제약은 `.claude/rules/dashboard/testing-jsdom.md` 참조.

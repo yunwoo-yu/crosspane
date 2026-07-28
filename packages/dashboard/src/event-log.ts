@@ -1,37 +1,59 @@
-import type { EngineName, EngineState, LogEntry, ServerEvent } from './types';
+import type { LogEntry, NetworkEntry, ServerEvent, SessionMeta, SessionState } from './types';
 
-export type EngineStates = Partial<Record<EngineName, EngineState>>;
+export type SessionStates = Record<string, SessionState>;
+export type SessionMetas = Record<string, SessionMeta>;
 
 /**
- * 서버 이벤트 → engineStates 전이 (순수 함수).
+ * 서버 이벤트 → 세션 상태 전이 (순수 함수).
  *
- * 불변식: engine-status/navigation은 기존 필드(viewOnly/detail)를 스프레드로
- * 보존해야 한다 — 새 객체로 교체하면 셸 모드가 해제한 view-only가
- * 내비게이션마다 되살아난다 (실측 버그, frame-rendering.md).
+ * 불변식: navigation은 errorCount를 0으로 리셋한다 — 이전 페이지의 에러가
+ * 현재 화면의 상태처럼 보이면 안 된다.
  */
-export function reduceEngineStates(prev: EngineStates, event: ServerEvent): EngineStates {
+export function reduceSessionStates(prev: SessionStates, event: ServerEvent): SessionStates {
   switch (event.type) {
     case 'hello':
-      return Object.fromEntries(event.engines.map((engine) => [engine, { status: 'starting' }]));
-    case 'engine-status':
+      return Object.fromEntries(
+        event.sessions.map((session) => [session.id, { live: true, errorCount: 0 }]),
+      );
+    case 'session-joined':
       return {
         ...prev,
-        [event.engine]: {
-          ...prev[event.engine],
-          status: event.status,
-          detail: event.detail,
-          viewOnly: event.viewOnly ?? prev[event.engine]?.viewOnly,
-        },
+        [event.session.id]: { ...prev[event.session.id], live: true, errorCount: 0 },
       };
+    case 'session-left':
+      return prev[event.sessionId]
+        ? { ...prev, [event.sessionId]: { ...prev[event.sessionId], live: false } }
+        : prev;
     case 'navigation':
       return {
         ...prev,
-        [event.engine]: {
-          ...prev[event.engine],
-          status: prev[event.engine]?.status ?? 'ready',
+        [event.sessionId]: {
+          live: prev[event.sessionId]?.live ?? true,
           currentUrl: event.url,
+          errorCount: 0,
         },
       };
+    case 'pageerror':
+      return {
+        ...prev,
+        [event.sessionId]: {
+          live: prev[event.sessionId]?.live ?? true,
+          currentUrl: prev[event.sessionId]?.currentUrl,
+          errorCount: (prev[event.sessionId]?.errorCount ?? 0) + 1,
+        },
+      };
+    default:
+      return prev;
+  }
+}
+
+/** 세션 메타 누적 — hello(전체 목록)와 session-joined(증분)를 같은 맵으로 */
+export function reduceSessionMetas(prev: SessionMetas, event: ServerEvent): SessionMetas {
+  switch (event.type) {
+    case 'hello':
+      return Object.fromEntries(event.sessions.map((session) => [session.id, session]));
+    case 'session-joined':
+      return { ...prev, [event.session.id]: event.session };
     default:
       return prev;
   }
@@ -42,7 +64,7 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
   switch (event.type) {
     case 'console':
       return {
-        engine: event.engine,
+        sessionId: event.sessionId,
         kind: 'console',
         level: event.level,
         text: event.text,
@@ -50,32 +72,17 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
       };
     case 'pageerror':
       return {
-        engine: event.engine,
+        sessionId: event.sessionId,
         kind: 'pageerror',
         level: 'error',
         text: event.message,
-        ts: event.ts,
-      };
-    case 'requestfailed':
-      return {
-        engine: event.engine,
-        kind: 'requestfailed',
-        level: 'error',
-        text: `${event.url} — ${event.error}`,
-        ts: event.ts,
-      };
-    case 'httperror':
-      return {
-        engine: event.engine,
-        kind: 'httperror',
-        level: 'error',
-        text: `HTTP ${event.status} — ${event.url}`,
+        detail: event.stack,
         ts: event.ts,
       };
     case 'navigation':
-      // 콘솔 타임라인의 구분선 — 리로드/이동 피드백 겸 로그 구간 구분
+      // 콘솔 타임라인의 구분선 — 페이지 이동 피드백 겸 로그 구간 구분
       return {
-        engine: event.engine,
+        sessionId: event.sessionId,
         kind: 'navigation',
         level: 'info',
         text: event.url,
@@ -84,4 +91,22 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
     default:
       return null;
   }
+}
+
+/** 네트워크 패널 엔트리 매핑 (순수 함수). 해당 없으면 null */
+export function networkEntryFromEvent(event: ServerEvent): Omit<NetworkEntry, 'id'> | null {
+  if (event.type !== 'network') return null;
+  return {
+    sessionId: event.sessionId,
+    method: event.method,
+    url: event.url,
+    status: event.status,
+    durationMs: event.durationMs,
+    error: event.error,
+    initiator: event.initiator,
+    responseHeaders: event.responseHeaders,
+    bodyPreview: event.bodyPreview,
+    bodyTruncated: event.bodyTruncated,
+    ts: event.ts,
+  };
 }

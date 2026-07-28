@@ -1,7 +1,7 @@
 {
   "name": "crosspane",
   "version": "0.6.2",
-  "description": "One dashboard to preview your local dev server across Chromium, WebKit and Firefox with webview-style device frames, mirrored interactions and per-engine console logs.",
+  "description": "Debug web screens where devtools can't reach — a hub dashboard for live @crosspane/agent sessions (webviews, in-app browsers, kiosks) and offline capture replay.",
   "license": "MIT",
   "author": "yunwoo-yu",
   "repository": {
@@ -14,14 +14,14 @@
     "url": "https://github.com/yunwoo-yu/crosspane/issues"
   },
   "keywords": [
-    "cross-browser",
     "webview",
-    "playwright",
-    "webkit",
-    "testing",
-    "preview",
+    "debugging",
+    "remote-debugging",
+    "in-app-browser",
+    "console",
     "devtools",
-    "responsive"
+    "qa",
+    "session-replay"
   ],
   "type": "module",
   "bin": {
@@ -40,11 +40,7 @@
     }
   },
   "files": [
-    "dist",
-    "shell",
-    "shell-android",
-    "shell-sck",
-    "ime-android"
+    "dist"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node ./scripts/bundle-dashboard.mjs",
@@ -55,9 +51,7 @@
     "prepublishOnly": "pnpm run build && pnpm test"
   },
   "dependencies": {
-    "@grpc/grpc-js": "^1.14.4",
-    "@grpc/proto-loader": "^0.8.1",
-    "playwright": "^1.49.0",
+    "@crosspane/protocol": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

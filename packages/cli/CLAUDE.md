@@ -1,26 +1,20 @@
 # packages/cli
 
+허브 서버 + CLI. 대시보드 dist를 번들해 단일 npm 패키지로 배포한다.
+
 ## 모듈 맵
 
-- `index.ts` — 엔트리: 인터랙티브 셋업 → pane 구성(프로필+SDK 가용성) → 세션 병렬 기동
-- `args.ts` — 플래그 파싱. 프로필 프리셋(webview/web/device/full) 위에 명시 플래그 덮어쓰기
-- `interactive.ts` — TTY 프롬프트. 답변을 argv로 합쳐 기존 파서 재사용
-- `session.ts` — `EngineSession`(Playwright) + `InputTarget` 인터페이스 + 웹뷰 UA 빌더
-- `ios-simulator.ts` / `android-emulator.ts` — 실기기 어댑터 (`InputTarget` 구현)
-- `server.ts` — WS 브로드캐스트/커맨드 미러링, 히스토리·프레임 캐시 재전송
-- `static.ts` — 대시보드 정적 서빙 (번들 dist/public > 모노레포 경로)
-- `protocol.ts` — ServerEvent/ClientCommand + 프레임 패킷 규약
+- `index.ts` — 엔트리: 옵션 파싱 → 허브 기동 → LAN 주소 안내 → 종료 처리
+- `args.ts` — 플래그 파싱 + HELP_TEXT + cliVersion
+- `server.ts` — `/agent` 수신(등록·이벤트), `/ws` 중계, 세션 레지스트리·히스토리
+- `static.ts` — 대시보드 정적 서빙 (경로 탈출 방어, SPA 폴백)
+- `protocol.ts` — `@crosspane/protocol` 재수출 (소비자 import 경로 유지용)
 
-## 불변 규칙 위치
+## 보안 불변식
 
-세부 규칙은 path-scoped로 자동 로드된다 (`.claude/rules/`):
-
-- 프로토콜/패킷/엔진 추가 → `.claude/rules/protocol-sync.md`
-- 프레임 파이프라인 → `.claude/rules/cli/frame-pipeline.md`
-- 입력 미러링 → `.claude/rules/cli/input-mirroring.md`
-- 실기기 어댑터(simctl/adb 함정) → `.claude/rules/cli/real-devices.md`
+- 기본 바인딩은 `127.0.0.1` — LAN 노출은 `--host` 옵트인 (세션 로그가 흐르는 채널)
+- 대시보드 WS는 Origin 검증(CSWSH 차단), 에이전트 메시지는 크기 상한 + 세션 위조 검사
 
 ## 테스트
 
-- `tests/`는 브라우저 불필요 (순수 함수 + 실제 WS 서버 통합)
-- 엔진/실기기 실동작은 루트 `pnpm smoke` (chromium) + 로컬 수동 검증
+`tests/`는 실제 WS 서버를 띄워 검증한다 (브라우저 불필요). 실기동은 루트 `pnpm smoke`.

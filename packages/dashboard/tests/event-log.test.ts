@@ -1,81 +1,104 @@
 import { describe, expect, it } from 'vitest';
-import { logEntryFromEvent, reduceEngineStates } from '../src/event-log';
-import type { ServerEvent } from '../src/types';
+import {
+  logEntryFromEvent,
+  networkEntryFromEvent,
+  reduceSessionMetas,
+  reduceSessionStates,
+} from '../src/event-log';
+import type { ServerEvent, SessionMeta } from '../src/types';
 
-describe('reduceEngineStates (이벤트→상태 전이 규칙)', () => {
-  it('hello는 엔진 목록을 starting으로 초기화한다', () => {
-    const next = reduceEngineStates(
-      { chromium: { status: 'ready' } },
-      {
-        type: 'hello',
-        url: 'http://a/',
-        device: 'iPhone 15',
-        engines: ['webkit'],
-        viewport: { width: 390, height: 844 },
-      },
-    );
-    expect(next).toEqual({ webkit: { status: 'starting' } });
+const session = (id: string): SessionMeta => ({
+  id,
+  label: `session ${id}`,
+  userAgent: 'ua',
+  startedAt: 0,
+});
+
+describe('reduceSessionStates', () => {
+  it('hello는 세션 목록으로 상태를 재설정한다 (재접속 경계)', () => {
+    const next = reduceSessionStates({ old: { live: true, errorCount: 5 } }, {
+      type: 'hello',
+      sessions: [session('a')],
+    } as ServerEvent);
+    expect(next).toEqual({ a: { live: true, errorCount: 0 } });
   });
 
-  it('engine-status의 viewOnly 미지정은 기존 값을 보존한다 (셸 모드 유지)', () => {
-    const next = reduceEngineStates(
-      { 'ios-sim': { status: 'ready', viewOnly: false, detail: 'WKWebView' } },
-      { type: 'engine-status', engine: 'ios-sim', status: 'ready' },
+  it('session-left는 히스토리를 지우지 않고 live만 내린다', () => {
+    const next = reduceSessionStates(
+      { a: { live: true, errorCount: 2, currentUrl: 'http://x/' } },
+      { type: 'session-left', sessionId: 'a', ts: 1 },
     );
-    expect(next['ios-sim']?.viewOnly).toBe(false);
+    expect(next.a).toMatchObject({ live: false, errorCount: 2, currentUrl: 'http://x/' });
   });
 
-  it('navigation은 기존 필드(viewOnly/detail)를 스프레드로 보존한다 — 실측 버그 방어', () => {
-    const next = reduceEngineStates(
-      { 'ios-sim': { status: 'ready', viewOnly: false, detail: 'WKWebView' } },
-      { type: 'navigation', engine: 'ios-sim', url: 'http://a/b', ts: 1 },
+  it('navigation은 에러 카운트를 리셋한다 (이전 페이지 에러가 남지 않게)', () => {
+    const next = reduceSessionStates(
+      { a: { live: true, errorCount: 3 } },
+      { type: 'navigation', sessionId: 'a', url: 'http://x/next', ts: 1 },
     );
-    expect(next['ios-sim']).toMatchObject({
-      status: 'ready',
-      viewOnly: false,
-      detail: 'WKWebView',
-      currentUrl: 'http://a/b',
-    });
+    expect(next.a).toEqual({ live: true, currentUrl: 'http://x/next', errorCount: 0 });
   });
 
-  it('상태와 무관한 이벤트는 이전 참조를 그대로 반환한다 (불필요 리렌더 방지)', () => {
-    const prev = { chromium: { status: 'ready' as const } };
-    const event: ServerEvent = {
-      type: 'console',
-      engine: 'chromium',
-      level: 'log',
-      text: 'x',
-      ts: 1,
-    };
-    expect(reduceEngineStates(prev, event)).toBe(prev);
+  it('pageerror는 에러 카운트를 올린다', () => {
+    const next = reduceSessionStates(
+      { a: { live: true, errorCount: 1 } },
+      { type: 'pageerror', sessionId: 'a', message: 'boom', ts: 1 },
+    );
+    expect(next.a.errorCount).toBe(2);
   });
 });
 
-describe('logEntryFromEvent (이벤트→로그 매핑)', () => {
-  it('pageerror/requestfailed/httperror는 error 레벨로 정규화된다', () => {
+describe('reduceSessionMetas', () => {
+  it('hello는 전체 교체, session-joined는 증분 추가', () => {
+    const afterHello = reduceSessionMetas({}, { type: 'hello', sessions: [session('a')] });
+    expect(Object.keys(afterHello)).toEqual(['a']);
+    const afterJoin = reduceSessionMetas(afterHello, {
+      type: 'session-joined',
+      session: session('b'),
+    });
+    expect(Object.keys(afterJoin).sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('logEntryFromEvent / networkEntryFromEvent', () => {
+  it('console/pageerror/navigation을 로그 엔트리로, network는 null', () => {
     expect(
-      logEntryFromEvent({ type: 'pageerror', engine: 'webkit', message: 'boom', ts: 1 }),
-    ).toMatchObject({ kind: 'pageerror', level: 'error', text: 'boom' });
+      logEntryFromEvent({ type: 'console', sessionId: 'a', level: 'log', text: 'hi', ts: 1 }),
+    ).toMatchObject({ kind: 'console', text: 'hi' });
     expect(
-      logEntryFromEvent({ type: 'httperror', engine: 'chromium', url: '/api', status: 500, ts: 2 }),
-    ).toMatchObject({ kind: 'httperror', level: 'error', text: 'HTTP 500 — /api' });
+      logEntryFromEvent({ type: 'pageerror', sessionId: 'a', message: 'x', stack: 's', ts: 1 }),
+    ).toMatchObject({ kind: 'pageerror', level: 'error', detail: 's' });
+    expect(
+      logEntryFromEvent({ type: 'navigation', sessionId: 'a', url: 'u', ts: 1 }),
+    ).toMatchObject({ kind: 'navigation' });
     expect(
       logEntryFromEvent({
-        type: 'requestfailed',
-        engine: 'firefox',
-        url: '/x',
-        error: 'timeout',
-        ts: 3,
+        type: 'network',
+        sessionId: 'a',
+        method: 'GET',
+        url: 'u',
+        status: 200,
+        durationMs: 5,
+        ts: 1,
       }),
-    ).toMatchObject({ kind: 'requestfailed', level: 'error' });
+    ).toBeNull();
   });
 
-  it('navigation은 info 구분선, hello/engine-status는 로그가 아니다', () => {
+  it('network 이벤트만 네트워크 엔트리가 된다', () => {
     expect(
-      logEntryFromEvent({ type: 'navigation', engine: 'chromium', url: 'http://a/', ts: 1 }),
-    ).toMatchObject({ kind: 'navigation', level: 'info' });
+      networkEntryFromEvent({
+        type: 'network',
+        sessionId: 'a',
+        method: 'POST',
+        url: 'u',
+        status: 0,
+        durationMs: 3,
+        error: 'failed',
+        ts: 1,
+      }),
+    ).toMatchObject({ method: 'POST', status: 0, error: 'failed' });
     expect(
-      logEntryFromEvent({ type: 'engine-status', engine: 'chromium', status: 'ready' }),
+      networkEntryFromEvent({ type: 'console', sessionId: 'a', level: 'log', text: 't', ts: 1 }),
     ).toBeNull();
   });
 });

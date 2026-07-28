@@ -1,41 +1,16 @@
 #!/usr/bin/env node
-// E2E 스모크 하네스: 실제 CLI를 기동해 파이프라인 전체를 검증한다.
-// 유닛테스트가 못 잡는 회귀(엔진 기동, 프레임 스트림, 콘솔 수집, 입력 미러링)를
-// chromium 1개 엔진으로 빠르게 확인한다. CI와 로컬(pnpm smoke) 공용.
+// E2E 스모크 하네스: 실제 허브 CLI를 기동해 에이전트→허브→대시보드 경로를 검증한다.
+// 유닛테스트가 못 잡는 회귀(프로세스 기동, WS 라우팅, 히스토리 재생)를 확인한다.
+// 브라우저가 필요 없다 — CI 어디서나 수 초에 끝난다.
 import { spawn } from 'node:child_process';
-import http from 'node:http';
-// 패킷 규약을 dist에서 import — 매직 오프셋 하드코딩이 규약 변경을 조용히 무시하지 않게
-import {
-  ENGINE_CODES,
-  FRAME_HEADER_BYTES,
-  PACKET_TYPE_FRAME,
-} from '../packages/cli/dist/protocol.js';
+import { WebSocket } from 'ws';
 
-const APP_PORT = 7998;
-const CROSSPANE_PORT = 7997;
-const TIMEOUT_MS = 90_000;
-
-const TEST_PAGE = `<!doctype html><html><body style="height:3000px">
-<h1>smoke</h1><script>console.log('smoke-page-loaded')</script></body></html>`;
-
-const appServer = http.createServer((_req, res) => {
-  res.writeHead(200, { 'content-type': 'text/html' });
-  res.end(TEST_PAGE);
-});
-await new Promise((resolve) => appServer.listen(APP_PORT, resolve));
+const HUB_PORT = 7997;
+const TIMEOUT_MS = 30_000;
 
 const cli = spawn(
   process.execPath,
-  [
-    'packages/cli/dist/index.js',
-    `:${APP_PORT}`,
-    '--port',
-    String(CROSSPANE_PORT),
-    '--engines',
-    'chromium',
-    '--no-ios-sim',
-    '--no-android',
-  ],
+  ['packages/cli/dist/index.js', '--port', String(HUB_PORT), '--no-open'],
   { stdio: ['ignore', 'pipe', 'pipe'] },
 );
 let cliOutput = '';
@@ -46,79 +21,134 @@ cli.stderr.on('data', (chunk) => {
   cliOutput += chunk;
 });
 
-function cleanup(code) {
-  cli.kill('SIGKILL');
-  appServer.close();
-  process.exit(code);
-}
-
-function fail(reason) {
-  console.error(`SMOKE FAIL: ${reason}`);
-  console.error('--- checks ---', JSON.stringify(checks));
-  console.error('--- cli output ---');
-  console.error(cliOutput);
-  cleanup(1);
-}
-
-setTimeout(() => fail('timeout'), TIMEOUT_MS);
-
-// 대시보드 HTTP가 뜰 때까지 대기
-for (let attempt = 0; ; attempt++) {
-  try {
-    const res = await fetch(`http://localhost:${CROSSPANE_PORT}`);
-    if (res.ok) break;
-  } catch {
-    // 아직 안 뜸
-  }
-  if (attempt > 100) fail('dashboard not reachable');
-  await new Promise((resolve) => setTimeout(resolve, 300));
-}
-
 const checks = {
-  helloWithChromium: false, // 세션 구성 브로드캐스트
-  jpegFramePacket: false, // 바이너리 프레임 (패킷 v3: [type=1][engine=0][flags][scrollY][JPEG])
-  consoleCaptured: false, // 페이지 콘솔 로그 수집
-  frameAfterInput: false, // 입력(스크롤) 후 새 프레임 = 미러링+활동 부스트
+  dashboardServed: false, // 정적 대시보드 서빙 (번들 포함 여부)
+  sessionJoined: false, // 에이전트 등록 → 대시보드 통지
+  eventRelayed: false, // 콘솔 이벤트 중계
+  historyReplayed: false, // 늦게 접속한 대시보드가 히스토리를 받는다
+  sessionLeft: false, // 에이전트 종료 통지
 };
-let frameCount = 0;
-let inputSent = false;
 
-const ws = new WebSocket(`ws://localhost:${CROSSPANE_PORT}/ws`);
-ws.binaryType = 'arraybuffer';
+const fail = (reason) => {
+  console.error(`SMOKE FAILED: ${reason}`);
+  console.error(`checks: ${JSON.stringify(checks)}`);
+  console.error(`--- cli output ---\n${cliOutput}`);
+  cli.kill('SIGTERM');
+  process.exit(1);
+};
 
-ws.onmessage = (event) => {
-  if (typeof event.data === 'string') {
-    const message = JSON.parse(event.data);
-    if (message.type === 'hello' && message.engines.includes('chromium')) {
-      checks.helloWithChromium = true;
+const timer = setTimeout(() => fail(`timed out after ${TIMEOUT_MS}ms`), TIMEOUT_MS);
+
+/** 허브가 뜰 때까지 대기 */
+async function waitForHub() {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${HUB_PORT}/`);
+      if (response.ok) return await response.text();
+    } catch {
+      // 아직 기동 전
     }
-    if (message.type === 'console' && message.text.includes('smoke-page-loaded')) {
-      checks.consoleCaptured = true;
-    }
-  } else {
-    const bytes = new Uint8Array(event.data);
-    const isJpegFrame =
-      bytes[0] === PACKET_TYPE_FRAME &&
-      bytes[1] === ENGINE_CODES.chromium &&
-      bytes[FRAME_HEADER_BYTES] === 0xff &&
-      bytes[FRAME_HEADER_BYTES + 1] === 0xd8;
-    if (isJpegFrame) {
-      frameCount += 1;
-      checks.jpegFramePacket = true;
-      if (inputSent && frameCount > 1) checks.frameAfterInput = true;
-    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  if (Object.values(checks).every(Boolean)) {
-    console.log(`SMOKE OK ${JSON.stringify(checks)}`);
-    cleanup(0);
-  }
-};
+  fail('hub did not start');
+}
 
-ws.onopen = () => {
-  // 첫 프레임이 흐른 뒤 입력을 미러링해 응답 프레임을 유도한다
-  setTimeout(() => {
-    inputSent = true;
-    ws.send(JSON.stringify({ type: 'scroll', deltaY: 600 }));
-    ws.send(JSON.stringify({ type: 'click', x: 0.5, y: 0.2 }));
-  }, 3_000);
+/**
+ * 수신 이벤트를 전부 큐에 쌓는다 — 서버는 접속 직후 hello+히스토리를 연달아
+ * 보내므로, 리스너를 나중에 붙이면 이미 지나간 이벤트를 놓친다
+ */
+function connect(path) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${HUB_PORT}${path}`);
+    ws.received = [];
+    ws.on('message', (raw) => ws.received.push(JSON.parse(String(raw))));
+    ws.once('open', () => resolve(ws));
+    ws.once('error', reject);
+  });
+}
+
+/** 조건을 만족하는 이벤트가 (이미 왔거나 곧) 도착할 때까지 대기 */
+async function waitFor(ws, predicate, label) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const found = ws.received.find(predicate);
+    if (found) return found;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  fail(`no ${label}`);
+}
+
+const html = await waitForHub();
+checks.dashboardServed = html.includes('<div id="root">') || html.includes('<!doctype html');
+
+const dashboard = await connect('/ws');
+await waitFor(dashboard, (event) => event.type === 'hello', 'hello');
+
+const agent = await connect('/agent');
+const session = {
+  id: 's-smoke',
+  label: 'smoke session',
+  userAgent: 'smoke/1.0',
+  url: 'http://localhost/smoke',
+  platform: 'browser',
+  startedAt: Date.now(),
 };
+agent.send(JSON.stringify({ type: 'register', session }));
+await waitFor(
+  dashboard,
+  (event) => event.type === 'session-joined' && event.session.id === 's-smoke',
+  'session-joined',
+);
+checks.sessionJoined = true;
+
+agent.send(
+  JSON.stringify({
+    type: 'events',
+    events: [
+      { type: 'console', sessionId: 's-smoke', level: 'error', text: 'smoke-log', ts: Date.now() },
+      {
+        type: 'network',
+        sessionId: 's-smoke',
+        method: 'GET',
+        url: 'http://api/smoke',
+        status: 500,
+        durationMs: 12,
+        initiator: 'fetch',
+        ts: Date.now(),
+      },
+    ],
+  }),
+);
+await waitFor(
+  dashboard,
+  (event) => event.type === 'console' && event.text === 'smoke-log',
+  'console',
+);
+checks.eventRelayed = true;
+
+// 늦게 접속한 대시보드도 히스토리를 받아야 한다 (사후 분석 경로)
+const lateDashboard = await connect('/ws');
+const lateHello = await waitFor(lateDashboard, (event) => event.type === 'hello', 'late hello');
+if (!lateHello.sessions.some((s) => s.id === 's-smoke')) fail('late hello missing session');
+await waitFor(
+  lateDashboard,
+  (event) => event.type === 'console' && event.text === 'smoke-log',
+  'replayed console',
+);
+checks.historyReplayed = true;
+
+agent.close();
+await waitFor(
+  dashboard,
+  (event) => event.type === 'session-left' && event.sessionId === 's-smoke',
+  'session-left',
+);
+checks.sessionLeft = true;
+
+clearTimeout(timer);
+dashboard.close();
+lateDashboard.close();
+cli.kill('SIGTERM');
+
+if (!Object.values(checks).every(Boolean)) fail('some checks did not pass');
+console.log(`SMOKE OK ${JSON.stringify(checks)}`);
+process.exit(0);

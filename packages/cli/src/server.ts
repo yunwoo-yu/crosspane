@@ -1,344 +1,199 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import type { AgentMessage, ServerEvent, SessionEvent, SessionMeta } from '@crosspane/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
-import { encodeFramePacket, encodeVideoPacket } from './frame-packet.js';
-import type { ClientCommand, EngineName, HelloEvent, ServerEvent } from './protocol.js';
-import type { InputTarget } from './session.js';
+import { debugLog } from './debug.js';
 import { resolveDashboardDir, serveDashboardFile } from './static.js';
 
-export interface DashboardServer {
+export interface HubServer {
   /** 실제로 바인딩된 포트. options.port에 0을 주면 OS가 할당한 임의 포트가 들어온다 */
   port: number;
-  broadcastEvent(event: ServerEvent): void;
-  broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags?: number): void;
-  /** 실시간 비디오 스트림 조각 — 캐시하지 않는다 (늦은 접속자는 스트림 재시작으로 키프레임을 받는다) */
-  broadcastVideoChunk(engine: EngineName, chunk: Buffer): void;
+  /** 현재 알려진 세션 (연결 종료 후에도 히스토리 유지분 포함) */
+  sessions(): SessionMeta[];
   close(): void;
 }
 
-export interface PaneController {
-  startEngine(engine: EngineName): Promise<void>;
-  stopEngine(engine: EngineName): Promise<void>;
-}
-
-/** 시뮬레이터 셸앱과의 HTTP 브릿지 — 명령 롱폴 / 이벤트·프레임 수신 */
-export interface ShellBridge {
-  /** 명령이 생길 때까지(또는 타임아웃까지) 대기 후 반환 — 입력 지연을 폴링 주기에서 분리한다 */
-  waitForCommands(engine: EngineName): Promise<unknown[]>;
-  handleEvent(engine: EngineName, payload: unknown): void;
-  /** 셸이 자체 캡처해 push한 프레임(JPEG) — simctl 폴링을 대체한다 */
-  handleFrame(engine: EngineName, jpeg: Buffer, scrollY: number): void;
-}
-
-export interface DashboardServerOptions {
+export interface HubServerOptions {
   port: number;
   /** 포트가 사용 중일 때 +1씩 시도할 최대 횟수 (기본 1 = 폴백 없음) */
   portAttempts?: number;
   /**
-   * 바인드 주소 (기본 127.0.0.1). 이 서버는 뷰어가 아니라 브라우저 세션에
-   * 클릭/타이핑을 주입하는 원격 제어 채널이므로 기본은 로컬 전용이다.
+   * 바인드 주소 (기본 127.0.0.1). 실기기의 라이브 에이전트를 받으려면
+   * --host로 명시적으로 노출해야 한다 — 세션 데이터가 흐르는 채널이므로 기본 비노출.
    */
   host?: string;
-  hello: () => HelloEvent;
-  sessions: ReadonlyMap<EngineName, InputTarget>;
-  paneController: PaneController;
-  shellBridge?: ShellBridge;
-  /** 새 대시보드 접속 시 호출 — 비디오 스트림을 키프레임부터 다시 시작시키는 용도 */
-  onClientConnect?: () => void;
-  /** 디코더 오류 등으로 특정 엔진 스트림 재시작 요청 */
-  onRestartVideo?: (engine: EngineName) => void;
-  /**
-   * 시청 중인 엔진 합집합 변화 — 아무도 안 보는 엔진은 캡처를 멈춘다.
-   * (클라이언트 0명이면 빈 집합, watch를 안 보내는 클라이언트는 전체 시청으로 간주)
-   */
-  onWatchedEnginesChange?: (watched: ReadonlySet<EngineName>) => void;
+  /** 세션당 히스토리 상한 — 늦게 연 대시보드에 재전송할 이벤트 수 */
+  historyLimit?: number;
+  /** 종료된 세션을 히스토리째 유지할 최대 개수 (오래된 것부터 폐기) */
+  retainedSessions?: number;
 }
 
-// 대시보드가 나중에 접속해도 이전 로그를 볼 수 있도록 유지하는 이벤트 개수
-const EVENT_HISTORY_LIMIT = 300;
-// 네트워크 이벤트는 양이 많아 콘솔 히스토리를 밀어내지 않도록 별도 버퍼를 쓴다
-const NETWORK_HISTORY_LIMIT = 600;
-
-/** 미러링 대상 입력 커맨드 (pane 제어/시청/스트림 신호 제외) */
-type MirrorCommand = Exclude<
-  ClientCommand,
-  { type: 'start-engine' } | { type: 'stop-engine' } | { type: 'watch' } | { type: 'restart-video' }
->;
-
-const ALL_ENGINES: readonly EngineName[] = ['chromium', 'webkit', 'firefox', 'ios-sim', 'android'];
-
-// 셸 push 엔드포인트는 무인증이므로 바디 누적에 상한을 둔다 (메모리 고갈 방지)
-const MAX_SHELL_FRAME_BYTES = 8 * 1024 * 1024; // 풀해상도 JPEG 스냅샷도 수백 KB 수준
-const MAX_SHELL_EVENT_BYTES = 1024 * 1024;
-
-function isKnownEngine(name: string): name is EngineName {
-  return (ALL_ENGINES as readonly string[]).includes(name);
-}
+const DEFAULT_HISTORY_LIMIT = 2_000;
+const DEFAULT_RETAINED_SESSIONS = 10;
+// 에이전트 배치 메시지 상한 — 무인증 엔드포인트의 메모리 고갈 방지
+const MAX_AGENT_MESSAGE_BYTES = 4 * 1024 * 1024;
 
 /**
- * WS Origin 검증 — 임의 웹사이트의 JS가 ws://localhost로 붙어 입력을 주입하는
- * 크로스사이트 WebSocket 하이재킹(CSWSH)을 막는다.
- * Origin이 없는 접속(비브라우저 클라이언트: CLI/스모크/셸)은 허용하고,
- * 브라우저 접속은 루프백이거나 대시보드를 연 호스트(Host 헤더)와 같아야 한다.
+ * 대시보드 WS Origin 검증 — 크로스사이트 WebSocket 하이재킹으로 세션 로그가
+ * 새는 것을 막는다. 루프백이거나 대시보드를 연 호스트(Host 헤더)와 같아야 한다.
+ * (에이전트 채널은 검증하지 않는다 — 실기기 페이지의 Origin은 임의이며,
+ * 노출 자체가 --host 옵트인으로 제어된다)
  */
 export function isAllowedWsOrigin(
   origin: string | undefined,
   hostHeader: string | undefined,
 ): boolean {
-  if (origin === undefined) return true;
+  if (origin === undefined) return true; // 비브라우저 클라이언트(스모크/CLI)는 Origin이 없다
   try {
     const parsed = new URL(origin);
     const hostname = parsed.hostname;
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') return true;
-    // LAN 노출(--host) 시: 같은 오리진에서 열린 대시보드만 허용 (evil.com ≠ Host 헤더)
     return hostHeader !== undefined && parsed.host === hostHeader;
   } catch {
     return false;
   }
 }
 
-/** 입력 커맨드 하나를 특정 엔진 세션에 재생한다 */
-function applyCommandToSession(session: InputTarget, command: MirrorCommand): Promise<void> {
-  switch (command.type) {
-    case 'click':
-      return session.clickAt(command.x, command.y);
-    case 'touch':
-      return session.touchAt?.(command.phase, command.x, command.y) ?? Promise.resolve();
-    case 'drag':
-      return session.dragBetween(
-        command.fromX,
-        command.fromY,
-        command.toX,
-        command.toY,
-        command.durationMs,
-      );
-    case 'scroll':
-      return session.scrollBy(command.deltaY, command.x, command.y);
-    case 'keypress':
-      return session.pressKey(command.key);
-    case 'type':
-      return session.typeText(command.text);
-    case 'back':
-      return session.goBack();
-    case 'forward':
-      return session.goForward();
-    case 'reload':
-      return session.reload();
-    case 'navigate':
-      return session.navigate(command.url);
-  }
+interface SessionRecord {
+  meta: SessionMeta;
+  history: SessionEvent[];
+  live: boolean;
+  endedAt?: number;
 }
 
-/**
- * 입력 미러링: 하나의 커맨드를 모든 엔진에 동시에 재생한다.
- * 특정 엔진이 실패(내비게이션 중 등)해도 나머지는 계속돼야 하므로 allSettled를 쓴다.
- */
-async function mirrorCommandToSessions(
-  sessions: ReadonlyMap<EngineName, InputTarget>,
-  command: MirrorCommand,
-): Promise<void> {
-  // engine 지정(pane 독립 스크롤/터치)은 그 세션에만, except는 그 세션만 제외하고 재생
-  const targeted = 'engine' in command && command.engine ? command.engine : undefined;
-  const excluded = 'except' in command ? command.except : undefined;
-  const targets = targeted
-    ? [sessions.get(targeted)].filter((session): session is InputTarget => Boolean(session))
-    : [...sessions].filter(([engine]) => engine !== excluded).map(([, session]) => session);
-  await Promise.allSettled(
-    targets.map((session) => {
-      session.markActivity();
-      return applyCommandToSession(session, command);
-    }),
-  );
-}
-
-export function startDashboardServer(options: DashboardServerOptions): Promise<DashboardServer> {
+export function startHubServer(options: HubServerOptions): Promise<HubServer> {
   const dashboardDir = resolveDashboardDir();
+  const historyLimit = options.historyLimit ?? DEFAULT_HISTORY_LIMIT;
+  const retainedSessions = options.retainedSessions ?? DEFAULT_RETAINED_SESSIONS;
 
   const httpServer = http.createServer((req, res) => {
-    // 셸앱 브릿지: 시뮬레이터의 localhost == 호스트라 같은 서버로 통신한다
-    const [pathname, query] = (req.url ?? '').split('?');
-    const shellMatch = /^\/shell\/([a-z-]+)\/(commands|event|frame)$/.exec(pathname);
-    if (shellMatch && options.shellBridge) {
-      const engine = shellMatch[1];
-      if (!isKnownEngine(engine)) {
-        res.writeHead(404).end();
-        return;
-      }
-      if (shellMatch[2] === 'frame') {
-        // 셸 push 프레임 — 바이너리 JPEG body + scrollY 쿼리(프레임 픽셀 단위)
-        const chunks: Buffer[] = [];
-        let received = 0;
-        req.on('data', (chunk: Buffer) => {
-          received += chunk.length;
-          if (received > MAX_SHELL_FRAME_BYTES) {
-            res.writeHead(413).end();
-            req.destroy();
-            return;
-          }
-          chunks.push(chunk);
-        });
-        req.on('end', () => {
-          if (res.writableEnded) return;
-          const scrollY = Number(new URLSearchParams(query).get('scrollY') ?? Number.NaN);
-          options.shellBridge?.handleFrame(
-            engine,
-            Buffer.concat(chunks),
-            Number.isFinite(scrollY) ? scrollY : -1,
-          );
-          res.writeHead(204).end();
-        });
-        return;
-      }
-      if (shellMatch[2] === 'commands') {
-        // 롱폴: 명령이 생기면 즉시, 없으면 브릿지의 타임아웃까지 대기 후 빈 배열 응답.
-        // 셸이 대기 중 죽으면 소켓은 destroy되지만 writableEnded는 false다 —
-        // 파괴된 응답에 쓰면 'error'가 리스너 없이 터진다
-        void options.shellBridge
-          .waitForCommands(engine)
-          .then((commands) => {
-            if (res.destroyed || res.writableEnded) return;
-            res.writeHead(200, { 'content-type': 'application/json' });
-            res.end(JSON.stringify(commands));
-          })
-          .catch(() => {
-            if (!res.destroyed && !res.writableEnded) res.writeHead(204).end();
-          });
-      } else {
-        let body = '';
-        req.on('data', (chunk) => {
-          body += chunk;
-          if (body.length > MAX_SHELL_EVENT_BYTES) {
-            res.writeHead(413).end();
-            req.destroy();
-          }
-        });
-        req.on('end', () => {
-          if (res.writableEnded) return;
-          try {
-            options.shellBridge?.handleEvent(engine, JSON.parse(body));
-          } catch {
-            // 잘못된 페이로드 무시
-          }
-          res.writeHead(204).end();
-        });
-      }
-      return;
-    }
     void serveDashboardFile(dashboardDir, req, res);
   });
 
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/ws',
-    verifyClient: (info: { req: http.IncomingMessage }) =>
-      isAllowedWsOrigin(info.req.headers.origin, info.req.headers.host),
-  });
-  // http 서버의 EADDRINUSE 등이 wss로도 전파되는데, 핸들러가 없으면
-  // unhandled 'error'로 프로세스가 크래시한다. 처리는 httpServer.once('error')가 담당.
-  wss.on('error', () => {});
+  // 세션 상태 — 살아있는 것 + 최근 종료분 (늦게 연 대시보드의 히스토리 재생용)
+  const records = new Map<string, SessionRecord>();
 
-  // 접속 전에 발생한 콘솔/에러/네트워크 이벤트와 마지막 엔진 상태를
-  // 새 클라이언트에게 재전송하기 위한 버퍼
-  const eventHistory: ServerEvent[] = [];
-  const networkHistory: ServerEvent[] = [];
-  const lastStatusByEngine = new Map<EngineName, ServerEvent>();
-  const lastNavigationByEngine = new Map<EngineName, ServerEvent>();
-  // 변화가 없으면 프레임이 다시 오지 않으므로(스크린캐스트/변화감지 스킵),
-  // 늦게 접속한 클라이언트를 위해 엔진별 마지막 프레임을 캐시한다
-  const lastFramePacketByEngine = new Map<EngineName, Buffer>();
-  const recordForReplay = (event: ServerEvent): void => {
-    switch (event.type) {
-      case 'console':
-      case 'pageerror':
-      case 'requestfailed':
-      case 'httperror':
-        eventHistory.push(event);
-        if (eventHistory.length > EVENT_HISTORY_LIMIT) eventHistory.shift();
-        break;
-      case 'network':
-        networkHistory.push(event);
-        if (networkHistory.length > NETWORK_HISTORY_LIMIT) networkHistory.shift();
-        break;
-      case 'engine-status':
-        lastStatusByEngine.set(event.engine, event);
-        // 중지된 엔진의 마지막 프레임/URL은 더 이상 유효하지 않다 —
-        // 늦게 접속한 클라이언트에 죽은 화면이 재생되지 않도록 캐시를 비운다
-        if (event.status === 'stopped') {
-          lastFramePacketByEngine.delete(event.engine);
-          lastNavigationByEngine.delete(event.engine);
-        }
-        break;
-      case 'navigation':
-        lastNavigationByEngine.set(event.engine, event);
-        break;
-      case 'hello':
-        break;
-    }
-  };
+  const dashboardWss = new WebSocketServer({ noServer: true });
+  const agentWss = new WebSocketServer({ noServer: true });
+  // http 서버의 기동 에러(EADDRINUSE 등)가 전파돼도 크래시하지 않도록
+  dashboardWss.on('error', () => {});
+  agentWss.on('error', () => {});
 
-  // 클라이언트별 시청 엔진 (null = watch 미전송 클라이언트 → 전체 시청으로 간주)
-  const clientWatches = new Map<WebSocket, Set<EngineName> | null>();
-  const notifyWatchedEngines = (): void => {
-    const watched = new Set<EngineName>();
-    for (const engines of clientWatches.values()) {
-      for (const engine of engines ?? ALL_ENGINES) watched.add(engine);
-    }
-    options.onWatchedEnginesChange?.(watched);
-  };
-
-  wss.on('connection', (client) => {
-    // 새 클라이언트에게 현재 세션 구성(타깃 URL, 기기, 엔진 목록)을 먼저 알려준다
-    client.send(JSON.stringify(options.hello()));
-    for (const status of lastStatusByEngine.values()) client.send(JSON.stringify(status));
-    for (const event of eventHistory) client.send(JSON.stringify(event));
-    for (const event of networkHistory) client.send(JSON.stringify(event));
-    // 히스토리 이후에 보내야 새 클라이언트의 에러 배지가 과거 로그로 오염되지 않는다
-    for (const navigation of lastNavigationByEngine.values()) {
-      client.send(JSON.stringify(navigation));
-    }
-    for (const framePacket of lastFramePacketByEngine.values()) client.send(framePacket);
-    options.onClientConnect?.();
-    clientWatches.set(client, null);
-    notifyWatchedEngines();
-    client.on('close', () => {
-      clientWatches.delete(client);
-      notifyWatchedEngines();
-    });
-    client.on('message', (raw) => {
-      try {
-        const command = JSON.parse(String(raw)) as ClientCommand;
-        // pane 제어는 세션 미러링이 아니라 라이프사이클 컨트롤러가 처리한다
-        if (command.type === 'restart-video') {
-          options.onRestartVideo?.(command.engine);
-        } else if (command.type === 'watch') {
-          clientWatches.set(client, new Set(command.engines));
-          notifyWatchedEngines();
-        } else if (command.type === 'start-engine') {
-          void options.paneController.startEngine(command.engine);
-        } else if (command.type === 'stop-engine') {
-          void options.paneController.stopEngine(command.engine);
-        } else {
-          void mirrorCommandToSessions(options.sessions, command);
-        }
-      } catch {
-        // 잘못된 형식의 클라이언트 메시지는 무시 (서버가 죽으면 안 됨)
+  httpServer.on('upgrade', (req, socket, head) => {
+    const pathname = (req.url ?? '').split('?')[0];
+    if (pathname === '/ws') {
+      if (!isAllowedWsOrigin(req.headers.origin, req.headers.host)) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
       }
-    });
+      dashboardWss.handleUpgrade(req, socket, head, (client) => {
+        dashboardWss.emit('connection', client, req);
+      });
+    } else if (pathname === '/agent') {
+      agentWss.handleUpgrade(req, socket, head, (client) => {
+        agentWss.emit('connection', client, req);
+      });
+    } else {
+      socket.destroy();
+    }
   });
 
-  const sendToAllClients = (payload: Buffer | string): void => {
-    for (const client of wss.clients) {
+  const sendToDashboards = (event: ServerEvent): void => {
+    const payload = JSON.stringify(event);
+    for (const client of dashboardWss.clients) {
       if (client.readyState === WebSocket.OPEN) client.send(payload);
     }
   };
+
+  const pruneRetained = (): void => {
+    const ended = [...records.values()]
+      .filter((record) => !record.live)
+      .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0));
+    while (ended.length > retainedSessions) {
+      const oldest = ended.shift();
+      if (oldest) records.delete(oldest.meta.id);
+    }
+  };
+
+  // ── 대시보드 채널 ──────────────────────────────────────────────
+  dashboardWss.on('connection', (client) => {
+    // 현재 세션 목록 → 세션별 히스토리 순서로 재생 (라이브 이벤트는 그 뒤에 흐른다)
+    const sessions = [...records.values()].map((record) => record.meta);
+    client.send(JSON.stringify({ type: 'hello', sessions } satisfies ServerEvent));
+    for (const record of records.values()) {
+      for (const event of record.history) client.send(JSON.stringify(event));
+      if (!record.live) {
+        client.send(
+          JSON.stringify({
+            type: 'session-left',
+            sessionId: record.meta.id,
+            ts: record.endedAt ?? Date.now(),
+          } satisfies ServerEvent),
+        );
+      }
+    }
+    // 대시보드 → 서버 방향 커맨드는 현재 없다 — 미지의 메시지는 조용히 무시
+    client.on('message', () => {});
+  });
+
+  // ── 에이전트 채널 ──────────────────────────────────────────────
+  agentWss.on('connection', (agent) => {
+    let sessionId: string | null = null;
+    agent.on('message', (raw) => {
+      const size = Buffer.isBuffer(raw) ? raw.length : String(raw).length;
+      if (size > MAX_AGENT_MESSAGE_BYTES) {
+        agent.terminate();
+        return;
+      }
+      let message: AgentMessage;
+      try {
+        message = JSON.parse(String(raw)) as AgentMessage;
+      } catch {
+        return; // 잘못된 페이로드는 무시 — 서버가 죽으면 안 됨
+      }
+      if (message.type === 'register' && message.session?.id) {
+        sessionId = message.session.id;
+        // 재접속(같은 id)이면 히스토리를 이어간다 — 웹뷰 백그라운드 복귀 대응
+        const existing = records.get(sessionId);
+        if (existing) {
+          existing.live = true;
+          existing.endedAt = undefined;
+        } else {
+          records.set(sessionId, { meta: message.session, history: [], live: true });
+        }
+        sendToDashboards({ type: 'session-joined', session: message.session });
+        debugLog('agent', `session registered: ${sessionId} (${message.session.label})`);
+        return;
+      }
+      if (message.type === 'events' && sessionId) {
+        const record = records.get(sessionId);
+        if (!record) return;
+        for (const event of message.events) {
+          if (event.sessionId !== sessionId) continue; // 세션 위조 방지
+          record.history.push(event);
+          if (record.history.length > historyLimit) record.history.shift();
+          sendToDashboards(event);
+        }
+      }
+    });
+    agent.on('close', () => {
+      if (!sessionId) return;
+      const record = records.get(sessionId);
+      if (record) {
+        record.live = false;
+        record.endedAt = Date.now();
+      }
+      sendToDashboards({ type: 'session-left', sessionId, ts: Date.now() });
+      pruneRetained();
+    });
+  });
 
   return new Promise((resolve, reject) => {
     // 포트가 사용 중이면 +1씩 폴백 — 흔한 "이미 떠 있는 다른 도구" 충돌을 조용히 피한다
     const maxAttempts = Math.max(1, options.portAttempts ?? 1);
     let attempt = 0;
     const tryListen = (): void => {
-      // 기본 루프백 바인딩 — 시뮬레이터(localhost==호스트)와 adb reverse 모두
-      // 루프백 경유라 실기기 브릿지에는 영향이 없다
       httpServer.listen(options.port + attempt, options.host ?? '127.0.0.1');
     };
     const onStartupError = (err: Error): void => {
@@ -362,22 +217,12 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
       httpServer.on('error', (err) => console.error(`[crosspane] server error: ${String(err)}`));
       resolve({
         port: (httpServer.address() as AddressInfo).port,
-        broadcastEvent(event: ServerEvent) {
-          recordForReplay(event);
-          sendToAllClients(JSON.stringify(event));
-        },
-        broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags = 0) {
-          const packet = encodeFramePacket(engine, jpeg, scrollY, flags);
-          lastFramePacketByEngine.set(engine, packet);
-          sendToAllClients(packet);
-        },
-        broadcastVideoChunk(engine: EngineName, chunk: Buffer) {
-          sendToAllClients(encodeVideoPacket(engine, chunk));
-        },
+        sessions: () => [...records.values()].map((record) => record.meta),
         close() {
-          // httpServer.close()는 열린 소켓이 남아 있으면 대기하므로 클라이언트를 먼저 끊는다
-          for (const client of wss.clients) client.terminate();
-          wss.close();
+          for (const client of dashboardWss.clients) client.terminate();
+          for (const client of agentWss.clients) client.terminate();
+          dashboardWss.close();
+          agentWss.close();
           httpServer.close();
         },
       });

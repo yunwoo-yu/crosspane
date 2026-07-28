@@ -1,14 +1,13 @@
 import { Fragment, useMemo, useState } from 'react';
-import { cn } from '../lib/cn';
 import { toDisplayPath } from '../log-utils';
-import { groupNetworkRows, statusTone } from '../network-utils';
-import type { EngineName, NetworkEntry } from '../types';
+import { filterNetworkEntries, formatDuration, statusTone } from '../network-utils';
+import type { NetworkEntry, SessionMeta } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
 interface NetworkPanelProps {
   entries: NetworkEntry[];
-  engines: EngineName[];
+  sessions: SessionMeta[];
 }
 
 const TONE_CLASS = {
@@ -17,26 +16,21 @@ const TONE_CLASS = {
   error: 'font-semibold text-danger',
 } as const;
 
-/**
- * 엔진별 네트워크 비교 패널 — 같은 요청(method+url)을 한 행으로 묶어
- * "iOS(WebKit)만 401" 같은 엔진 간 차이를 자동으로 드러낸다.
- */
-export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
+/** 세션의 네트워크 타임라인 — 실패(status 0)와 4xx/5xx를 눈에 띄게 */
+export function NetworkPanel({ entries, sessions }: NetworkPanelProps) {
   const [xhrOnly, setXhrOnly] = useState(true);
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [search, setSearch] = useState('');
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-
-  // 실제 수집된 엔진만 칼럼으로 (실기기 pane은 네트워크 훅이 없다)
-  const columns = useMemo(() => {
-    const seen = new Set(entries.map((entry) => entry.engine));
-    return engines.filter((engine) => seen.has(engine));
-  }, [entries, engines]);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const rows = useMemo(
-    () => groupNetworkRows(entries, { xhrOnly, errorsOnly, search }),
+    () => filterNetworkEntries(entries, { xhrOnly, errorsOnly, search }),
     [entries, xhrOnly, errorsOnly, search],
   );
+  const labelOf = useMemo(() => {
+    const map = new Map(sessions.map((session) => [session.id, session.label]));
+    return (sessionId: string) => map.get(sessionId) ?? sessionId;
+  }, [sessions]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -60,99 +54,61 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
           variant={errorsOnly ? 'active' : 'ghost'}
           size="icon"
           onClick={() => setErrorsOnly((v) => !v)}
-          title="Only requests with 4xx/5xx"
+          title="Only failed requests (network error, 4xx, 5xx)"
         >
           errors
         </Button>
         <span className="ml-auto text-[11px] text-fg-muted">{rows.length} requests</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
-        <table className="w-full border-collapse">
-          <thead className="sticky top-0 bg-panel text-left text-[10px] text-fg-muted uppercase tracking-wider">
-            <tr>
-              <th className="py-1 pr-3 pl-4 font-medium">method</th>
-              <th className="py-1 pr-3 font-medium">url</th>
-              {columns.map((engine) => (
-                <th key={engine} className="py-1 pr-3 font-medium">
-                  {engine}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <Fragment key={row.key}>
-                <tr
-                  className={cn(
-                    'cursor-pointer hover:bg-line/40',
-                    row.statusMismatch
-                      ? 'bg-warn/10 text-warn' // 엔진 간 상태가 다른 행 — 이 툴이 존재하는 이유
-                      : 'text-fg',
-                  )}
-                  onClick={() => setExpandedKey((key) => (key === row.key ? null : row.key))}
-                >
-                  <td className="py-0.5 pr-3 pl-4 text-fg-muted">{row.method}</td>
-                  <td className="max-w-96 truncate py-0.5 pr-3" title={row.url}>
-                    {toDisplayPath(row.url)}
-                  </td>
-                  {columns.map((engine) => {
-                    const cell = row.perEngine[engine];
-                    return (
-                      <td key={engine} className="whitespace-nowrap py-0.5 pr-3">
-                        {cell ? (
-                          <>
-                            <span className={TONE_CLASS[statusTone(cell.status)]}>
-                              {cell.status}
-                            </span>
-                            {cell.durationMs >= 0 && (
-                              <span className="ml-1.5 text-fg-muted">{cell.durationMs}ms</span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-fg-muted">—</span>
+        {rows.length === 0 ? (
+          <div className="px-4 py-6 text-fg-muted">No requests yet — interact with the page</div>
+        ) : (
+          <table className="w-full border-collapse">
+            <tbody>
+              {rows.map((entry) => (
+                <Fragment key={entry.id}>
+                  <tr
+                    className="cursor-pointer border-line/60 border-b hover:bg-panel"
+                    onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+                  >
+                    <td className="px-3 py-1 text-fg-muted">{entry.method}</td>
+                    <td className={`px-2 py-1 ${TONE_CLASS[statusTone(entry.status)]}`}>
+                      {entry.status === 0 ? 'ERR' : entry.status}
+                    </td>
+                    <td className="max-w-0 truncate px-2 py-1" title={entry.url}>
+                      {toDisplayPath(entry.url)}
+                    </td>
+                    <td className="px-2 py-1 text-right text-fg-muted">
+                      {formatDuration(entry.durationMs)}
+                    </td>
+                    <td className="px-3 py-1 text-fg-muted">{labelOf(entry.sessionId)}</td>
+                  </tr>
+                  {expandedId === entry.id && (
+                    <tr className="border-line/60 border-b bg-app/60">
+                      <td colSpan={5} className="px-4 py-2">
+                        <div className="mb-1 break-all text-fg-muted">{entry.url}</div>
+                        {entry.error && <div className="text-danger">{entry.error}</div>}
+                        {entry.responseHeaders && (
+                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-fg-muted">
+                            {Object.entries(entry.responseHeaders)
+                              .map(([key, value]) => `${key}: ${value}`)
+                              .join('\n')}
+                          </pre>
+                        )}
+                        {entry.bodyPreview && (
+                          <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap">
+                            {entry.bodyPreview}
+                            {entry.bodyTruncated ? '\n… (truncated)' : ''}
+                          </pre>
                         )}
                       </td>
-                    );
-                  })}
-                </tr>
-                {expandedKey === row.key && (
-                  <tr>
-                    <td colSpan={2 + columns.length} className="bg-app/60 px-4 py-2">
-                      <div className="flex flex-wrap gap-4">
-                        {columns.map((engine) => {
-                          const detail = row.perEngine[engine]?.entry;
-                          if (!detail) return null;
-                          return (
-                            <div key={engine} className="min-w-64 max-w-xl flex-1">
-                              <div className="mb-1 text-[10px] text-fg-muted uppercase tracking-wider">
-                                {engine} · {detail.status}
-                              </div>
-                              {detail.responseHeaders && (
-                                <pre className="mb-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-[10px] text-fg-muted">
-                                  {Object.entries(detail.responseHeaders)
-                                    .map(([name, value]) => `${name}: ${value}`)
-                                    .join('\n')}
-                                </pre>
-                              )}
-                              {detail.bodyPreview !== undefined && (
-                                <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-line p-1.5 text-[11px] text-fg">
-                                  {detail.bodyPreview}
-                                  {detail.bodyTruncated ? '\n… (truncated)' : ''}
-                                </pre>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-        {rows.length === 0 && (
-          <div className="px-4 py-6 text-fg-muted">No requests yet — interact with the page</div>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

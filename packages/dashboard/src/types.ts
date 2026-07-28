@@ -1,62 +1,45 @@
-// 프로토콜은 cli의 단일 소스(packages/cli/src/protocol.ts)를 직접 참조한다.
-// (vite alias + tsconfig paths — .claude/rules/protocol-sync.md 참조)
+// 프로토콜 단일 소스는 @crosspane/protocol이다 (vite alias + tsconfig paths)
 
 export type {
-  ClientCommand,
-  EngineName,
-  EngineStatus,
-  HelloEvent,
+  LogLevel,
   ServerEvent,
-} from 'crosspane/protocol';
-export {
-  ENGINE_NAMES_BY_CODE,
-  FRAME_FLAG_FULL_PAGE,
-  FRAME_HEADER_BYTES,
-  PACKET_TYPE_FRAME,
-  PACKET_TYPE_RAW,
-  PACKET_TYPE_VIDEO,
-  RAW_HEADER_BYTES,
-  SCROLL_Y_UNKNOWN,
-  VIDEO_HEADER_BYTES,
-} from 'crosspane/protocol';
-
-import type { EngineName, EngineStatus } from 'crosspane/protocol';
+  SessionCapture,
+  SessionEvent,
+  SessionMeta,
+} from '@crosspane/protocol';
 
 // ---- 이하 대시보드 전용 UI 타입 ----
 
-export interface EngineState {
-  status: EngineStatus;
-  detail?: string;
-  /** 세션 기동 후 확정된 입력 가능 여부 (hello의 정적 목록을 덮어씀) */
-  viewOnly?: boolean;
-  /** 마지막 내비게이션 기준 현재 URL — 엔진 간 어긋남(desync) 감지에 쓴다 */
+/** 세션의 화면 표시 상태 — 프로토콜에는 없는 UI 파생값 */
+export interface SessionState {
+  live: boolean;
   currentUrl?: string;
+  /** 마지막 내비게이션 이후의 에러 수 — 배지용 */
+  errorCount: number;
 }
 
 export interface LogEntry {
   id: number;
-  engine: EngineName;
-  kind: 'console' | 'pageerror' | 'requestfailed' | 'httperror' | 'navigation';
+  sessionId: string;
+  kind: 'console' | 'pageerror' | 'navigation';
   level: string;
   text: string;
+  /** pageerror의 스택 — 상세 펼침용 */
+  detail?: string;
   ts: number;
 }
 
 export interface NetworkEntry {
   id: number;
-  engine: EngineName;
+  sessionId: string;
   method: string;
   url: string;
   status: number;
-  resourceType: string;
   durationMs: number;
+  error?: string;
+  initiator?: string;
   responseHeaders?: Record<string, string>;
   bodyPreview?: string;
   bodyTruncated?: boolean;
   ts: number;
 }
-
-/** scrollY: 프레임 캡처 시점의 스크롤 위치(CSS px), 모르면 음수 */
-/** ImageBitmap(스냅샷) 또는 VideoFrame(실스트림) — 둘 다 drawImage 가능, 전달 후 close됨 */
-export type PaneFrame = ImageBitmap | VideoFrame | ImageData;
-export type FrameListener = (frame: PaneFrame, scrollY: number, fullPage?: boolean) => void;

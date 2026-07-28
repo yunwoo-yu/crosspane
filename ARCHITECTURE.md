@@ -1,203 +1,81 @@
 # crosspane 아키텍처
 
-> 웹뷰로 배포되는 앱을 실제 배포 환경(엔진·UA·실기기)과 같은 조건에서,
-> 한 대시보드에서 검증하는 도구. 이 문서는 전체 구조와 각 기술 선택의 근거를 기록한다.
+> 개발자도구가 닿지 않는 환경(인앱 웹뷰, 인앱브라우저, 보안 잠금 빌드, 키오스크)의
+> 웹 화면을 디버깅 가능하게 만드는 도구. 이 문서는 구조와 기술 선택 근거를 기록한다.
+
+## 왜 이 구조인가
+
+원격 인스펙터(`chrome://inspect`, Safari Web Inspector)가 더 좋은 도구다. 문제는
+**쓸 수 없는 경우가 한국 대형 서비스의 기본값**이라는 것:
+
+- iOS 16.4+는 앱이 `WKWebView.isInspectable = true`를 켠 웹뷰만 노출한다 (릴리스 빌드는 꺼짐)
+- Android도 `setWebContentsDebuggingEnabled(true)` 없이는 목록에 뜨지 않는다
+- ISMS-P/전자금융 심사를 받는 앱의 보호 솔루션은 디버거 어태치를 탐지해 앱을 종료시킨다
+- 테스터가 Mac이 없거나, 다른 사무실에 있다
+
+인스펙터가 원리적으로 차단된 환경에서 남는 통로는 **앱이 스스로 품고 나가는 계측**뿐이다.
+그래서 crosspane의 본체는 서버가 아니라 페이지 안의 에이전트다.
 
 ## 전체 구조
 
 ```
-┌─ packages/cli (npm: crosspane) ─────────────────────────────────────┐
-│                                                                     │
-│  index.ts ── CLI 엔트리, pane 라이프사이클, URL 수렴 오케스트레이션    │
-│  args.ts ─── 플래그 파싱 + 프로필 프리셋 / interactive.ts ─ TTY 프롬프트│
-│  pane-setup.ts ─ 프로필+SDK 가용성 → pane 구성 (순수 함수)            │
-│                                                                     │
-│  session.ts ────────── EngineSession (Playwright: chromium/webkit/  │
-│                        firefox) — InputTarget 구현                   │
-│  ios-simulator.ts ──── IosSimulatorSession (simctl + WKWebView 셸)   │
-│  ios-sck.ts ────────── ScreenCaptureKit 창 캡처 헬퍼 (30fps)          │
-│  android-emulator.ts ─ AndroidEmulatorSession (adb + WebView 셸)     │
-│  android-shell.ts ──── 셸 APK 빌드 / emulator-grpc.ts ─ gRPC 터치     │
-│  shell-command-queue.ts ─ 셸 롱폴 규약 / shell-events.ts ─ 이벤트 파서 │
-│  capture-loop.ts ───── 공용 캡처 루프 (유휴/활동 케이던스 + wake)      │
-│                                                                     │
-│  server.ts ── HTTP(대시보드 서빙+셸 브릿지) + WS(이벤트/프레임/커맨드) │
-│  static.ts ── 정적 파일 서빙 (경로 탈출 방어, SPA 폴백)               │
-│  protocol.ts ─ 이벤트/커맨드 타입 / frame-packet.ts ─ 패킷 인코딩      │
-│  url-sync.ts ─ URL 수렴 계획 / browser-install.ts ─ 엔진 자동 설치     │
-│  devices.ts ── 디바이스 프리셋 해석 / lib.ts ── 라이브러리 공개 API    │
-└─────────────────────────────────────────────────────────────────────┘
-                    ▲ WebSocket (JSON 이벤트 + 바이너리 프레임)
-                    ▼
+┌─ packages/agent (npm: @crosspane/agent) ─ 사용자 앱 번들에 들어간다 ──┐
+│  hooks.ts ──── console / error·rejection / fetch / XHR / navigation  │
+│                (원본 동작 보존 + 해제 함수 반환)                       │
+│  buffer.ts ─── 크래시 내성 링버퍼 (마지막 N개 이벤트)                  │
+│  transport.ts ─ 라이브 WS 전송 (배칭·재접속·큐 상한)                   │
+│  index.ts ──── initCrosspane 게이팅 / capture() / exportFile()       │
+└──────────┬───────────────────────────────────────────────────────────┘
+           │ WS /agent (라이브)          │ .crosspane.json (오프라인)
+           ▼                             ▼
+┌─ packages/cli (npm: crosspane) ─ 허브 ──┐   (파일은 대시보드에 직접 드롭)
+│  server.ts ─ /agent 수신 + /ws 중계     │
+│              세션 레지스트리 · 히스토리 │
+│  static.ts ─ 대시보드 정적 서빙          │
+│  args.ts / index.ts ─ CLI               │
+└──────────┬──────────────────────────────┘
+           │ WS /ws (JSON 이벤트)
+           ▼
 ┌─ packages/dashboard (React + Vite) ─────────────────────────────────┐
-│  useCrosspaneSocket ── 조립부: event-log(리듀서) + useEventBatcher    │
-│                        + useFrameHub/frame-router (프레임 구독 허브)   │
-│  session-view.ts ── hello/상태 → 파생 뷰 (순수 함수)                  │
-│  EnginePane ── canvas 렌더링(pane-screen), 로컬 에코(scroll-echo),    │
-│                입력 캡처 훅(usePaneMirroring 등)                      │
-│  h264.ts ── Annex-B → 액세스 유닛 재조립 (WebCodecs 디코드 전단)       │
-│  Toolbar ── back/forward/reload, URL 어긋남 재동기화                  │
-│  ConsolePanel/NetworkPanel/DiffPanel ── 로그·네트워크·픽셀 diff        │
+│  useCrosspaneSocket ─ 연결/재접속 + 이벤트 배칭                       │
+│  event-log.ts ─ 이벤트 → 상태/로그/네트워크 엔트리 (순수 함수)          │
+│  capture-file.ts ─ .crosspane.json → 같은 엔트리 모양 (리플레이)       │
+│  SessionList / ConsolePanel / NetworkPanel                          │
 └─────────────────────────────────────────────────────────────────────┘
+
+packages/protocol (npm: @crosspane/protocol) — 위 셋이 공유하는 타입 단일 소스
 ```
-
-데이터 흐름 (프레임): 엔진 → JPEG 캡처 → `[type u8][engine u8][flags u8][scrollY i32LE][JPEG]`
-바이너리 패킷 → WS → `createImageBitmap`(오프메인 디코딩) → canvas 직접 드로우
-(React 상태 미경유). 실기기는 JPEG 대신 H.264 비디오 패킷(WebCodecs 디코드).
-
-데이터 흐름 (입력): pane 이벤트 → 정규화/합산 → JSON 커맨드 → 모든 `InputTarget`에 미러링.
 
 ## 기술 선택과 근거
 
-### 오케스트레이션: Playwright
-
-- **왜**: Chromium/WebKit/Firefox 세 엔진을 단일 API로 구동할 수 있는 유일한 도구.
-  특히 WebKit을 macOS/Linux/Windows에서 돌릴 수 있는 빌드를 제공 — iOS 근사 검증의 기반.
-- 대안이었던 Responsively류(iframe + 단일 Chromium)는 뷰포트만 바꿀 뿐
-  엔진 차이를 볼 수 없어 목적에 부합하지 않음.
-
-### 프레임 파이프라인
-
-| 기술 | 근거 |
+| 결정 | 근거 |
 |---|---|
-| Chromium: CDP screencast | 화면이 변할 때만 브라우저가 프레임을 푸시 → 유휴 트래픽 0, 인터랙션 시 네이티브 프레임레이트. 폴링 방식의 근본 한계(고정 fps, 유휴 낭비)를 제거 |
-| WebKit/Firefox: 적응형 폴링 | 두 엔진은 screencast API가 없음. 유휴 400ms/활동 75ms 폴링 + 변화 없는 프레임 전송 생략 + 입력 시 대기 중 폴링 즉시 wake |
-| `scale: 'css'` 캡처 | iPhone 15 프리셋은 DPR 3 → 기본 캡처는 1170×2532로 픽셀이 9배. CSS 픽셀 캡처로 프레임당 ~300KB → 35KB (실측) |
-| 바이너리 WS 패킷 | base64 JSON은 +33% 크기와 파싱 비용. `[type][engine][flags][scrollY][JPEG]` 규약으로 제거. scrollY는 로컬 에코 보정용, flags는 풀페이지 캡처 표시 |
-| `createImageBitmap` + canvas | JPEG 디코딩을 메인 스레드 밖에서 수행, 프레임을 React 상태에 넣지 않고 구독 방식으로 canvas에 직접 그림 → 프레임당 리렌더 비용 0 |
-| 프레임 캐시(엔진별 최신 1장) | 변화 감지 도입의 부작용 해결 — 늦게 접속한 클라이언트도 즉시 화면을 받는다 |
+| **에이전트 우선, 프로토콜 어태치는 나중** | 어태치(CDP/WebKit Inspector)는 더 강력하지만(중단점!) 디버그 플래그를 켠 빌드에서만 된다. 그게 안 되는 환경이 이 도구의 존재 이유이므로 에이전트가 먼저다 |
+| **의존성 0 SDK** | 앱 번들에 들어가는 코드다. rrweb 같은 무거운 의존을 기본에 넣으면 채택 자체가 막힌다 — 화면 미러링은 옵셔널 플러그인으로 분리 예정 |
+| **이벤트 모양을 끝까지 동일하게** | 에이전트가 만든 이벤트가 서버·대시보드·캡처 파일까지 변환 없이 흐른다. 덕분에 라이브와 리플레이가 같은 패널 코드를 쓴다 (weinre 계열이 프론트엔드를 따로 만들다 죽은 것과 반대) |
+| **오프라인 캡처를 1급 경로로** | 보안 환경에서는 상시 연결이 불가능하거나 금지된다. "파일 하나 뽑아서 전달"이 실제로 가장 많이 쓰일 경로 |
+| **링버퍼 + 즉시 적재** | 페이지가 하드 크래시하면 에이전트도 함께 죽는다. 전송 성공 여부와 무관하게 버퍼에 먼저 넣어야 "죽기 직전"이 남는다 |
+| **게이팅 API를 명시적으로** | 디버깅 채널을 스토어 빌드에 넣는 것 자체가 심사 리스크다. `enabled: false`가 훅을 아예 설치하지 않고, 문서는 번들러 데드코드 제거를 권장한다 |
+| **기본 루프백 바인딩** | 허브는 세션 로그(사용자 데이터)가 흐르는 채널이다. LAN 노출은 `--host` 옵트인 |
+| **대시보드 WS Origin 검증** | 임의 웹사이트가 `ws://localhost:7788/ws`로 붙어 로그를 훔치는 CSWSH 차단. 에이전트 채널은 Origin이 임의라 검증 대신 노출 자체를 옵트인으로 통제 |
 
-### 입력 파이프라인
+## 알려진 한계 (원리적)
 
-| 기술 | 근거 |
-|---|---|
-| 정규화 좌표(0~1) | 대시보드 표시 크기 ≠ 엔진 뷰포트 크기. 서버가 각 타깃의 실제 해상도로 환산 |
-| 휠 합산(33ms) | 트랙패드는 초당 수십 이벤트 — 건당 전송하면 엔진 큐가 밀려 수 초씩 밀림(실측 40이벤트→40커맨드). 합산으로 백로그 제거 |
-| `scrollBy` JS 주입 | `mouse.wheel`은 WebKit 모바일 컨텍스트에서 무시되고 엔진별 스크롤 애니메이션 속도가 달라 위치가 어긋남. JS 주입은 세 엔진이 항상 같은 픽셀만큼 이동 |
-| 로컬 에코 + scrollY 보정 | 서버 왕복(수백 ms)을 기다리면 스크롤이 계단식으로 보임. 휠 즉시 canvas를 CSS transform으로 이동(60fps 체감)하고, 프레임 헤더의 scrollY와 목표의 차이만큼만 에코를 유지 → 고무줄 현상 없이 수렴. 원격 데스크톱(VNC)과 같은 접근 |
-| 키보드: `type`/`keypress` 분리 | 문자는 `keyboard.type`(IME 안전), 특수키는 `keyboard.press`. OS 단축키(cmd+…)는 대시보드에 남김 |
+- **중단점 불가**: JS는 자신을 멈출 수 없다. weinre도 chii도 못 넘은 벽이며,
+  진짜 stepping은 엔진 레벨 프로토콜(CDP/WebKit Inspector) 전용이다 → 어태치 모드 로드맵
+- **에이전트 이전은 못 본다**: 부트 실패, 파싱 에러, `initCrosspane` 호출 전 에러는 잡히지 않는다
+- **CSP**: `script-src`/`connect-src`가 막으면 동작하지 않는다. 그래서 "주입"이 아니라
+  빌드 타임 "내장"을 권장한다
+- **화면이 없다**: 현재는 텍스트 계측만. DOM 미러링(rrweb)이 로드맵에 있으나
+  canvas/video/cross-origin iframe은 그 방식으로도 담기지 않는다
 
-### 배포 환경 정합 (기본 켜짐)
+## 이전 아키텍처 (0.6.x)
 
-| 기술 | 근거 |
-|---|---|
-| Android WebView UA (`; wv)` 토큰) | 앱들이 UA 스니핑으로 웹뷰를 감지해 분기함 — 브라우저 UA로 테스트하면 프로덕션과 다른 코드 경로가 실행된다 |
-| WKWebView UA (Safari 토큰 없음) | 동일 근거. WKWebView는 Safari와 달리 `Version/x Safari/x` 토큰이 없다 |
-| WebKit 서비스워커 차단 | 실제 WKWebView는 App-Bound Domains 설정 없이는 SW 미지원 — SW 의존 코드가 로컬에서만 동작하는 함정 방지 |
-| `--user-agent` / `--inject` | 앱의 커스텀 UA와 네이티브 브릿지(`window.ReactNativeWebView` 등)를 mock으로 재현하는 확장 지점 |
+0.6.x까지 crosspane은 Playwright로 Chromium/WebKit/Firefox를 띄우고 iOS 시뮬레이터·
+Android 에뮬레이터를 스크린샷/H.264로 미러링하는 "멀티 엔진 미리보기" 도구였다.
+`crosspane@0.6.2` 태그에 보존돼 있다.
 
-### 실기기 레이어
-
-| 기술 | 근거 |
-|---|---|
-| `InputTarget` 인터페이스 | Playwright 세션과 실기기 어댑터가 같은 미러링 파이프라인에 꽂히는 구조. 새 어댑터(예: USB 실기기) 추가 시 대시보드/서버 무수정 |
-| iOS: WKWebView 셸앱 | `simctl`로 부팅한 시뮬레이터에 자체 셸앱(swiftc 컴파일, 소스 해시 캐시)을 설치 — Safari가 아니라 앱에 임베드된 웹뷰 컴포넌트 그 자체를 재현하고, 호스트 HTTP 브릿지(롱폴)로 클릭/스크롤/타이핑/콘솔 릴레이까지 완전 인터랙티브. `DEVELOPER_DIR` 우회로 xcode-select 설정 불필요. 셸 빌드 실패 시에만 Safari view-only 폴백 |
-| iOS: Safari 선실행 (폴백 경로) | 헤드리스 부팅 직후 `simctl openurl`이 타임아웃되는 문제를 `simctl launch com.apple.mobilesafari` 선실행으로 해결 (실측으로 발견) |
-| Android: WebView 셸 + gRPC | 자체 셸 APK(앱 임베드 WebView)를 build-tools로 빌드·설치, 입력은 에뮬레이터 gRPC `sendTouch`(수 ms — adb input의 수백 ms 왕복 제거). 비ASCII 입력은 번들 무화면 IME가 커밋. USB 실기기·Chrome 폴백도 같은 코드로 동작 |
-| `adb reverse` | 에뮬레이터의 localhost는 기기 자신 — 개발 머신의 dev 서버로 포워딩 필수 |
-| Chrome 컴포넌트 직접 지정 + FRE 스킵 | 기본 브라우저 미지정 이미지에서 VIEW 인텐트가 해석되지 않는 문제, 첫 실행 화면이 막는 문제를 자동화 |
-
-### 신뢰성 (진짜 에러만 보이게)
-
-| 기술 | 근거 |
-|---|---|
-| 요청 취소 필터 (`ERR_ABORTED` 등) | Next.js prefetch 취소 같은 정상 동작이 에러 배지를 오염시켜(실측: 멀쩡한 앱에 배지 9) 진짜 에러가 묻힘 |
-| HTTP 4xx/5xx 수집 | 실배포 웹뷰 장애의 대부분은 API 실패 — 네트워크 레벨 실패(requestfailed)만으로는 잡히지 않음 |
-| 내비게이션 추적 + URL 어긋남 감지/재동기화 | 미러링은 엔진별 타이밍 차이로 어긋날 수 있음(실사용에서 발생 확인). 감지 불가능한 문제를 감지 가능하게 + 원클릭 복구 |
-| 에러 배지 = 마지막 내비게이션 이후만 | 이전 페이지의 에러가 현재 화면의 상태처럼 보이는 것 방지 |
-| 이벤트 히스토리/상태 재전송 | 대시보드를 늦게 열거나 새로고침해도 콘솔 타임라인 유지 |
-| WS 자동 재접속 | CLI 재시작이 잦은 개발 흐름에서 대시보드 새로고침 불필요 |
-
-### 프로필 (pane 구성)
-
-- **왜**: 유스케이스별 필요 pane이 다름. 웹뷰 앱 QA에 Gecko 웹뷰는 존재하지 않고(Firefox 불필요),
-  실기기 pane은 부팅 비용이 커서 상시용이 아님.
-- `webview`(기본): Chromium+WebKit — 매일 켜두는 빠른 루프
-- `web`: +Firefox — 모바일 웹 크로스브라우징
-- `device`/`full`: +실제 Android/iOS — 배포 전 최종 확인 (SDK 자동 감지)
-
-### 개발 인프라
-
-| 기술 | 근거 |
-|---|---|
-| pnpm 워크스페이스 | cli(배포물)와 dashboard(프론트)의 의존성/빌드 분리. 대시보드는 private — 배포 시 cli에 번들 예정 |
-| TypeScript strict + NodeNext | 프로토콜(이벤트/커맨드)이 양 패키지에 걸쳐 있어 타입 안전이 회귀 방지의 핵심 |
-| Biome | 포맷터+린터 단일 도구 — 설정 충돌 없음, ms 단위 속도라 pre-commit에 부담 없음 |
-| Vitest | cli(node)와 dashboard(jsdom)를 같은 러너로. 서버는 실제 WebSocket으로 통합 테스트 |
-| husky + lint-staged | 커밋은 빠르게(Biome만), 테스트/빌드는 CI가 게이트 |
-| GitHub Actions | biome ci → test → build. 로컬을 통과한 것만 원격에 존재하도록 |
-
-## 실기기 pane 화면: 스트리밍 우선
-
-- **Android = 실시간 H.264 비디오** (`adb screenrecord` → WS → 대시보드 WebCodecs 디코드).
-  스크린샷 폴링(2~3fps)이 아니라 진짜 화면 스트림 — 스크롤/애니메이션이 실기기처럼 흐른다.
-  스트림이 흐르기 시작하면 스크린샷 폴링은 자동 중단(폴백으로만 유지),
-  WebCodecs 미지원 브라우저에서는 비디오 패킷을 무시하고 스크린샷 폴백이 커버한다
-- **iOS = SCK 창 캡처 → 셸 스냅샷 폴백**: 기본은 ScreenCaptureKit 창 캡처
-  (~30fps, 무결점 — 화면기록 권한 1회 필요, 권한이 없으면 10초마다 재시도하며
-  자동 승격). 폴백은 셸앱이 `takeSnapshot`(공개 API)으로 자체 캡처해 push하는
-  무결점 ~5fps 스트림 — simctl 폴링(왕복 수백 ms)은 쓰지 않는다. 스크롤은 JS가
-  아니라 UIScrollView 네이티브 경로(감속 스텝 애니메이션) + contentOffset을
-  프레임에 동봉해 로컬 에코까지 적용. idb H.264(20fps)는 인코더 잔상 리스크로
-  `CROSSPANE_IOS_H264=1` 옵트인
-- H.264 재조립(Annex-B → 액세스 유닛)은 대시보드의 `h264.ts` 순수 모듈 —
-  유닛테스트로 검증
-
-## 실기기 pane 입력 반응성
-
-스크린샷 명령(simctl/adb)은 회당 수백 ms — 주기를 줄이는 것만으로는 반응이 늦다.
-
-- **셸 명령 롱폴**: iOS 셸의 `/commands` 폴링을 서버가 최대 8초 잡아두고, 명령이
-  들어오는 순간 즉시 응답한다. 입력 전달 지연이 폴링 주기(과거 250ms)에서 0으로
-- **입력 시 즉시 캡처**: 공용 `capture-loop`의 `wake()`가 대기 중 sleep을 끊는다.
-  클릭 → 화면 반영 왕복이 실측 ~1초 → ~120ms
-- **드래그 미러링**: 대시보드가 pointerdown/up 이동 거리로 클릭/드래그를 분류해
-  `drag` 커맨드 하나로 보낸다. 재생은 타깃별 최적 경로 — Android는 `input swipe`
-  (진짜 터치), 브라우저 엔진·iOS 셸은 세로 위주면 scrollBy(마우스 드래그는 모바일
-  뷰포트에서 텍스트 선택이 되는 실측 문제), 가로는 pointer 시퀀스(캐러셀 대응)
-
-## 메모리·데이터 구조 설계
-
-이벤트 스트림(로그/네트워크)이 무한히 쌓이는 도구 특성상, 모든 버퍼는 상한이 있어야 한다.
-
-| 버퍼 | 위치 | 상한 | 초과 시 |
-|---|---|---|---|
-| 로그 | dashboard 상태 | 500 | 앞에서 잘림 |
-| 네트워크 | dashboard 상태 | 800 | 앞에서 잘림 |
-| 이벤트 히스토리(재접속 재전송) | cli 서버 | 300 | 앞에서 잘림 |
-| 네트워크 히스토리 | cli 서버 | 600 | 앞에서 잘림 |
-| 셸앱 명령 큐 | cli `ios-simulator.ts` | 200 | 오래된 명령 폐기 (셸 크래시로 폴링이 멈춰도 무한 성장 방지) |
-| 프레임 | 상태에 넣지 않음 | 엔진당 최신 1개(서버 캐시) | — |
-
-**이벤트 배칭(50ms)**: WS 이벤트를 건별로 `setState`하면 로그 폭주 시(예: 무한 루프
-console.log) 초당 수백 번 리렌더가 난다. 수신 이벤트는 ref 큐에 쌓고 50ms마다 한 번에
-반영해 리렌더를 최대 초당 20회로 캡했다. 상한 잘라내기도 플러시 시점에 1회만 수행.
-
-**검토 후 채택하지 않은 것들** (규모가 근거):
-- **링 버퍼 + `useSyncExternalStore`**: append를 O(1)로 만들고 React 밖에서 버퍼를
-  관리하는 최종형. 현재는 배칭으로 복사 비용이 플러시당 1회(≤500개 배열)라 체감 차이가
-  없어 보류. 로그 상한을 수천 단위로 올리게 되면 이 구조로 전환한다
-- **리스트 가상화(react-window 등)**: 행 상한이 500~800이라 DOM 부담이 작고,
-  가상화는 sticky 헤더·행 확장(네트워크 상세)과 충돌 비용이 크다. 상한을 올리기
-  전까지는 도입하지 않는다
-- **네트워크 증분 그루핑(Map 유지)**: 현재는 필터 변경마다 O(n) 재그루핑이지만
-  n≤800 + `useMemo`라 ms 미만. 정렬/집계 기능이 추가되면 재검토
-
-**pane 레이아웃**: 엔진 수가 가변(2~5+)이라 CSS Grid
-`repeat(auto-fit, minmax(340px, 1fr))`로 브라우저에 배치를 위임 — 패킹 알고리즘을
-직접 들 이유가 없다. 포커스 모드에서는 숨긴 pane이 프레임 구독을 해제해 JPEG 디코드
-비용도 0이 된다(canvas는 마지막 프레임 유지).
-
-## 알려진 한계
-
-- iOS 셸은 IME/네이티브 키보드 입력 미지원 (`execCommand insertText` 근사),
-  일부 페이지에서 window error가 "Script error."로 마스킹됨 (WebKit 특성)
-- Android 셸 APK 빌드는 Windows에서 미지원 (`find`/`zip` 의존) — Chrome 폴백으로 동작
-- 삼성 인터넷 등 서드파티 브라우저는 실기기/APK 필요
-
-## 로드맵 (완료: npm 배포, 셸앱, 픽셀 diff, changesets 자동화 — README Roadmap 참조)
-
-1. `crosspane.config.ts` — 디바이스 매트릭스, 브릿지 mock 프리셋, 프로필
-2. Android 셸 APK 빌드의 Windows 지원
-3. USB iOS 실기기
-4. 시나리오 리플레이 — 인터랙션 기록 후 엔진 전체 재생
+버린 이유: 그 구조로는 **프로덕션·보안 잠금 환경에 닿을 수 없었다.** 엔진을 우리가
+소유해야만 동작하므로 "devtools를 못 보는 환경"이라는 문제의 본체를 영원히 못 푼다.
+또한 데스크톱 3엔진 미리보기는 "브라우저 3개를 열면 되는" 대체재가 있었고,
+Playwright WebKit ≠ Safari라는 인식이 확산되며 검증 가치도 약해졌다.

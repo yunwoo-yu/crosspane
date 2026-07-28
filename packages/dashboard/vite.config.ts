@@ -8,7 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // 프로토콜 단일 소스: cli의 TS 소스를 직접 번들 (수동 미러 제거)
-      'crosspane/protocol': resolve(__dirname, '../cli/src/protocol.ts'),
+      '@crosspane/protocol': resolve(__dirname, '../protocol/src/index.ts'),
     },
   },
   server: {

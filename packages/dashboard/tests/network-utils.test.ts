@@ -1,92 +1,79 @@
 import { describe, expect, it } from 'vitest';
-import { groupNetworkRows, statusTone } from '../src/network-utils';
+import {
+  filterNetworkEntries,
+  formatDuration,
+  isErrorStatus,
+  statusTone,
+} from '../src/network-utils';
 import type { NetworkEntry } from '../src/types';
 
-let idSeq = 0;
-function entry(
-  partial: Partial<NetworkEntry> & Pick<NetworkEntry, 'engine' | 'url'>,
-): NetworkEntry {
-  return {
-    id: idSeq++,
-    method: 'GET',
-    status: 200,
-    resourceType: 'fetch',
-    durationMs: 10,
-    ts: idSeq,
-    ...partial,
-  };
-}
+const entry = (partial: Partial<NetworkEntry>): NetworkEntry => ({
+  id: 0,
+  sessionId: 'a',
+  method: 'GET',
+  url: 'http://api/x',
+  status: 200,
+  durationMs: 10,
+  initiator: 'fetch',
+  ts: 0,
+  ...partial,
+});
 
-const noFilter = { xhrOnly: false, errorsOnly: false, search: '' };
-
-describe('groupNetworkRows', () => {
-  it('같은 요청을 한 행으로 묶고 엔진별 상태를 나란히 놓는다', () => {
-    const rows = groupNetworkRows(
-      [
-        entry({ engine: 'chromium', url: '/api/me', status: 200, durationMs: 12 }),
-        entry({ engine: 'webkit', url: '/api/me', status: 401, durationMs: 8 }),
-      ],
-      noFilter,
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].perEngine.chromium?.status).toBe(200);
-    expect(rows[0].perEngine.webkit?.status).toBe(401);
-  });
-
-  it('엔진 간 상태가 다르면 statusMismatch — "iOS만 401"을 자동 표시', () => {
-    const rows = groupNetworkRows(
-      [
-        entry({ engine: 'chromium', url: '/api/me', status: 200 }),
-        entry({ engine: 'webkit', url: '/api/me', status: 401 }),
-        entry({ engine: 'chromium', url: '/api/list', status: 200 }),
-        entry({ engine: 'webkit', url: '/api/list', status: 200 }),
-      ],
-      noFilter,
-    );
-    const byUrl = Object.fromEntries(rows.map((row) => [row.url, row.statusMismatch]));
-    expect(byUrl['/api/me']).toBe(true);
-    expect(byUrl['/api/list']).toBe(false);
-  });
-
-  it('xhrOnly 필터는 정적 리소스를 제외한다', () => {
-    const rows = groupNetworkRows(
-      [
-        entry({ engine: 'chromium', url: '/app.css', resourceType: 'stylesheet' }),
-        entry({ engine: 'chromium', url: '/api/me', resourceType: 'xhr' }),
-      ],
-      { ...noFilter, xhrOnly: true },
-    );
-    expect(rows.map((row) => row.url)).toEqual(['/api/me']);
-  });
-
-  it('errorsOnly는 4xx/5xx가 있는 행만 남긴다', () => {
-    const rows = groupNetworkRows(
-      [
-        entry({ engine: 'chromium', url: '/ok', status: 200 }),
-        entry({ engine: 'chromium', url: '/boom', status: 500 }),
-      ],
-      { ...noFilter, errorsOnly: true },
-    );
-    expect(rows.map((row) => row.url)).toEqual(['/boom']);
-  });
-
-  it('같은 요청을 다시 하면 엔진별 최신 상태로 덮어쓴다', () => {
-    const rows = groupNetworkRows(
-      [
-        entry({ engine: 'chromium', url: '/api/me', status: 500 }),
-        entry({ engine: 'chromium', url: '/api/me', status: 200 }),
-      ],
-      noFilter,
-    );
-    expect(rows[0].perEngine.chromium?.status).toBe(200);
+describe('statusTone / isErrorStatus', () => {
+  it('status 0(응답 못 받음)과 4xx/5xx는 에러', () => {
+    expect(isErrorStatus(0)).toBe(true);
+    expect(isErrorStatus(404)).toBe(true);
+    expect(isErrorStatus(302)).toBe(false);
+    expect(statusTone(0)).toBe('error');
+    expect(statusTone(302)).toBe('redirect');
+    expect(statusTone(200)).toBe('ok');
   });
 });
 
-describe('statusTone', () => {
-  it('2xx=ok, 3xx=redirect, 4xx/5xx=error', () => {
-    expect(statusTone(200)).toBe('ok');
-    expect(statusTone(302)).toBe('redirect');
-    expect(statusTone(404)).toBe('error');
-    expect(statusTone(500)).toBe('error');
+describe('filterNetworkEntries', () => {
+  const entries = [
+    entry({ id: 1, url: 'http://api/users', ts: 1 }),
+    entry({ id: 2, url: 'http://cdn/app.js', initiator: 'script', ts: 2 }),
+    entry({ id: 3, url: 'http://api/pay', status: 500, ts: 3 }),
+    entry({ id: 4, url: 'http://api/other', sessionId: 'b', ts: 4 }),
+  ];
+
+  it('xhrOnly는 initiator를 아는 정적 리소스만 숨긴다', () => {
+    const rows = filterNetworkEntries(entries, { xhrOnly: true, errorsOnly: false, search: '' });
+    expect(rows.map((r) => r.id)).not.toContain(2);
+  });
+
+  it('errorsOnly / search / sessionId 필터', () => {
+    expect(
+      filterNetworkEntries(entries, { xhrOnly: false, errorsOnly: true, search: '' }).map(
+        (r) => r.id,
+      ),
+    ).toEqual([3]);
+    expect(
+      filterNetworkEntries(entries, { xhrOnly: false, errorsOnly: false, search: 'USERS' }).map(
+        (r) => r.id,
+      ),
+    ).toEqual([1]);
+    expect(
+      filterNetworkEntries(entries, {
+        xhrOnly: false,
+        errorsOnly: false,
+        search: '',
+        sessionId: 'b',
+      }).map((r) => r.id),
+    ).toEqual([4]);
+  });
+
+  it('최신 요청이 위로 정렬된다', () => {
+    const rows = filterNetworkEntries(entries, { xhrOnly: false, errorsOnly: false, search: '' });
+    expect(rows.map((r) => r.ts)).toEqual([4, 3, 2, 1]);
+  });
+});
+
+describe('formatDuration', () => {
+  it('1초 이상은 초 단위로', () => {
+    expect(formatDuration(250)).toBe('250ms');
+    expect(formatDuration(1500)).toBe('1.50s');
+    expect(formatDuration(-1)).toBe('—');
   });
 });
