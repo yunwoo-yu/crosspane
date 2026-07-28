@@ -30,13 +30,13 @@ hybrid apps) who need to catch production-environment bugs *before* deploying.
 pnpm dev                 # e.g. localhost:3000
 
 # terminal 2 — no install needed
-npx crosspane            # interactive: pick what to run and the port
+npx crosspane            # interactive: pick your running dev server
 npx crosspane :3000      # or pass everything directly
 # → open http://localhost:7788
 ```
 
-First run downloads the engine binaries. If a browser is missing, run
-`npx playwright install chromium webkit firefox` once.
+Missing engine binaries are installed automatically on first start (one-time,
+tens of MB). Manual fallback: `npx playwright install chromium webkit firefox`.
 
 Real-device panes are auto-detected: with **Xcode** installed you get an iOS Simulator
 pane, with the **Android SDK** you get an Android emulator pane — no extra flags.
@@ -107,18 +107,25 @@ crosspane <url | :port> [options]
                        web:     +Firefox — mobile web cross-browsing
                        device:  webview + real Android emulator / iOS Simulator
                        full:    everything
---engines <list>     override engine list (chromium,webkit,firefox)
+--engines <list>     engines to auto-start (chromium,webkit,firefox) — the rest stay
+                     available as stopped panes in the dashboard
 --device <name>      Playwright device preset (default: "iPhone 15")
---port <n>           dashboard port (default: 7788, auto-fallback when taken)
+--port <n>           dashboard port (default: 7788; the default port falls back +1
+                     when taken, an explicit port does not)
+--host <addr>        bind address (default: 127.0.0.1 — local only; 0.0.0.0 to
+                     expose on your network, e.g. for phone testing)
 --no-open            don't open the dashboard automatically
 --inject <path>      JS injected into every page before load
 --user-agent <ua>    exact UA for every engine
 --preset-ua          use Playwright preset UA instead of webview UA emulation
 --fresh              ignore saved login sessions
+--ios-runtime <ver>  iOS Simulator runtime version (e.g. 17.2)
 --ios-sim            force the iOS Simulator pane (auto when Xcode exists)
 --no-ios-sim         disable the iOS Simulator pane
 --android            force the Android pane (auto when the Android SDK exists)
 --no-android         disable the Android pane
+-v, --version        print the crosspane version
+-h, --help           show help
 ```
 
 ## How it works
@@ -129,7 +136,7 @@ CLI (Node)
  ├─ Real-device adapters: simctl + WKWebView shell (iOS) / adb + WebView shell (Android)
  ├─ HTTP server: dashboard (React) on :7788 + shell-app control bridge
  └─ WebSocket:
-     server → client   binary frame packets ([type][engine][scrollY][JPEG]) + JSON events
+     server → client   binary frame packets ([type][engine][flags][scrollY][JPEG]) + JSON events
      client → server   normalized input commands → mirrored to every engine
 ```
 
@@ -155,7 +162,8 @@ never through React state.
 
 Playwright ships WebKit builds for all three OSes, so iOS-approximate testing works even
 on Windows/Linux. Missing SDKs degrade gracefully — the pane is skipped with a notice and
-everything else still works. CI runs build + tests + an end-to-end smoke on all three OSes.
+everything else still works. CI runs lint + tests + build on all three OSes, plus an
+end-to-end smoke (real server + Chromium) on Linux.
 
 ## Troubleshooting
 
@@ -163,8 +171,10 @@ everything else still works. CI runs build + tests + an end-to-end smoke on all 
   (System Settings → Privacy & Security), then it auto-upgrades within seconds —
   no restart needed
 - **Browser missing** → `npx playwright install chromium webkit firefox`
-- **Android pane skipped** → install platform-tools/emulator
-  (e.g. `brew install --cask android-commandlinetools`) or set `ANDROID_HOME`
+- **Android pane skipped or erroring** → the SDK needs the emulator + a system image +
+  an AVD, not just command-line tools. Follow the
+  [Android setup guide](https://github.com/yunwoo-yu/crosspane/blob/main/docs/android-setup.md)
+  (5 commands from scratch, error → fix table included)
 - **iOS pane is view-only** → the WKWebView shell failed to build; the console shows why
   (usually a missing full Xcode — Command Line Tools alone are not enough)
 
@@ -179,6 +189,7 @@ everything else still works. CI runs build + tests + an end-to-end smoke on all 
 
 ```bash
 pnpm install
+pnpm --filter crosspane exec playwright install chromium webkit firefox
 pnpm test             # unit + integration (no browsers needed)
 pnpm build            # dashboard (vite) → cli (tsc + bundle)
 pnpm smoke            # end-to-end: real server + Chromium

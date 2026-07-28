@@ -148,7 +148,7 @@ export class AndroidEmulatorSession implements InputTarget {
     const sdkDir = resolveAndroidSdkDir();
     if (!sdkDir) {
       throw new Error(
-        'Android SDK not found — install platform-tools/emulator (e.g. brew install --cask android-commandlinetools)',
+        `Android SDK not found — setup guide: https://github.com/yunwoo-yu/crosspane/blob/main/docs/android-setup.md`,
       );
     }
     const adbPath = join(sdkDir, 'platform-tools', adbExecutableName());
@@ -739,7 +739,9 @@ async function findConnectedDevice(adbPath: string): Promise<string | undefined>
 async function bootHeadlessEmulator(sdkDir: string, adbPath: string): Promise<string> {
   const emulatorPath = join(sdkDir, 'emulator', emulatorExecutableName());
   if (!existsSync(emulatorPath)) {
-    throw new Error('No connected Android device and no emulator installed');
+    throw new Error(
+      `No connected Android device and no emulator installed — sdkmanager "emulator" "platform-tools" (guide: https://github.com/yunwoo-yu/crosspane/blob/main/docs/android-setup.md)`,
+    );
   }
   const { stdout: avdList } = await execFileAsync(emulatorPath, ['-list-avds'], {
     timeout: 15_000,
@@ -749,7 +751,11 @@ async function bootHeadlessEmulator(sdkDir: string, adbPath: string): Promise<st
     .map((row) => row.trim())
     // 최신 SDK는 안내 문구를 섞어 출력한다 — AVD 이름만 남긴다
     .find((row) => row.length > 0 && !row.includes(' '));
-  if (!avd) throw new Error('No Android AVD found — create one with avdmanager');
+  if (!avd) {
+    throw new Error(
+      `No Android AVD found — create one with avdmanager (guide: https://github.com/yunwoo-yu/crosspane/blob/main/docs/android-setup.md)`,
+    );
+  }
 
   // -gpu host: 호스트 GPU 가속 — 헤드리스에서도 WebView 렌더/인코딩 fps가 크게 오른다
   spawn(
@@ -775,7 +781,9 @@ async function bootHeadlessEmulator(sdkDir: string, adbPath: string): Promise<st
     }
     await new Promise((resolve) => setTimeout(resolve, 3_000));
   }
-  throw new Error('Android emulator boot timed out');
+  throw new Error(
+    `Android emulator boot timed out — first boot can be slow, run it once manually (guide: https://github.com/yunwoo-yu/crosspane/blob/main/docs/android-setup.md)`,
+  );
 }
 
 function adb(

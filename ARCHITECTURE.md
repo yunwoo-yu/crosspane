@@ -8,31 +8,42 @@
 ```
 ┌─ packages/cli (npm: crosspane) ─────────────────────────────────────┐
 │                                                                     │
-│  index.ts ── CLI 엔트리, pane 구성(프로필), 세션 오케스트레이션        │
-│  args.ts ─── 플래그 파싱 + 프로필 프리셋                              │
+│  index.ts ── CLI 엔트리, pane 라이프사이클, URL 수렴 오케스트레이션    │
+│  args.ts ─── 플래그 파싱 + 프로필 프리셋 / interactive.ts ─ TTY 프롬프트│
+│  pane-setup.ts ─ 프로필+SDK 가용성 → pane 구성 (순수 함수)            │
 │                                                                     │
 │  session.ts ────────── EngineSession (Playwright: chromium/webkit/  │
 │                        firefox) — InputTarget 구현                   │
-│  ios-simulator.ts ──── IosSimulatorSession (simctl) — InputTarget    │
-│  android-emulator.ts ─ AndroidEmulatorSession (adb) — InputTarget    │
+│  ios-simulator.ts ──── IosSimulatorSession (simctl + WKWebView 셸)   │
+│  ios-sck.ts ────────── ScreenCaptureKit 창 캡처 헬퍼 (30fps)          │
+│  android-emulator.ts ─ AndroidEmulatorSession (adb + WebView 셸)     │
+│  android-shell.ts ──── 셸 APK 빌드 / emulator-grpc.ts ─ gRPC 터치     │
+│  shell-command-queue.ts ─ 셸 롱폴 규약 / shell-events.ts ─ 이벤트 파서 │
+│  capture-loop.ts ───── 공용 캡처 루프 (유휴/활동 케이던스 + wake)      │
 │                                                                     │
-│  server.ts ── HTTP(대시보드 서빙) + WebSocket(이벤트/프레임/커맨드)   │
+│  server.ts ── HTTP(대시보드 서빙+셸 브릿지) + WS(이벤트/프레임/커맨드) │
 │  static.ts ── 정적 파일 서빙 (경로 탈출 방어, SPA 폴백)               │
-│  protocol.ts ─ 이벤트/커맨드 타입 + 바이너리 프레임 패킷 규약          │
-│  lib.ts ────── 라이브러리 공개 API                                   │
+│  protocol.ts ─ 이벤트/커맨드 타입 / frame-packet.ts ─ 패킷 인코딩      │
+│  url-sync.ts ─ URL 수렴 계획 / browser-install.ts ─ 엔진 자동 설치     │
+│  devices.ts ── 디바이스 프리셋 해석 / lib.ts ── 라이브러리 공개 API    │
 └─────────────────────────────────────────────────────────────────────┘
                     ▲ WebSocket (JSON 이벤트 + 바이너리 프레임)
                     ▼
 ┌─ packages/dashboard (React + Vite) ─────────────────────────────────┐
-│  useCrosspaneSocket ── 연결/재접속, 이벤트 상태, 프레임 구독 허브      │
-│  EnginePane ── canvas 렌더링, 로컬 에코, 입력 캡처(클릭/휠/키)        │
+│  useCrosspaneSocket ── 조립부: event-log(리듀서) + useEventBatcher    │
+│                        + useFrameHub/frame-router (프레임 구독 허브)   │
+│  session-view.ts ── hello/상태 → 파생 뷰 (순수 함수)                  │
+│  EnginePane ── canvas 렌더링(pane-screen), 로컬 에코(scroll-echo),    │
+│                입력 캡처 훅(usePaneMirroring 등)                      │
+│  h264.ts ── Annex-B → 액세스 유닛 재조립 (WebCodecs 디코드 전단)       │
 │  Toolbar ── back/forward/reload, URL 어긋남 재동기화                  │
-│  ConsolePanel ── 엔진별 콘솔/에러/네트워크 타임라인                    │
+│  ConsolePanel/NetworkPanel/DiffPanel ── 로그·네트워크·픽셀 diff        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-데이터 흐름 (프레임): 엔진 → JPEG 캡처 → `[엔진코드 u8][scrollY i32LE][JPEG]` 바이너리 패킷
-→ WS → `createImageBitmap`(오프메인 디코딩) → canvas 직접 드로우 (React 상태 미경유).
+데이터 흐름 (프레임): 엔진 → JPEG 캡처 → `[type u8][engine u8][flags u8][scrollY i32LE][JPEG]`
+바이너리 패킷 → WS → `createImageBitmap`(오프메인 디코딩) → canvas 직접 드로우
+(React 상태 미경유). 실기기는 JPEG 대신 H.264 비디오 패킷(WebCodecs 디코드).
 
 데이터 흐름 (입력): pane 이벤트 → 정규화/합산 → JSON 커맨드 → 모든 `InputTarget`에 미러링.
 
@@ -52,7 +63,7 @@
 | Chromium: CDP screencast | 화면이 변할 때만 브라우저가 프레임을 푸시 → 유휴 트래픽 0, 인터랙션 시 네이티브 프레임레이트. 폴링 방식의 근본 한계(고정 fps, 유휴 낭비)를 제거 |
 | WebKit/Firefox: 적응형 폴링 | 두 엔진은 screencast API가 없음. 유휴 400ms/활동 75ms 폴링 + 변화 없는 프레임 전송 생략 + 입력 시 대기 중 폴링 즉시 wake |
 | `scale: 'css'` 캡처 | iPhone 15 프리셋은 DPR 3 → 기본 캡처는 1170×2532로 픽셀이 9배. CSS 픽셀 캡처로 프레임당 ~300KB → 35KB (실측) |
-| 바이너리 WS 패킷 | base64 JSON은 +33% 크기와 파싱 비용. `[엔진코드][scrollY][JPEG]` 규약으로 제거. scrollY는 로컬 에코 보정용 |
+| 바이너리 WS 패킷 | base64 JSON은 +33% 크기와 파싱 비용. `[type][engine][flags][scrollY][JPEG]` 규약으로 제거. scrollY는 로컬 에코 보정용, flags는 풀페이지 캡처 표시 |
 | `createImageBitmap` + canvas | JPEG 디코딩을 메인 스레드 밖에서 수행, 프레임을 React 상태에 넣지 않고 구독 방식으로 canvas에 직접 그림 → 프레임당 리렌더 비용 0 |
 | 프레임 캐시(엔진별 최신 1장) | 변화 감지 도입의 부작용 해결 — 늦게 접속한 클라이언트도 즉시 화면을 받는다 |
 
@@ -80,9 +91,9 @@
 | 기술 | 근거 |
 |---|---|
 | `InputTarget` 인터페이스 | Playwright 세션과 실기기 어댑터가 같은 미러링 파이프라인에 꽂히는 구조. 새 어댑터(예: USB 실기기) 추가 시 대시보드/서버 무수정 |
-| iOS: simctl (view-only) | Xcode만 있으면 추가 의존성 없이 실제 Apple iOS 빌드를 구동. `DEVELOPER_DIR` 우회로 xcode-select 설정 불필요. 입력 주입 채널이 없어(idb/WebDriverAgent 필요) view-only — 한계를 UI에 명시하고 desync 판단에서 제외 |
-| iOS: Safari 선실행 | 헤드리스 부팅 직후 `simctl openurl`이 타임아웃되는 문제를 `simctl launch com.apple.mobilesafari` 선실행으로 해결 (실측으로 발견) |
-| Android: adb | `input tap/swipe/text/keyevent`로 완전한 입력 미러링 가능 — iOS와 달리 인터랙티브. USB 실기기도 같은 코드로 동작 |
+| iOS: WKWebView 셸앱 | `simctl`로 부팅한 시뮬레이터에 자체 셸앱(swiftc 컴파일, 소스 해시 캐시)을 설치 — Safari가 아니라 앱에 임베드된 웹뷰 컴포넌트 그 자체를 재현하고, 호스트 HTTP 브릿지(롱폴)로 클릭/스크롤/타이핑/콘솔 릴레이까지 완전 인터랙티브. `DEVELOPER_DIR` 우회로 xcode-select 설정 불필요. 셸 빌드 실패 시에만 Safari view-only 폴백 |
+| iOS: Safari 선실행 (폴백 경로) | 헤드리스 부팅 직후 `simctl openurl`이 타임아웃되는 문제를 `simctl launch com.apple.mobilesafari` 선실행으로 해결 (실측으로 발견) |
+| Android: WebView 셸 + gRPC | 자체 셸 APK(앱 임베드 WebView)를 build-tools로 빌드·설치, 입력은 에뮬레이터 gRPC `sendTouch`(수 ms — adb input의 수백 ms 왕복 제거). 비ASCII 입력은 번들 무화면 IME가 커밋. USB 실기기·Chrome 폴백도 같은 코드로 동작 |
 | `adb reverse` | 에뮬레이터의 localhost는 기기 자신 — 개발 머신의 dev 서버로 포워딩 필수 |
 | Chrome 컴포넌트 직접 지정 + FRE 스킵 | 기본 브라우저 미지정 이미지에서 VIEW 인텐트가 해석되지 않는 문제, 첫 실행 화면이 막는 문제를 자동화 |
 
@@ -122,12 +133,15 @@
   스크린샷 폴링(2~3fps)이 아니라 진짜 화면 스트림 — 스크롤/애니메이션이 실기기처럼 흐른다.
   스트림이 흐르기 시작하면 스크린샷 폴링은 자동 중단(폴백으로만 유지),
   WebCodecs 미지원 브라우저에서는 비디오 패킷을 무시하고 스크린샷 폴백이 커버한다
-- **iOS = 셸 자체 스트리밍**: simctl 폴링(왕복 수백 ms) 대신 셸앱이 `takeSnapshot`
-  (공개 API)으로 자체 캡처해 push한다. 스크롤은 JS가 아니라 UIScrollView 네이티브 경로
-  (감속 스텝 애니메이션) + contentOffset을 프레임에 동봉해 로컬 에코까지 적용.
-  유효 fps ~5는 WebKit 스냅샷 케이던스의 한계 — 30fps는 IOSurface 접근이 필요해
-  idb(Meta, 공개 소스) 옵션 연동이 로드맵
-- H.264 재조립(Annex-B → 액세스 유닛)은 `h264.ts` 순수 모듈 — 유닛테스트로 검증
+- **iOS = SCK 창 캡처 → 셸 스냅샷 폴백**: 기본은 ScreenCaptureKit 창 캡처
+  (~30fps, 무결점 — 화면기록 권한 1회 필요, 권한이 없으면 10초마다 재시도하며
+  자동 승격). 폴백은 셸앱이 `takeSnapshot`(공개 API)으로 자체 캡처해 push하는
+  무결점 ~5fps 스트림 — simctl 폴링(왕복 수백 ms)은 쓰지 않는다. 스크롤은 JS가
+  아니라 UIScrollView 네이티브 경로(감속 스텝 애니메이션) + contentOffset을
+  프레임에 동봉해 로컬 에코까지 적용. idb H.264(20fps)는 인코더 잔상 리스크로
+  `CROSSPANE_IOS_H264=1` 옵트인
+- H.264 재조립(Annex-B → 액세스 유닛)은 대시보드의 `h264.ts` 순수 모듈 —
+  유닛테스트로 검증
 
 ## 실기기 pane 입력 반응성
 
@@ -176,16 +190,14 @@ console.log) 초당 수백 번 리렌더가 난다. 수신 이벤트는 ref 큐�
 
 ## 알려진 한계
 
-- 실기기 pane은 Chrome/Safari 앱을 엶 — 웹뷰 "컴포넌트" 그 자체는 아님 (같은 엔진).
-  컴포넌트 레벨 100%는 자체 WKWebView/WebView 셸앱이 최종형
-- Android 에뮬레이터 pane은 비ASCII 입력(한글 등) 불가 — adb `input text`의 한계.
-  브라우저 엔진/iOS 셸 pane은 숨김 input + IME 조합으로 한글 입력 지원
+- iOS 셸은 IME/네이티브 키보드 입력 미지원 (`execCommand insertText` 근사),
+  일부 페이지에서 window error가 "Script error."로 마스킹됨 (WebKit 특성)
+- Android 셸 APK 빌드는 Windows에서 미지원 (`find`/`zip` 의존) — Chrome 폴백으로 동작
 - 삼성 인터넷 등 서드파티 브라우저는 실기기/APK 필요
 
-## 로드맵
+## 로드맵 (완료: npm 배포, 셸앱, 픽셀 diff, changesets 자동화 — README Roadmap 참조)
 
-1. npm 배포 패키징 (대시보드를 cli dist에 번들)
-2. WKWebView/WebView 셸앱 — 컴포넌트 레벨 정합 + iOS 입력 미러링
-3. 엔진 간 스크린샷 픽셀 diff (pixelmatch)
-4. `--android-browser` (삼성 인터넷 등 브라우저 지정)
-5. changesets 릴리스 자동화
+1. `crosspane.config.ts` — 디바이스 매트릭스, 브릿지 mock 프리셋, 프로필
+2. Android 셸 APK 빌드의 Windows 지원
+3. USB iOS 실기기
+4. 시나리오 리플레이 — 인터랙션 기록 후 엔진 전체 재생

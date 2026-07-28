@@ -137,9 +137,9 @@ export function listIosRuntimes(simctlListJson: string): string[] {
 }
 
 /**
- * 실제 iOS 시뮬레이터 pane — 진짜 Apple iOS 빌드의 Safari/WebKit이 렌더링한다.
- * 에뮬레이션이 아닌 실환경 검증용. 입력 주입 채널이 없어 view-only이며,
- * navigate/reload 커맨드만 따라간다 (재동기화 버튼 포함).
+ * 실제 iOS 시뮬레이터 pane — 진짜 Apple iOS 빌드의 WebKit이 렌더링한다.
+ * 기본은 WKWebView 셸앱(완전 인터랙티브: 클릭/스크롤/타이핑/콘솔 릴레이),
+ * 셸 빌드 실패 시에만 Safari view-only 폴백으로 동작한다.
  */
 export class IosSimulatorSession implements InputTarget {
   private activeUntil = 0;

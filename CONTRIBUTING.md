@@ -2,11 +2,17 @@
 
 ## Setup
 
+Requires **Node ≥ 20** and **pnpm 10** (CI uses Node 20/22 and pnpm 10).
+
 ```bash
 pnpm install
 pnpm --filter crosspane exec playwright install chromium webkit firefox
 pnpm build
 ```
+
+> The `playwright install` must run in the cli package (`--filter crosspane`), not the
+> workspace root — pnpm 10 blocks postinstall scripts at the root, so a root-level
+> install exits without downloading anything.
 
 ## Verify your change
 
@@ -17,8 +23,9 @@ pnpm build
 pnpm smoke                        # e2e: boots the real CLI with chromium
 ```
 
-CI runs all of the above on macOS, Windows and Linux. A pre-commit hook (husky)
-enforces Biome on staged files.
+CI runs lint + tests + build on macOS, Windows and Linux, and the smoke test on
+Linux. A pre-commit hook (husky) enforces Biome on staged files. To run a single
+test: `pnpm --filter crosspane exec vitest run -t "test name"`.
 
 ## Repository map
 
