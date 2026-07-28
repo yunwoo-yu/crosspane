@@ -1,4 +1,12 @@
 node_modules/
 dist/
+coverage/
 *.log
+*.tsbuildinfo
 .DS_Store
+.env
+.env.*
+.idea/
+.vscode/
+playwright-report/
+test-results/

@@ -4,7 +4,7 @@
   <a href="https://www.npmjs.com/package/crosspane"><img alt="npm version" src="https://img.shields.io/npm/v/crosspane.svg?color=cb3837"></a>
   <a href="https://github.com/yunwoo-yu/crosspane/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yunwoo-yu/crosspane/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/yunwoo-yu/crosspane/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <img alt="node >= 20" src="https://img.shields.io/node/v/crosspane.svg">
+  <img alt="node 20+" src="https://img.shields.io/node/v/crosspane.svg">
 </p>
 
 **One dashboard to QA your webview app across real engines and real devices.**
