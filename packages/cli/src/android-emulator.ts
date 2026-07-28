@@ -493,7 +493,7 @@ export class AndroidEmulatorSession implements InputTarget {
         '-s',
         this.serial,
         'shell',
-        `CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server ${version} tunnel_forward=true video=true audio=false control=false cleanup=false raw_stream=true max_size=1200 video_bit_rate=4000000`,
+        `CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server ${version} tunnel_forward=true video=true audio=false control=false cleanup=false raw_stream=true max_size=1200 video_bit_rate=8000000`,
       ],
       { stdio: ['ignore', 'ignore', 'ignore'] },
     );

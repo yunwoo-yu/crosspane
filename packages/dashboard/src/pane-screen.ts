@@ -28,6 +28,8 @@ function drawFrame(canvas: HTMLCanvasElement, frame: PaneFrame): void {
  */
 export class PaneScreen {
   private backing: HTMLCanvasElement | null = null;
+  /** window 모드 마지막 프레임 사본 — 에코를 canvas 내부 드로우로 재합성하기 위해 보관 */
+  private echoBacking: HTMLCanvasElement | null = null;
   private displayScrollY = 0;
   private lastInputTs = 0;
   private readonly echo = new ScrollEcho();
@@ -45,8 +47,8 @@ export class PaneScreen {
 
   // relative 에코 상태 — 각 델타는 ECHO_DECAY_MS에 걸쳐 0으로 감쇠 (스트림이 따라오는 시간)
   private static readonly RELATIVE_DECAY_MS = 300;
-  /** 상대 에코 최대 오프셋 (캔버스 높이 비율) — 과하면 빈(검은) 영역이 크게 노출된다 */
-  private static readonly RELATIVE_MAX_RATIO = 0.12;
+  /** 상대 에코 최대 오프셋 (캔버스 높이 비율) — 가장자리 스트레치가 과해지지 않는 선 */
+  private static readonly RELATIVE_MAX_RATIO = 0.22;
   private relativeDeltas: { delta: number; ts: number }[] = [];
   private decayRafScheduled = false;
   private lastCanvas: HTMLCanvasElement | null = null;
@@ -61,7 +63,7 @@ export class PaneScreen {
     );
     if (this.lastCanvas) {
       const cap = this.lastCanvas.height * PaneScreen.RELATIVE_MAX_RATIO;
-      applyEchoOffset(this.lastCanvas, Math.max(-cap, Math.min(cap, offset)));
+      this.drawEchoOffset(this.lastCanvas, Math.max(-cap, Math.min(cap, offset)));
     }
     if (this.relativeDeltas.length > 0 && !this.decayRafScheduled) {
       this.decayRafScheduled = true;
@@ -69,6 +71,40 @@ export class PaneScreen {
         this.decayRafScheduled = false;
         this.applyRelativeEcho(Date.now());
       });
+    }
+  }
+
+  /**
+   * 에코 오프셋을 canvas 내부 드로우로 반영 — transform 이동과 달리 빈(검은) 영역이
+   * 생기지 않는다. 밀려나는 반대쪽 가장자리는 밴드(오프셋의 2배 높이)를 늘려 채워
+   * 네이티브 오버스크롤 스트레치처럼 보인다. 마지막 1px 행 스트레치는 금물 —
+   * Android 제스처 바(검정 pill)가 그대로 번진다 (실측).
+   * 2D 컨텍스트가 없는 환경(jsdom 테스트)은 기존 transform 방식으로 폴백한다.
+   */
+  private drawEchoOffset(canvas: HTMLCanvasElement, offsetPx: number): void {
+    const src = this.echoBacking;
+    const ctx = canvas.getContext('2d');
+    if (!src || !ctx || !src.getContext('2d')) {
+      applyEchoOffset(canvas, offsetPx);
+      return;
+    }
+    canvas.style.transform = '';
+    const { width: w, height: h } = canvas;
+    const off = Math.round(Math.max(-h / 3, Math.min(h / 3, offsetPx)));
+    if (off === 0) {
+      ctx.drawImage(src, 0, 0);
+      return;
+    }
+    const mag = Math.abs(off);
+    const band = Math.min(mag * 2, h - mag - 1);
+    if (off > 0) {
+      // 위로 이동: 본문은 그대로 off만큼 시프트, 하단 밴드만 늘려 갭을 흡수
+      ctx.drawImage(src, 0, off, w, h - band - off, 0, 0, w, h - band - off);
+      ctx.drawImage(src, 0, h - band, w, band, 0, h - band - off, w, band + off);
+    } else {
+      // 아래로 이동: 상단 밴드를 늘리고 본문을 |off|만큼 내린다
+      ctx.drawImage(src, 0, 0, w, band, 0, 0, w, band + mag);
+      ctx.drawImage(src, 0, band, w, h - band - mag, 0, band + mag, w, h - band - mag);
     }
   }
 
@@ -90,6 +126,21 @@ export class PaneScreen {
         canvas.width = frameW;
         canvas.height = frameH;
       }
+      // 프레임을 에코 백킹에 보관 — 에코 드로우가 오프셋 위치에 언제든 재합성한다
+      if (
+        !this.echoBacking ||
+        this.echoBacking.width !== frameW ||
+        this.echoBacking.height !== frameH
+      ) {
+        this.echoBacking ??= document.createElement('canvas');
+        this.echoBacking.width = frameW;
+        this.echoBacking.height = frameH;
+      }
+      const backingCtx = this.echoBacking.getContext('2d');
+      if (backingCtx) {
+        if (frame instanceof ImageData) backingCtx.putImageData(frame, 0, 0);
+        else backingCtx.drawImage(frame, 0, 0);
+      }
       drawFrame(canvas, frame);
       this.lastCanvas = canvas;
       // scrollY 미상 스트림(idb 등)으로 전환된 pane은 절대 에코가 불가능 — 상대 에코로 강등
@@ -98,7 +149,7 @@ export class PaneScreen {
         // 프레임 도착이 에코를 리셋하지 않는다 — 스트림은 항상 과거라 리셋하면 뒤로 튄다
         this.applyRelativeEcho(now);
       } else {
-        applyEchoOffset(canvas, this.echo.reconcileFrame(scrollY, now));
+        this.drawEchoOffset(canvas, this.echo.reconcileFrame(scrollY, now));
       }
       return;
     }
@@ -139,7 +190,7 @@ export class PaneScreen {
       this.applyRelativeEcho(now);
       return;
     }
-    applyEchoOffset(canvas, this.echo.addWheelDelta(deltaY, now));
+    this.drawEchoOffset(canvas, this.echo.addWheelDelta(deltaY, now));
   }
 
   private redrawCrop(canvas: HTMLCanvasElement): void {
