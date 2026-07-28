@@ -26,8 +26,6 @@ const launchers = { chromium, webkit, firefox } as const;
 export interface SessionEvents {
   /** scrollY: 프레임 캡처 시점의 세로 스크롤 위치(CSS px). 알 수 없으면 SCROLL_Y_UNKNOWN */
   onFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags?: number): void;
-  /** RAW RGBA 프레임 (gRPC 직결 — 인코딩/디코딩 제로) */
-  onRawFrame?(engine: EngineName, rgba: Buffer, width: number, height: number): void;
   onConsole(engine: EngineName, level: LogLevel, text: string): void;
   onPageError(engine: EngineName, message: string): void;
   onRequestFailed(engine: EngineName, url: string, error: string): void;
@@ -154,7 +152,7 @@ const STATE_SAVE_INTERVAL_MS = 30_000;
 const ACTIVE_CAPTURE_INTERVAL_MS = 16; // 활성 중 백투백 캡처 (스크린샷 소요가 실질 간격)
 const ACTIVITY_WINDOW_MS = 2_000;
 
-export class EngineSession {
+export class EngineSession implements InputTarget {
   private disposed = false;
   private activeUntil = 0;
   private wakeCapture: (() => void) | null = null;
@@ -186,6 +184,12 @@ export class EngineSession {
       options.customUserAgent ??
       (options.emulateWebview ? buildWebviewUserAgent(engine, devicePreset.userAgent) : undefined);
 
+    // 주입 스크립트는 브라우저 spawn 전에 읽는다 — 잘못된 경로가
+    // launch 후에 던지면 브라우저 프로세스가 고아로 남는다
+    const injectScript = options.injectScriptPath
+      ? await readFile(options.injectScriptPath, 'utf-8')
+      : undefined;
+
     // Playwright의 기본 시그널 핸들러는 SIGINT/SIGTERM에서 브라우저를 즉시 닫아
     // 종료 시 세션 저장(storageState)이 실패한다 — 종료는 index.ts의 shutdown이 관리
     const browser = await launchers[engine].launch({
@@ -205,22 +209,25 @@ export class EngineSession {
     const statePath = sessionStatePath(options.url, engine);
     const restoreState = !options.freshSession && existsSync(statePath);
     let context: BrowserContext;
+    let page: Page;
     try {
-      context = await browser.newContext({
-        ...contextOptions,
-        ...(restoreState ? { storageState: statePath } : {}),
-      });
-    } catch {
-      // 저장된 상태 파일이 손상된 경우 — 깨끗하게 시작 (세션 파일은 종료 시 덮어써짐)
-      context = await browser.newContext(contextOptions);
+      try {
+        context = await browser.newContext({
+          ...contextOptions,
+          ...(restoreState ? { storageState: statePath } : {}),
+        });
+      } catch {
+        // 저장된 상태 파일이 손상된 경우 — 깨끗하게 시작 (세션 파일은 종료 시 덮어써짐)
+        context = await browser.newContext(contextOptions);
+      }
+      if (injectScript) await context.addInitScript({ content: injectScript });
+      page = await context.newPage();
+    } catch (err) {
+      // 기동 중도 실패 시 브라우저를 반드시 닫는다 — handleSIGINT:false라
+      // 여기서 안 닫으면 Ctrl-C로도 안 죽는 고아 프로세스가 남는다
+      await browser.close().catch(() => undefined);
+      throw err;
     }
-
-    if (options.injectScriptPath) {
-      const script = await readFile(options.injectScriptPath, 'utf-8');
-      await context.addInitScript({ content: script });
-    }
-
-    const page = await context.newPage();
     page.on('console', (msg) => events.onConsole(engine, msg.type(), msg.text()));
     page.on('pageerror', (err) => events.onPageError(engine, err.stack ?? err.message));
     page.on('requestfailed', (req) => {
@@ -266,7 +273,10 @@ export class EngineSession {
             bodyPreview,
             bodyTruncated,
           });
-        });
+        })
+        // 내비게이션으로 요청이 파기된 뒤 timing()/headers()가 던질 수 있다 —
+        // unhandled rejection(Node 기본: 프로세스 종료)이 되지 않게 삼킨다
+        .catch(() => undefined);
     });
     let lastNavigatedUrl = '';
     page.on('framenavigated', (frame) => {

@@ -235,8 +235,6 @@ async function main(): Promise<void> {
 
   const sessionEvents: SessionEvents = {
     onFrame: (engine, jpeg, scrollY, flags) => server.broadcastFrame(engine, jpeg, scrollY, flags),
-    onRawFrame: (engine, rgba, width, height) =>
-      server.broadcastRawFrame(engine, rgba, width, height),
     onConsole: (engine, level, text) =>
       server.broadcastEvent({ type: 'console', engine, level, text, ts: Date.now() }),
     onPageError: (engine, message) =>

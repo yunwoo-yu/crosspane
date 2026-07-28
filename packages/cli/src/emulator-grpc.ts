@@ -10,18 +10,11 @@ import * as protoLoader from '@grpc/proto-loader';
  * proto는 SDK emulator/lib에 동봉돼 있어 배포물에 포함할 필요가 없다.
  */
 
-interface ImageMessage {
-  image: Buffer;
-}
-
 // biome-ignore lint/suspicious/noExplicitAny: proto-loader 동적 스텁
 type GrpcStub = any;
 
 export class EmulatorGrpc {
-  private constructor(
-    private readonly stub: GrpcStub,
-    private screenStream: grpc.ClientReadableStream<ImageMessage> | null = null,
-  ) {}
+  private constructor(private readonly stub: GrpcStub) {}
 
   /** 에뮬레이터 gRPC에 연결 시도 — 짧은 데드라인으로 가용성 확인 후 실패 시 undefined */
   static async connect(sdkDir: string, port: number): Promise<EmulatorGrpc | undefined> {
@@ -49,35 +42,8 @@ export class EmulatorGrpc {
     }
   }
 
-  /** 렌더러 직결 화면 스트림 — RGBA raw(인코딩 제로), 화면이 변할 때만 프레임이 온다 */
-  startScreenStream(
-    width: number,
-    height: number,
-    onFrame: (rgba: Buffer, width: number, height: number) => void,
-  ): void {
-    this.stopScreenStream();
-    const stream = this.stub.streamScreenshot({
-      format: 'RGBA8888',
-      width,
-      height,
-    }) as grpc.ClientReadableStream<ImageMessage & { format?: { width: number; height: number } }>;
-    this.screenStream = stream;
-    stream.on('data', (message) => {
-      if (message.image?.length > 0) {
-        onFrame(
-          Buffer.from(message.image),
-          message.format?.width ?? width,
-          message.format?.height ?? height,
-        );
-      }
-    });
-    stream.on('error', () => undefined); // cancel 포함 — 재시작은 세션이 관리
-  }
-
-  stopScreenStream(): void {
-    this.screenStream?.cancel();
-    this.screenStream = null;
-  }
+  // 참고: streamScreenshot(RGBA raw 스트림)은 실측상 WS 대역폭 배압으로 역효과라
+  // 폐기했다 (android-emulator.ts의 비디오 경로 주석 참조). 재도입 시 배압 재검증 필수.
 
   /** 터치 이벤트 — pressure>0 = down/move, 0 = up */
   sendTouch(x: number, y: number, pressure: number): void {
@@ -88,7 +54,6 @@ export class EmulatorGrpc {
   }
 
   close(): void {
-    this.stopScreenStream();
     grpc.closeClient(this.stub);
   }
 }

@@ -39,7 +39,9 @@ export const ENGINE_NAMES_BY_CODE: readonly EngineName[] = [
 // VIDEO: [type u8][engine u8][H.264 Annex-B bytes] — 실시간 비디오 스트림 조각
 export const PACKET_TYPE_FRAME = 1;
 export const PACKET_TYPE_VIDEO = 2;
-// RAW: [type u8][engine u8][width u16LE][height u16LE][RGBA8888] — 인코딩/디코딩 제로 경로
+// RAW: [type u8][engine u8][width u16LE][height u16LE][RGBA8888] — 인코딩/디코딩 제로 경로.
+// 생산자(gRPC streamScreenshot)는 실측상 WS 배압 역효과로 폐기됐고 디코더만 남아 있다.
+// 코드 번호 3은 재배열 금지 — 새 패킷 타입은 4부터 (protocol-sync.md)
 export const PACKET_TYPE_RAW = 3;
 export const RAW_HEADER_BYTES = 6;
 export const FRAME_FLAG_FULL_PAGE = 1;

@@ -265,6 +265,37 @@ describe('startDashboardServer', () => {
     });
   });
 
+  it('except 클릭은 그 엔진만 제외하고 미러링된다 (Android 네이티브 탭 중복 방지)', async () => {
+    const chromium = fakeSession();
+    const android = { ...fakeSession(), touchAt: vi.fn(async () => {}) };
+    const sessions = new Map([
+      ['chromium', chromium as unknown as EngineSession],
+      ['android', android as unknown as EngineSession],
+    ] as [EngineName, EngineSession][]);
+    server = await startDashboardServer({
+      port: 0,
+      hello,
+      sessions,
+      paneController: fakeController(),
+    });
+    const client = await TestClient.connect(server.port);
+    clients.push(client);
+
+    // android pane이 네이티브 터치로 이미 처리한 클릭 — 나머지 엔진에만 재생
+    client.sendCommand({ type: 'click', x: 0.3, y: 0.6, except: 'android' });
+    await vi.waitFor(() => {
+      expect(chromium.clickAt).toHaveBeenCalledWith(0.3, 0.6);
+    });
+    expect(android.clickAt).not.toHaveBeenCalled();
+
+    // touch 스트림은 engine 필수 — 지정된 pane에만 전달된다
+    client.sendCommand({ type: 'touch', phase: 'down', x: 0.5, y: 0.5, engine: 'android' });
+    await vi.waitFor(() => {
+      expect(android.touchAt).toHaveBeenCalledWith('down', 0.5, 0.5);
+    });
+    expect(chromium.clickAt).toHaveBeenCalledTimes(1); // touch가 다른 엔진으로 새지 않는다
+  });
+
   it('잘못된 JSON을 받아도 죽지 않고 다음 커맨드를 처리한다', async () => {
     const a = fakeSession();
     const sessions = new Map([['chromium', a as unknown as EngineSession]] as [

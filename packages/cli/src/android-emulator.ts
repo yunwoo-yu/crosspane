@@ -13,6 +13,7 @@ import {
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
 import { EmulatorGrpc } from './emulator-grpc.js';
 import type { InputTarget, SessionEvents } from './session.js';
+import { createShellCommandChannel } from './shell-command-queue.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -112,8 +113,11 @@ export class AndroidEmulatorSession implements InputTarget {
   private imeReady: Promise<boolean> | null = null;
   /** shell = 자체 WebView 셸앱(앱 임베드 재현 + 콘솔 릴레이), chrome = 브라우저 폴백 */
   private mode: 'shell' | 'chrome' = 'chrome';
-  private readonly commandQueue: Record<string, unknown>[] = [];
-  private commandWaiter: ((commands: Record<string, unknown>[]) => void) | null = null;
+  private readonly commandChannel = createShellCommandChannel({
+    longPollMs: 8_000,
+    maxQueued: 200,
+    onEnqueue: () => this.markActivity(),
+  });
 
   private constructor(
     private readonly adbPath: string,
@@ -251,6 +255,17 @@ export class AndroidEmulatorSession implements InputTarget {
     });
   }
 
+  /**
+   * 비디오 스트림 사망 시 스크린샷 폴링을 되살린다 — 안 살리면 재spawn이 계속
+   * 실패할 때 pane이 마지막 프레임에서 영구히 굳는다. 스트림이 복구되면
+   * 다음 청크의 videoBytesReceived 검사가 폴링을 즉시 다시 멈춘다 (자가 정지)
+   */
+  private resumeCaptureFallback(): void {
+    if (this.stopped || !this.events) return;
+    this.captureLoop?.stop();
+    this.startPolling(this.events);
+  }
+
   private async captureAndEmitFrame(events: SessionEvents): Promise<void> {
     try {
       // screencap -p는 PNG를 stdout으로 출력한다 (createImageBitmap은 포맷을 스니핑하므로 OK)
@@ -275,32 +290,12 @@ export class AndroidEmulatorSession implements InputTarget {
   }
 
   private enqueue(command: Record<string, unknown>): void {
-    this.commandQueue.push(command);
-    if (this.commandWaiter) {
-      const waiter = this.commandWaiter;
-      this.commandWaiter = null;
-      waiter(this.commandQueue.splice(0));
-    } else if (this.commandQueue.length > 200) {
-      this.commandQueue.splice(0, this.commandQueue.length - 200);
-    }
-    this.markActivity();
+    this.commandChannel.enqueue(command);
   }
 
-  /** 셸 명령 롱폴 — iOS 셸과 동일 규약 (server /shell/android/commands) */
+  /** 셸 명령 롱폴 — 규약 구현은 shell-command-queue.ts (iOS와 공유) */
   waitForShellCommands(): Promise<unknown[]> {
-    if (this.commandQueue.length > 0) return Promise.resolve(this.commandQueue.splice(0));
-    this.commandWaiter?.([]);
-    return new Promise((resolve) => {
-      const waiter = (commands: Record<string, unknown>[]): void => {
-        clearTimeout(timer);
-        resolve(commands);
-      };
-      const timer = setTimeout(() => {
-        if (this.commandWaiter === waiter) this.commandWaiter = null;
-        resolve([]);
-      }, 8_000);
-      this.commandWaiter = waiter;
-    });
+    return this.commandChannel.waitForCommands();
   }
 
   /** 셸앱이 POST한 이벤트(콘솔/에러/내비게이션) → 세션 이벤트 */
@@ -451,10 +446,14 @@ export class AndroidEmulatorSession implements InputTarget {
       grpc.sendTouch(x, startY, 1024);
       for (let i = 1; i <= steps; i++) {
         await sleep(12);
+        if (this.stopped) return; // dispose로 채널이 닫히면 shutdown 채널 call이 throw한다
         grpc.sendTouch(x, Math.round(startY + ((endY - startY) * i) / steps), 1024);
       }
       await sleep(50); // 속도 0으로 홀드 — fling 방지
+      if (this.stopped) return;
       grpc.sendTouch(x, endY, 0);
+    } catch {
+      // 제스처 도중 채널 종료 등 — 입력 1회 유실은 비치명, 프로세스를 죽이지 않는다
     } finally {
       this.wheelGestureRunning = false;
     }
@@ -587,21 +586,30 @@ export class AndroidEmulatorSession implements InputTarget {
       this.scrcpySocket?.destroy();
       this.scrcpySocket = null;
       if (!this.stopped && this.viewersActive && this.videoProcess === proc) {
+        this.resumeCaptureFallback(); // 재spawn 실패가 이어져도 pane이 굳지 않게
         setTimeout(() => this.spawnVideoStream(), 300);
       }
     });
-    await new Promise((resolve) => setTimeout(resolve, 700)); // 서버 리슨 대기
-    const port = 27100 + Math.floor(Math.random() * 800);
-    await adb(this.adbPath, this.serial, ['forward', `tcp:${port}`, 'localabstract:scrcpy']);
-    const socket = net.connect(port, '127.0.0.1');
-    this.scrcpySocket = socket;
-    socket.on('data', (chunk: Buffer) => {
-      this.videoBytesReceived += chunk.length;
-      if (this.videoBytesReceived > 100_000) this.captureLoop?.stop();
-      this.videoChunkHandler?.(chunk);
-    });
-    socket.on('error', () => proc.kill('SIGKILL'));
-    socket.on('close', () => proc.kill('SIGKILL'));
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 700)); // 서버 리슨 대기
+      const port = 27100 + Math.floor(Math.random() * 800);
+      await adb(this.adbPath, this.serial, ['forward', `tcp:${port}`, 'localabstract:scrcpy']);
+      const socket = net.connect(port, '127.0.0.1');
+      this.scrcpySocket = socket;
+      socket.on('data', (chunk: Buffer) => {
+        this.videoBytesReceived += chunk.length;
+        if (this.videoBytesReceived > 100_000) this.captureLoop?.stop();
+        this.videoChunkHandler?.(chunk);
+      });
+      socket.on('error', () => proc.kill('SIGKILL'));
+      socket.on('close', () => proc.kill('SIGKILL'));
+    } catch (err) {
+      // forward/connect 실패 시 기기 위 scrcpy 서버를 반드시 죽인다 — 폴백이
+      // videoProcess를 덮어쓰면 exit 가드(videoProcess === proc)가 영원히 false라
+      // 재시도마다 인코딩 중인 고아 서버가 쌓인다
+      proc.kill('SIGKILL');
+      throw err;
+    }
   }
 
   private spawnScreenrecordStream(): void {
@@ -638,6 +646,7 @@ export class AndroidEmulatorSession implements InputTarget {
     proc.on('exit', () => {
       // 시청자 없음으로 의도적으로 멈춘 경우(videoProcess=null)는 재시작하지 않는다
       if (!this.stopped && this.viewersActive && this.videoProcess === proc) {
+        this.resumeCaptureFallback(); // 재spawn 실패가 이어져도 pane이 굳지 않게
         setTimeout(() => this.spawnVideoStream(), 300);
       }
     });
@@ -645,7 +654,16 @@ export class AndroidEmulatorSession implements InputTarget {
 
   async dispose(): Promise<void> {
     this.stopped = true;
+    // 지연 실행 잔재 정리 — 드래그 중 stop 시 moveTimer가 40ms 뒤 flushMove로
+    // 새 adb shell을 spawn하고, 롱폴 waiter는 8초간 응답을 붙잡는다
+    if (this.moveTimer) clearTimeout(this.moveTimer);
+    this.moveTimer = null;
+    this.pendingMove = null;
+    this.commandChannel.dispose();
     this.grpc?.close();
+    // shutdown된 gRPC 채널은 call 생성 시 동기 throw한다 (클릭 직후 stop의
+    // setTimeout 콜백 등) — null로 만들어 이후 접근을 전부 no-op으로
+    this.grpc = null;
     this.inputShell?.kill();
     this.videoProcess?.kill('SIGKILL');
     this.captureLoop?.stop();
@@ -663,15 +681,26 @@ export class AndroidEmulatorSession implements InputTarget {
 
   /** 인자 안전성: 이 경로는 숫자/키코드 인자 전용 (임의 문자열 금지 — text는 exec 경로 사용) */
   private runInputCommand(parts: (string | number)[]): void {
-    if (!this.inputShell || this.inputShell.exitCode !== null) {
-      this.inputShell = spawn(this.adbPath, ['-s', this.serial, 'shell'], {
+    if (this.stopped) return; // dispose 후 지연 콜백(moveTimer 등)이 새 셸을 spawn하지 않게
+    const alive =
+      this.inputShell &&
+      this.inputShell.exitCode === null &&
+      this.inputShell.signalCode === null &&
+      this.inputShell.stdin?.writable === true;
+    if (!alive) {
+      const proc = spawn(this.adbPath, ['-s', this.serial, 'shell'], {
         stdio: ['pipe', 'ignore', 'ignore'],
       });
-      this.inputShell.on('error', () => {
-        this.inputShell = null;
-      });
+      // spawn 실패뿐 아니라 stdin EPIPE(adb 서버 재시작 등)도 잡아야 한다 —
+      // 스트림 error는 리스너가 없으면 uncaught exception이다
+      const invalidate = (): void => {
+        if (this.inputShell === proc) this.inputShell = null;
+      };
+      proc.on('error', invalidate);
+      proc.stdin?.on('error', invalidate);
+      this.inputShell = proc;
     }
-    this.inputShell.stdin?.write(`${parts.join(' ')}\n`);
+    this.inputShell?.stdin?.write(`${parts.join(' ')}\n`);
   }
 }
 

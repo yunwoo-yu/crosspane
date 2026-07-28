@@ -20,12 +20,17 @@ function packageSourceDir(name: string): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), '..', name);
 }
 
+/** 버전 디렉터리 이름 중 최신을 고른다 — 숫자 비교 필수 (사전순은 android-9 > android-35) */
+export function latestVersionName(names: string[]): string | undefined {
+  return names
+    .filter((name) => !name.startsWith('.'))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .at(-1);
+}
+
 function latestVersionDir(parent: string): string | undefined {
   if (!existsSync(parent)) return undefined;
-  const latest = readdirSync(parent)
-    .filter((name) => !name.startsWith('.'))
-    .sort()
-    .at(-1);
+  const latest = latestVersionName(readdirSync(parent));
   return latest ? join(parent, latest) : undefined;
 }
 

@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
-import { encodeFramePacket, encodeRawPacket, encodeVideoPacket } from './frame-packet.js';
+import { encodeFramePacket, encodeVideoPacket } from './frame-packet.js';
 import type { ClientCommand, EngineName, HelloEvent, ServerEvent } from './protocol.js';
 import type { InputTarget } from './session.js';
 import { resolveDashboardDir, serveDashboardFile } from './static.js';
@@ -13,8 +13,6 @@ export interface DashboardServer {
   broadcastFrame(engine: EngineName, jpeg: Buffer, scrollY: number, flags?: number): void;
   /** 실시간 비디오 스트림 조각 — 캐시하지 않는다 (늦은 접속자는 스트림 재시작으로 키프레임을 받는다) */
   broadcastVideoChunk(engine: EngineName, chunk: Buffer): void;
-  /** RAW RGBA 프레임 (gRPC 직결) — 캐시하지 않는다 (연속 스트림) */
-  broadcastRawFrame(engine: EngineName, rgba: Buffer, width: number, height: number): void;
   close(): void;
 }
 
@@ -143,12 +141,19 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
         return;
       }
       if (shellMatch[2] === 'commands') {
-        // 롱폴: 명령이 생기면 즉시, 없으면 브릿지의 타임아웃까지 대기 후 빈 배열 응답
-        void options.shellBridge.waitForCommands(engine).then((commands) => {
-          if (res.writableEnded) return;
-          res.writeHead(200, { 'content-type': 'application/json' });
-          res.end(JSON.stringify(commands));
-        });
+        // 롱폴: 명령이 생기면 즉시, 없으면 브릿지의 타임아웃까지 대기 후 빈 배열 응답.
+        // 셸이 대기 중 죽으면 소켓은 destroy되지만 writableEnded는 false다 —
+        // 파괴된 응답에 쓰면 'error'가 리스너 없이 터진다
+        void options.shellBridge
+          .waitForCommands(engine)
+          .then((commands) => {
+            if (res.destroyed || res.writableEnded) return;
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(commands));
+          })
+          .catch(() => {
+            if (!res.destroyed && !res.writableEnded) res.writeHead(204).end();
+          });
       } else {
         let body = '';
         req.on('data', (chunk) => {
@@ -275,7 +280,7 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
     const tryListen = (): void => {
       httpServer.listen(options.port + attempt);
     };
-    httpServer.on('error', (err) => {
+    const onStartupError = (err: Error): void => {
       const isAddrInUse = (err as NodeJS.ErrnoException).code === 'EADDRINUSE';
       if (isAddrInUse && attempt + 1 < maxAttempts) {
         attempt += 1;
@@ -287,8 +292,13 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
           ? new Error(`Port ${options.port} is already in use — try a different --port`)
           : err,
       );
-    });
+    };
+    httpServer.on('error', onStartupError);
     httpServer.once('listening', () => {
+      // 기동 핸들러는 여기서 임무 종료 — 그대로 두면 listen 이후의 서버 에러가
+      // 이미 resolve된 Promise의 reject로 흘러가 완전히 무음 처리된다
+      httpServer.removeListener('error', onStartupError);
+      httpServer.on('error', (err) => console.error(`[crosspane] server error: ${String(err)}`));
       resolve({
         port: (httpServer.address() as AddressInfo).port,
         broadcastEvent(event: ServerEvent) {
@@ -302,9 +312,6 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
         },
         broadcastVideoChunk(engine: EngineName, chunk: Buffer) {
           sendToAllClients(encodeVideoPacket(engine, chunk));
-        },
-        broadcastRawFrame(engine: EngineName, rgba: Buffer, width: number, height: number) {
-          sendToAllClients(encodeRawPacket(engine, rgba, width, height));
         },
         close() {
           // httpServer.close()는 열린 소켓이 남아 있으면 대기하므로 클라이언트를 먼저 끊는다
