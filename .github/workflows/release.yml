@@ -65,7 +65,10 @@ jobs:
         if: steps.auth.outputs.ready == 'true'
         uses: changesets/action@v1
         with:
-          publish: pnpm release
+          # publish는 `pnpm run` 밖에서 실행해야 한다 — pnpm run이 자기 설정을
+          # npm_config_*로 주입하고(git-checks 등), 최신 npm은 미지 플래그를
+          # 에러로 거부해 publish가 죽는다 (0.6.2 배포 실패의 원인)
+          publish: pnpm build && npx changeset publish
           title: 'chore: version packages'
           commit: 'chore: version packages'
         env:
