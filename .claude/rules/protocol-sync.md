@@ -17,7 +17,8 @@ paths:
 - `protocol.ts`는 **isomorphic**이어야 한다 — 브라우저가 직접 번들하므로
   Node 전용 API(Buffer, fs 등) 추가 금지. 인코더는 `frame-packet.ts`(Node 전용)
 - 바이너리 패킷은 첫 바이트가 타입이다 (protocol.ts의 PACKET_TYPE_*):
-  - FRAME(1): `[type][엔진코드 u8][scrollY int32LE][JPEG]`. scrollY 미상은 음수(-1)
+  - FRAME(1): `[type][엔진코드 u8][flags u8][scrollY int32LE][JPEG]`. scrollY 미상은
+    음수(-1), flags는 FRAME_FLAG_FULL_PAGE 등 비트필드
   - VIDEO(2): `[type][엔진코드 u8][H.264 Annex-B bytes]` — 캐시 금지(스트림).
     늦은 접속자는 서버의 onClientConnect → 스트림 재시작으로 키프레임을 받는다
 - **기존 엔진의 코드 번호를 재배열하지 말 것** — 새 엔진은 뒤에 추가만

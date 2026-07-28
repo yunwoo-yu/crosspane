@@ -4,6 +4,12 @@
 // chromium 1개 엔진으로 빠르게 확인한다. CI와 로컬(pnpm smoke) 공용.
 import { spawn } from 'node:child_process';
 import http from 'node:http';
+// 패킷 규약을 dist에서 import — 매직 오프셋 하드코딩이 규약 변경을 조용히 무시하지 않게
+import {
+  ENGINE_CODES,
+  FRAME_HEADER_BYTES,
+  PACKET_TYPE_FRAME,
+} from '../packages/cli/dist/protocol.js';
 
 const APP_PORT = 7998;
 const CROSSPANE_PORT = 7997;
@@ -91,7 +97,12 @@ ws.onmessage = (event) => {
     }
   } else {
     const bytes = new Uint8Array(event.data);
-    if (bytes[0] === 1 && bytes[1] === 0 && bytes[7] === 0xff && bytes[8] === 0xd8) {
+    const isJpegFrame =
+      bytes[0] === PACKET_TYPE_FRAME &&
+      bytes[1] === ENGINE_CODES.chromium &&
+      bytes[FRAME_HEADER_BYTES] === 0xff &&
+      bytes[FRAME_HEADER_BYTES + 1] === 0xd8;
+    if (isJpegFrame) {
       frameCount += 1;
       checks.jpegFramePacket = true;
       if (inputSent && frameCount > 1) checks.frameAfterInput = true;
