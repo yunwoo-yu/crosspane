@@ -24,7 +24,7 @@ jobs:
       # pnpm 버전은 루트 package.json의 packageManager 필드가 단일 소스다
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -53,7 +53,7 @@ jobs:
       # pnpm 버전은 루트 package.json의 packageManager 필드가 단일 소스다
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
