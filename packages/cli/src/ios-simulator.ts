@@ -197,7 +197,16 @@ export class IosSimulatorSession implements InputTarget {
     if (options.controlUrl) {
       try {
         const appDir = await ensureShellApp(developerDir);
-        await simctl(developerDir, ['install', device.udid, appDir]);
+        // 부팅 직후엔 install이 일시 실패할 수 있다 (실측: 외부 shutdown 후 재부팅 레이스)
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await simctl(developerDir, ['install', device.udid, appDir]);
+            break;
+          } catch (err) {
+            if (attempt >= 3) throw err;
+            await new Promise((resolve) => setTimeout(resolve, 3_000));
+          }
+        }
         await simctl(developerDir, ['terminate', device.udid, SHELL_BUNDLE_ID]).catch(
           () => undefined,
         );
@@ -418,15 +427,45 @@ export class IosSimulatorSession implements InputTarget {
   private async startSckStream(): Promise<void> {
     try {
       const helper = await ensureSckHelper();
-      // 시뮬레이터 창을 화면에 노출 (SCK는 창이 보여야 캡처 가능).
-      // 재시도부터는 open 생략 — 주기적으로 앱을 전면으로 끌어오면 포커스를 뺏는다
-      if (this.sckRetries < 2) {
-        await execFileAsync('open', ['-a', 'Simulator'], {
-          env: { ...process.env, DEVELOPER_DIR: this.developerDir },
-          timeout: 30_000,
-        }).catch(() => undefined);
-        await new Promise((resolve) => setTimeout(resolve, 4_000)); // 창 렌더 대기
+      // 베젤 아트가 켜져 있으면 창에 타이틀바+베젤이 섞여 고정비 크롭이 어긋난다
+      // (실측: 검은 테두리 프레임 + 클릭 좌표 오프셋) — 화면만 그리도록 끈다
+      if (this.sckRetries === 0) {
+        const chrome = await execFileAsync('defaults', [
+          'read',
+          'com.apple.iphonesimulator',
+          'ShowChrome',
+        ]).catch(() => ({ stdout: '1' }));
+        if (chrome.stdout.trim() !== '0') {
+          await execFileAsync('defaults', [
+            'write',
+            'com.apple.iphonesimulator',
+            'ShowChrome',
+            '-bool',
+            'false',
+          ]).catch(() => undefined);
+          // 주의: killall Simulator는 부팅된 기기까지 내려 셸 앱이 증발한다 (실측) —
+          // 이미 떠 있으면 재시작하지 않고 다음 Simulator 실행부터 적용되게만 한다
+          const running = await execFileAsync('pgrep', ['-x', 'Simulator']).then(
+            () => true,
+            () => false,
+          );
+          if (running) {
+            console.log(
+              '  ℹ ios-sim: 시뮬레이터 베젤 표시를 껐습니다 — 다음 Simulator 실행부터 캡처 크롭이 정합됩니다',
+            );
+          } else {
+            console.log('  ℹ ios-sim: 시뮬레이터 베젤 표시를 끕니다 (창 캡처 크롭 정합)');
+          }
+        }
       }
+      // 시뮬레이터 창을 화면에 노출 (SCK는 창이 보여야 캡처 가능).
+      // -g: 백그라운드로 열어 포커스를 뺏지 않는다 — 매 재시도마다 안전
+      // (open 생략 시 Simulator.app이 없으면 SCK가 영원히 못 붙는다 — 실측)
+      await execFileAsync('open', ['-g', '-a', 'Simulator'], {
+        env: { ...process.env, DEVELOPER_DIR: this.developerDir },
+        timeout: 30_000,
+      }).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 4_000)); // 창 렌더 대기
       const viewport = '0.4613'; // iPhone 세로 화면비(w/h) 근사 — 타이틀바 크롭용
       const proc = spawn(helper, [viewport], { stdio: ['ignore', 'pipe', 'pipe'] });
       this.sckProcess = proc;
