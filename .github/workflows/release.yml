@@ -56,6 +56,12 @@ jobs:
             echo "No npm auth configured — skipping release (see workflow header comment)"
           fi
 
+      # 배포 직전 최종 게이트 — release는 main push 즉시 돌므로 CI 완주를 기다리지 않는다.
+      # 최소한 lint+test를 여기서 한 번 더 돌려 깨진 커밋의 publish를 막는다
+      - name: Verify before publish
+        if: steps.auth.outputs.ready == 'true'
+        run: pnpm exec biome ci . && pnpm test
+
       - name: Create release PR or publish
         if: steps.auth.outputs.ready == 'true'
         uses: changesets/action@v1
@@ -66,3 +72,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # OIDC가 있는 CI에서만 provenance 첨부 — 로컬 수동 publish는 영향 없음
+          NPM_CONFIG_PROVENANCE: 'true'

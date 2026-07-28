@@ -1,4 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { BrowserEngineName } from './protocol.js';
+
+/** CLI 버전 (package.json) — 버그 리포트 템플릿이 요구하는 정보라 -v로 노출한다 */
+export function cliVersion(): string {
+  const packageJsonPath = resolve(dirname(fileURLToPath(import.meta.url)), '../package.json');
+  return (JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as { version: string }).version;
+}
 
 export const HELP_TEXT = `crosspane — preview one URL across engines and real devices in a single dashboard
 
@@ -34,6 +43,7 @@ Options:
   --android            Force the real Android pane regardless of profile
   --no-android         Disable the Android pane
   -h, --help           Show this help
+  -v, --version        Print the crosspane version
 
 By default crosspane emulates deployed webview environments: Chromium gets a real
 Android WebView UA (with the "wv" token) and WebKit gets a real WKWebView UA

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { AndroidEmulatorSession, resolveAndroidSdkDir } from './android-emulator.js';
-import { HELP_TEXT, parseCliArguments } from './args.js';
+import { cliVersion, HELP_TEXT, parseCliArguments } from './args.js';
 import { installPlaywrightBrowser, isMissingBrowserError } from './browser-install.js';
 import { resolveDeviceViewport } from './devices.js';
 import { hasTargetArgument, probePort, promptForTarget } from './interactive.js';
@@ -16,6 +16,11 @@ async function main(): Promise<void> {
   let argv = process.argv.slice(2);
   if (argv.includes('-h') || argv.includes('--help')) {
     console.log(HELP_TEXT);
+    process.exit(0);
+  }
+  // 인터랙티브 프롬프트보다 먼저 처리해야 `crosspane --version`이 URL을 묻지 않는다
+  if (argv.includes('-v') || argv.includes('--version')) {
+    console.log(cliVersion());
     process.exit(0);
   }
 

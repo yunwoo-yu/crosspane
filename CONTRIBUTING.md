@@ -35,8 +35,20 @@ enforces Biome on staged files.
 - New OS-specific logic must be a pure, unit-tested function (see
   `androidSdkCandidateDirs` for the pattern)
 - Real-device adapter behavior can't run in CI — verify locally and note it in the PR
+- **If your change affects users** (fix, feature, behavior change), add a changeset:
+  run `pnpm changeset`, pick `patch` or `minor`, and describe the change in one or two
+  sentences (this becomes the CHANGELOG entry). Internal-only changes (docs, tests,
+  refactors with no visible effect) don't need one.
 
 ## Releasing (maintainers)
 
-`npm publish` from `packages/cli` — `prepublishOnly` runs build + tests and bundles
-the dashboard into `dist/public`.
+Releases are automated with [changesets](https://github.com/changesets/changesets):
+
+1. PRs land on `main` with changeset files (see above)
+2. The release workflow opens/updates a **"chore: version packages"** PR that bumps
+   versions and updates `packages/cli/CHANGELOG.md`
+3. Merging that PR publishes to npm (Trusted Publishing/OIDC) and pushes the
+   `crosspane@x.y.z` git tag
+
+Manual `npm publish` is not the supported path — `prepublishOnly` (build + tests)
+exists only as a last-resort safety net.

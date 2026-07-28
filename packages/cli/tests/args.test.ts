@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCliArguments, resolveTargetUrl } from '../src/args';
+import { cliVersion, parseCliArguments, resolveTargetUrl } from '../src/args';
 
 describe('resolveTargetUrl', () => {
   it(':3000 형태를 localhost URL로 확장한다', () => {
@@ -33,6 +33,10 @@ describe('parseCliArguments', () => {
 
   it('--host로 바인드 주소를 바꿀 수 있다', () => {
     expect(parseCliArguments([':3000', '--host', '0.0.0.0']).host).toBe('0.0.0.0');
+  });
+
+  it('cliVersion은 package.json의 semver를 읽는다', () => {
+    expect(cliVersion()).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   it('--profile web은 Firefox를 자동 시작에 추가한다', () => {
