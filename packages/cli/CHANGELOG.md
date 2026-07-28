@@ -1,5 +1,11 @@
 # crosspane
 
+## 0.6.1
+
+### Patch Changes
+
+- d6e55b4: fix: npm 패키지 페이지에 README/LICENSE가 표시되도록 빌드 시 저장소 루트에서 동기화 (기존에는 패키지 디렉터리에 없어 npm 페이지가 비어 있었다). README 전면 개정 — 베타 안내, 이미 구현된 기능(IME 미러링·네트워크 패널·픽셀 diff·셸앱·세션 유지 등)을 로드맵에서 기능 목록으로 이동, 트러블슈팅 추가. 셸 이벤트 파서 통일 — Android 콘솔 warn 레벨 정규화와 중복 내비게이션 억제가 iOS와 동일해짐
+
 ## 0.6.0
 
 ### Minor Changes
