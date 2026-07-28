@@ -1,4 +1,5 @@
 import { type RefObject, useEffect } from 'react';
+import { displayToEngineScale } from '../lib/canvas';
 import type { ScrollStreamer } from '../scroll-streamer';
 
 /**
@@ -22,7 +23,7 @@ export function useWheelMirroring(options: {
     const handleWheel = (event: WheelEvent): void => {
       event.preventDefault();
       const canvas = getCanvas();
-      const scale = canvas && canvas.clientHeight > 0 ? canvas.height / canvas.clientHeight : 1;
+      const scale = displayToEngineScale(canvas);
       // 휠 위치 정규화 — 엔진이 그 지점의 실제 스크롤 컨테이너를 찾는다
       const rect = canvas?.getBoundingClientRect();
       const nx = rect && rect.width > 0 ? (event.clientX - rect.left) / rect.width : undefined;

@@ -43,7 +43,18 @@ export class PaneScreen {
      *   선행 표시해 스트림 지연(~0.5s)을 체감에서 지운다
      */
     private echoMode: 'absolute' | 'relative' = 'absolute',
-  ) {}
+  ) {
+    this.initialEchoMode = echoMode;
+  }
+
+  /** 강등 복구 기준 — 실기기 pane(relative 고정)은 승격 대상이 아니다 */
+  private readonly initialEchoMode: 'absolute' | 'relative';
+  private validScrollYStreak = 0;
+
+  /** 현재 에코 모드 (테스트/진단용) */
+  get mode(): 'absolute' | 'relative' {
+    return this.echoMode;
+  }
 
   // relative 에코 상태 — 각 델타는 ECHO_DECAY_MS에 걸쳐 0으로 감쇠 (스트림이 따라오는 시간)
   private static readonly RELATIVE_DECAY_MS = 300;
@@ -143,8 +154,16 @@ export class PaneScreen {
       }
       drawFrame(canvas, frame);
       this.lastCanvas = canvas;
-      // scrollY 미상 스트림(idb 등)으로 전환된 pane은 절대 에코가 불가능 — 상대 에코로 강등
-      if (scrollY < 0 && this.echoMode === 'absolute') this.echoMode = 'relative';
+      // scrollY 미상 스트림(idb 등)으로 전환된 pane은 절대 에코가 불가능 — 상대 에코로 강등.
+      // 유효 scrollY가 연속 복귀하면(일시적 -1 프레임 뒤) 절대 에코로 승격 복구한다 —
+      // 강등이 영구면 브라우저 pane이 세션 내내 감쇠 에코로 떨어진 채 남는다
+      if (scrollY < 0) {
+        this.validScrollYStreak = 0;
+        if (this.echoMode === 'absolute') this.echoMode = 'relative';
+      } else if (this.echoMode === 'relative' && this.initialEchoMode === 'absolute') {
+        this.validScrollYStreak += 1;
+        if (this.validScrollYStreak >= 3) this.echoMode = 'absolute';
+      }
       if (this.echoMode === 'relative') {
         // 프레임 도착이 에코를 리셋하지 않는다 — 스트림은 항상 과거라 리셋하면 뒤로 튄다
         this.applyRelativeEcho(now);

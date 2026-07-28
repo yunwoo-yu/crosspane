@@ -297,6 +297,49 @@ describe('useCrosspaneSocket', () => {
     });
   });
 
+  it('재접속 시 서버 히스토리 재생이 로그를 중복 누적시키지 않는다', () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    const first = FakeWebSocket.instances[0];
+
+    // 1차 세션: hello + 히스토리
+    act(() => {
+      first.receiveEvent(helloEvent);
+      first.receiveEvent({ type: 'console', engine: 'chromium', level: 'log', text: 'a', ts: 1 });
+    });
+    flushBatch();
+    expect(result.current.logs).toHaveLength(1);
+
+    // 끊김 → 재접속: 서버는 접속마다 hello 후 같은 히스토리를 전량 재생한다
+    act(() => first.close());
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    const second = FakeWebSocket.instances[1];
+    act(() => {
+      second.receiveEvent(helloEvent);
+      second.receiveEvent({ type: 'console', engine: 'chromium', level: 'log', text: 'a', ts: 1 });
+    });
+    flushBatch();
+    expect(result.current.logs).toHaveLength(1); // 중복 누적 없음 (hello가 세션 경계)
+  });
+
+  it('이전 소켓의 늦은 close가 새 소켓의 connected를 덮어쓰지 않는다', () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    const first = FakeWebSocket.instances[0];
+
+    act(() => first.close());
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    const second = FakeWebSocket.instances[1];
+    act(() => second.open());
+    expect(result.current.connected).toBe(true);
+
+    // 좀비가 된 1차 소켓의 close 이벤트가 늦게 도착해도 무시된다
+    act(() => first.close());
+    expect(result.current.connected).toBe(true);
+  });
+
   it('이벤트 폭주 시 배칭 — 여러 이벤트가 한 번의 상태 반영으로 묶인다', () => {
     const { result } = renderHook(() => useCrosspaneSocket());
     const socket = FakeWebSocket.instances[0];

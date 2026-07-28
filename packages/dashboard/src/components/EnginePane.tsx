@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { ENGINE_LABEL } from '../constants';
 import { usePaneMirroring } from '../hooks/usePaneMirroring';
 import { toDisplayPath } from '../log-utils';
@@ -29,8 +30,10 @@ interface EnginePaneProps {
 /**
  * 엔진 pane 카드 — 미러링 로직은 전부 usePaneMirroring에 있고,
  * 이 컴포넌트는 헤더/상태 표시와 마크업만 담당한다.
+ * memo: 프레임은 상태를 안 거치므로 로그 폭주(초당 ~20렌더) 시 props가 같은
+ * pane의 리렌더를 건너뛴다 — App 쪽 파생값 useMemo가 전제 조건이다.
  */
-export function EnginePane({
+export const EnginePane = memo(function EnginePane({
   engine,
   viewport,
   state,
@@ -137,4 +140,4 @@ export function EnginePane({
       </div>
     </section>
   );
-}
+});

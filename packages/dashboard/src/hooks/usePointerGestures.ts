@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { DRAG_THRESHOLD_PX, type PointerSample, resolvePointerGesture } from '../input-utils';
+import { displayToEngineScale } from '../lib/canvas';
 import type { ScrollStreamer } from '../scroll-streamer';
 import type { ClientCommand } from '../types';
 
@@ -80,7 +81,7 @@ export function usePointerGestures(options: {
         if (!startRef.current) return;
         // 로컬 선행 에코 — 스트림 지연을 기다리지 않고 즉시 화면을 밀어준다
         const canvas = getCanvas();
-        const scale = canvas && canvas.clientHeight > 0 ? canvas.height / canvas.clientHeight : 1;
+        const scale = displayToEngineScale(canvas);
         const moveDelta = (lastPyRef.current - event.clientY) * scale;
         lastPyRef.current = event.clientY;
         if (moveDelta !== 0) onTouchDelta?.(moveDelta);
@@ -116,12 +117,6 @@ export function usePointerGestures(options: {
     };
   }
 
-  const displayToEngineScale = (): number => {
-    const canvas = getCanvas();
-    if (!canvas || canvas.clientHeight === 0) return 1;
-    return canvas.height / canvas.clientHeight;
-  };
-
   return {
     onPointerDown: (event: React.PointerEvent<HTMLCanvasElement>) => {
       focusTarget.current?.focus();
@@ -144,7 +139,7 @@ export function usePointerGestures(options: {
       if (modeRef.current === 'scroll') {
         // 드래그 위로 = 콘텐츠 아래로 (터치 스크롤 방향). 시작 지점 좌표를 실어
         // 엔진이 그 아래의 실제 스크롤 컨테이너를 스크롤하게 한다
-        const deltaY = (lastPyRef.current - event.clientY) * displayToEngineScale();
+        const deltaY = (lastPyRef.current - event.clientY) * displayToEngineScale(getCanvas());
         lastPyRef.current = event.clientY;
         if (deltaY !== 0) streamer.add(deltaY, Date.now(), start.nx, start.ny);
       }

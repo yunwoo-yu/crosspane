@@ -101,6 +101,11 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     [],
   );
 
+  const sendCommand = useCallback((command: ClientCommand) => {
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
+  }, []);
+
   // 실시간 비디오 스트림(H.264) — 디코드 결과는 스냅샷 프레임과 같은 경로로 흐른다.
   // 디코더 오류 시 서버에 재시작을 요청해 키프레임부터 자가 회복 (잔상 방지)
   const lastRestartRef = useRef(0);
@@ -122,6 +127,12 @@ export function useCrosspaneSocket(): CrosspaneConnection {
           setEngineStates(
             Object.fromEntries(event.engines.map((engine) => [engine, { status: 'starting' }])),
           );
+          // hello는 접속당 1회의 세션 경계다 — 서버가 접속마다 히스토리를 전량
+          // 재생하므로, 이전 세션 분을 비우지 않으면 재접속마다 로그가 중복 누적된다
+          pendingLogsRef.current = [];
+          pendingNetworkRef.current = [];
+          setLogs([]);
+          setNetworkEntries([]);
           break;
         case 'engine-status':
           if (event.status === 'stopped') resetPipeline(event.engine);
@@ -206,6 +217,9 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       const engine = ENGINE_NAMES_BY_CODE[bytes[1]];
       if (!engine) return;
       if (bytes[0] === PACKET_TYPE_RAW) {
+        // 구독자 없는 pane의 프레임은 픽셀 복사 자체를 생략한다 (FRAME 경로와 동일 계약)
+        const rawListeners = frameListenersRef.current.get(engine);
+        if (!rawListeners || rawListeners.size === 0) return;
         // RAW RGBA — 디코딩 제로: ImageData로 감싸 바로 그린다
         const view = new DataView(packet);
         const width = view.getUint16(2, true);
@@ -215,7 +229,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
           dispatchFrame(
             engine,
             new ImageData(pixels.slice(0, width * height * 4), width, height),
-            -1,
+            SCROLL_Y_UNKNOWN,
           );
         }
         return;
@@ -234,17 +248,12 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       const scrollY = new DataView(packet).getInt32(3, true);
       const jpegBlob = new Blob([bytes.subarray(FRAME_HEADER_BYTES)], { type: 'image/jpeg' });
       // createImageBitmap은 디코딩을 메인 스레드 밖에서 수행한다
-      void createImageBitmap(jpegBlob).then((frame) =>
-        dispatchFrame(engine, frame, scrollY, fullPage),
-      );
+      void createImageBitmap(jpegBlob)
+        .then((frame) => dispatchFrame(engine, frame, scrollY, fullPage))
+        .catch(() => undefined); // 손상 JPEG 1장이 unhandled rejection이 되지 않게
     },
     [pushVideoChunk, dispatchFrame],
   );
-
-  const sendCommand = useCallback((command: ClientCommand) => {
-    const socket = socketRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
-  }, []);
 
   /** 현재 프레임 구독 중인 엔진 목록을 서버에 알린다 — 안 보는 pane은 서버가 캡처를 끈다 */
   const sendWatchedEngines = useCallback(() => {
@@ -268,12 +277,19 @@ export function useCrosspaneSocket(): CrosspaneConnection {
         // 재접속 시 현재 시청 목록을 다시 알린다 (서버는 미전송 클라이언트를 전체 시청으로 간주)
         sendWatchedEngines();
       };
-      // CLI 재시작 등으로 끊기면 자동 재접속한다
+      // CLI 재시작 등으로 끊기면 자동 재접속한다.
+      // 좀비 소켓 가드: 이전 소켓의 늦은 close/message가 새 소켓의 상태를
+      // 덮어쓰지 않게 한다 (StrictMode 재마운트·재접속 레이스에서 실제 발생)
       socket.onclose = () => {
+        if (socketRef.current !== socket) return;
         setConnected(false);
+        // 재접속하면 서버가 비디오 스트림을 재시작(새 SPS/IDR)한다 — 이전 세션의
+        // 미완 NAL과 sawKeyframe을 리셋하지 않으면 새 스트림 첫 유닛이 오염된다
+        for (const engine of ENGINE_NAMES_BY_CODE) resetPipeline(engine);
         if (!disposed) retryTimer = window.setTimeout(connect, RECONNECT_DELAY_MS);
       };
       socket.onmessage = (ev: MessageEvent<string | ArrayBuffer>) => {
+        if (socketRef.current !== socket) return;
         if (typeof ev.data === 'string') {
           handleServerEvent(JSON.parse(ev.data) as ServerEvent);
         } else {
@@ -289,7 +305,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       if (flushTimerRef.current !== null) window.clearTimeout(flushTimerRef.current);
       socketRef.current?.close();
     };
-  }, [handleServerEvent, handleBinaryPacket, sendWatchedEngines]);
+  }, [handleServerEvent, handleBinaryPacket, sendWatchedEngines, resetPipeline]);
 
   const clearLogs = useCallback(() => {
     pendingLogsRef.current = [];

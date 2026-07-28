@@ -23,6 +23,8 @@ export interface H264AccessUnit {
 }
 
 const START_CODE = new Uint8Array([0, 0, 0, 1]);
+/** 미완 NAL 보류 버퍼 상한 — 1080p 키프레임(수백 KB)보다 넉넉하게 */
+export const MAX_PENDING_BYTES = 4 * 1024 * 1024;
 
 function concat(parts: Uint8Array[]): Uint8Array {
   const total = parts.reduce((sum, part) => sum + part.length, 0);
@@ -75,6 +77,11 @@ function findStartCodes(data: Uint8Array): StartCodeMark[] {
 
 export class H264AnnexBParser {
   private pending: Uint8Array = new Uint8Array(0);
+
+  /** 보류 버퍼 크기 (테스트/진단용) */
+  get pendingBytes(): number {
+    return this.pending.byteLength;
+  }
   private sps: Uint8Array | null = null;
   private pps: Uint8Array | null = null;
   /** 현재 유닛에 붙일 비VCL NAL 대기열 (SEI 등) */
@@ -110,7 +117,10 @@ export class H264AnnexBParser {
     const data = concat([this.pending, bytes]);
     const marks = findStartCodes(data);
     if (marks.length < 2) {
-      this.pending = data;
+      // 손상 스트림으로 시작 코드가 오지 않으면 pending이 무한히 자라고
+      // (매 청크 전체 재스캔 O(n²)), 디코더에 아무것도 안 들어가 에러 기반
+      // 자가 회복도 닿지 않는다 — 상한 초과 시 버리고 다음 시작 코드부터 재동기화
+      this.pending = data.byteLength > MAX_PENDING_BYTES ? new Uint8Array(0) : data;
       return [];
     }
 

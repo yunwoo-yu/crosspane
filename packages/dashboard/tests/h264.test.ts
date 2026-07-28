@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codecStringFromSps, H264AnnexBParser } from '../src/h264';
+import { codecStringFromSps, H264AnnexBParser, MAX_PENDING_BYTES } from '../src/h264';
 
 // [시작코드][NAL] 빌더 — 타입만 의미 있는 최소 NAL
 const nal = (type: number, ...payload: number[]) => [type & 0x1f, ...payload];
@@ -51,6 +51,20 @@ describe('H264AnnexBParser', () => {
     expect(units).toHaveLength(3);
     expect(units[1].isKeyframe).toBe(false);
     expect(units[1].data[4] & 0x1f).toBe(1); // 시작 코드 바로 뒤가 P NAL
+  });
+});
+
+describe('pending 버퍼 상한 (손상 스트림 방어)', () => {
+  it('시작 코드 없는 청크가 상한을 넘으면 버리고, 다음 시작 코드부터 재동기화한다', () => {
+    const parser = new H264AnnexBParser();
+    // 시작 코드가 전혀 없는 손상 데이터로 상한 초과까지 밀어넣는다
+    const junk = new Uint8Array(1024 * 1024).fill(0x55);
+    for (let i = 0; i < 5; i++) expect(parser.push(junk)).toEqual([]);
+    // 상한 초과 시 pending이 버려져 무한 성장하지 않는다
+    expect(parser.pendingBytes).toBeLessThanOrEqual(MAX_PENDING_BYTES);
+    // 이후 정상 스트림이 오면 다시 프레임이 나온다
+    const units = drain(parser, bytes(sc4, SPS, sc4, PPS, sc4, IDR, sc4, P_FRAME));
+    expect(units.some((unit) => unit.isKeyframe)).toBe(true);
   });
 });
 
