@@ -4,7 +4,12 @@ import * as net from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { ensureAndroidShellApk } from './android-shell.js';
+import {
+  ensureAndroidImeApk,
+  ensureAndroidShellApk,
+  IME_BROADCAST_ACTION,
+  IME_ID,
+} from './android-shell.js';
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
 import { EmulatorGrpc } from './emulator-grpc.js';
 import type { InputTarget, SessionEvents } from './session.js';
@@ -103,6 +108,8 @@ export class AndroidEmulatorSession implements InputTarget {
   private currentUrl: string;
 
   private events?: SessionEvents;
+  private sdkDir: string | null = null;
+  private imeReady: Promise<boolean> | null = null;
   /** shell = 자체 WebView 셸앱(앱 임베드 재현 + 콘솔 릴레이), chrome = 브라우저 폴백 */
   private mode: 'shell' | 'chrome' = 'chrome';
   private readonly commandQueue: Record<string, unknown>[] = [];
@@ -146,6 +153,7 @@ export class AndroidEmulatorSession implements InputTarget {
     const screen = parseScreenSize(wmSize.stdout);
 
     const session = new AndroidEmulatorSession(adbPath, serial, screen, url);
+    session.sdkDir = sdkDir;
     await session.skipChromeFirstRun();
     await session.openUrl(url);
     // 1순위: 자체 WebView 셸앱 — Chrome UI 없이 앱 임베드 웹뷰 그대로 + 콘솔 릴레이.
@@ -183,6 +191,9 @@ export class AndroidEmulatorSession implements InputTarget {
     events.onStatus(ENGINE, 'ready', detail);
     session.events = events;
     session.startPolling(events);
+    // 한글 등 비ASCII 입력용 IME를 백그라운드로 미리 설치 — 첫 입력이 늦지 않게.
+    // events 연결 후에 시작해야 실패 경고가 대시보드 콘솔에 보인다
+    void session.ensureIme().catch(() => undefined);
     // 화면은 scrcpy h264가 최적(RAW는 WS 대역폭 배압으로 역효과 실측) —
     // gRPC는 입력(sendTouch, 왕복 수 ms) 전담
     return session;
@@ -455,15 +466,43 @@ export class AndroidEmulatorSession implements InputTarget {
     if (keycode !== undefined) this.runInputCommand(['input', 'keyevent', keycode]);
   }
 
+  /**
+   * 무화면 IME 설치+선택 (1회) — adb `input text`의 ASCII 한계를 우회해
+   * 한글 등 비ASCII를 커밋할 수 있게 한다. 키보드 UI가 없어 화면을 가리지 않는다.
+   */
+  private ensureIme(): Promise<boolean> {
+    this.imeReady ??= (async () => {
+      if (!this.sdkDir) return false;
+      try {
+        const apkPath = await ensureAndroidImeApk(this.sdkDir);
+        await adb(this.adbPath, this.serial, ['install', '-r', apkPath]);
+        // 설치 직후엔 InputMethodManager가 새 IME를 아직 모를 수 있다 (실측) — 재시도
+        for (let attempt = 0; ; attempt++) {
+          const result = await this.shell(['ime', 'enable', IME_ID]);
+          if (String(result.stdout).includes('now enabled')) break;
+          if (attempt >= 4) throw new Error(`ime enable failed: ${result.stdout}`);
+          await new Promise((r) => setTimeout(r, 1_500));
+        }
+        await this.shell(['ime', 'set', IME_ID]);
+        return true;
+      } catch (err) {
+        this.events?.onConsole(
+          ENGINE,
+          'warning',
+          `[crosspane] 한글 IME 설치 실패 — 비ASCII 입력 불가 (${String(err).slice(0, 120)})`,
+        );
+        return false;
+      }
+    })();
+    return this.imeReady;
+  }
+
   async typeText(text: string): Promise<void> {
-    // adb `input text`는 ASCII만 주입 가능 — 한글 등은 IME 앱(ADBKeyboard) 없이는 불가.
-    // 조용히 사라지면 버그처럼 보이므로 콘솔에 이유를 남긴다
+    // adb `input text`는 ASCII만 주입 가능 — 비ASCII(한글 등)는 자체 IME로 커밋한다
     if (/[^\x20-\x7e]/.test(text)) {
-      this.events?.onConsole(
-        ENGINE,
-        'warning',
-        `[crosspane] Android 에뮬레이터는 비ASCII 입력(한글 등)을 지원하지 않습니다 (adb 한계): "${text}"`,
-      );
+      if (!(await this.ensureIme())) return;
+      const b64 = Buffer.from(text, 'utf8').toString('base64');
+      await this.shell(['am', 'broadcast', '-a', IME_BROADCAST_ACTION, '--es', 'b64', b64]);
       return;
     }
     // input text는 공백을 %s로 이스케이프해야 한다

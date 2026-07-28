@@ -418,12 +418,15 @@ export class IosSimulatorSession implements InputTarget {
   private async startSckStream(): Promise<void> {
     try {
       const helper = await ensureSckHelper();
-      // 시뮬레이터 창을 화면에 노출 (SCK는 창이 보여야 캡처 가능)
-      await execFileAsync('open', ['-a', 'Simulator'], {
-        env: { ...process.env, DEVELOPER_DIR: this.developerDir },
-        timeout: 30_000,
-      }).catch(() => undefined);
-      await new Promise((resolve) => setTimeout(resolve, 4_000)); // 창 렌더 대기
+      // 시뮬레이터 창을 화면에 노출 (SCK는 창이 보여야 캡처 가능).
+      // 재시도부터는 open 생략 — 주기적으로 앱을 전면으로 끌어오면 포커스를 뺏는다
+      if (this.sckRetries < 2) {
+        await execFileAsync('open', ['-a', 'Simulator'], {
+          env: { ...process.env, DEVELOPER_DIR: this.developerDir },
+          timeout: 30_000,
+        }).catch(() => undefined);
+        await new Promise((resolve) => setTimeout(resolve, 4_000)); // 창 렌더 대기
+      }
       const viewport = '0.4613'; // iPhone 세로 화면비(w/h) 근사 — 타이틀바 크롭용
       const proc = spawn(helper, [viewport], { stdio: ['ignore', 'pipe', 'pipe'] });
       this.sckProcess = proc;
@@ -434,7 +437,7 @@ export class IosSimulatorSession implements InputTarget {
           if (!this.sckWarned) {
             this.sckWarned = true;
             console.warn(
-              '  ⚠ ios-sim: SCK 캡처가 시작되지 않습니다 — 시스템 설정 → 개인정보 보호 → 화면 기록에서 터미널 허용 후 재실행하면 30fps가 됩니다 (셸 스냅샷으로 계속)',
+              '  ⚠ ios-sim: SCK 캡처가 시작되지 않습니다 — 시스템 설정 → 개인정보 보호 → 화면 기록에서 터미널을 허용하면 자동으로 활성됩니다 (셸 스냅샷으로 계속, 10초마다 재시도)',
             );
           }
           proc.kill('SIGKILL');
@@ -461,10 +464,11 @@ export class IosSimulatorSession implements InputTarget {
       proc.on('exit', (code) => {
         clearTimeout(watchdog);
         if (this.sckProcess === proc) this.sckProcess = null;
-        // 창이 아직 안 떠서(no-simulator-window) 죽는 초기 레이스 — 재시도
-        if (!sawFrame && !this.stoppedVideo && this.sckRetries < 4) {
+        // 초기 창 레이스든 TCC 미승인이든 — 무한 재시도해 권한을 나중에
+        // 허용해도 재실행 없이 자동 활성되게 한다 (시도 비용: 헬퍼 spawn 1회)
+        if (!sawFrame && !this.stoppedVideo) {
           this.sckRetries += 1;
-          setTimeout(() => void this.startSckStream(), 5_000);
+          setTimeout(() => void this.startSckStream(), 10_000);
         }
       });
     } catch (err) {

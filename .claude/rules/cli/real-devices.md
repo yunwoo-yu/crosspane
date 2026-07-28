@@ -65,18 +65,33 @@ paths:
   `adb reverse`로 기기에 노출한다 (에뮬레이터의 localhost ≠ 호스트)
 - 입력(터치/키)은 시스템 레벨(motionevent/input)이라 셸 앱과 무관하게 동작한다
 
+## Android 한글 IME (`ime-android/`, 전부 실측)
+
+- adb `input text`는 ASCII 전용 — 비ASCII는 자체 무화면 IME로 커밋한다.
+  텍스트는 **base64로 감싼 브로드캐스트**(`--es b64`) — adb shell 인자의 UTF-8이 깨진다
+- API 33+에서 adb發 브로드캐스트 수신은 `Context.RECEIVER_EXPORTED` 명시 필수
+- **`pm install` 직후 `ime enable`은 실패할 수 있다** — InputMethodManager 등록 지연.
+  "now enabled" 응답을 확인하며 재시도한다
+- `ime set`으로 선택하면 소프트 키보드 UI가 사라진다(무화면 IME) — 미러링 화면을
+  가리지 않는 의도된 동작
+- WebView 입력값은 uiautomator 덤프에 안 잡힌다 — 검증은 스크린샷으로
+
 ## 실스트림 (idb / scrcpy)
 
 - iOS: idb 있으면 30fps H.264 스트림이 셸 스냅샷을 대체한다(pauseFrames).
   **idb 스폰에 PYTHONUNBUFFERED=1 필수** — 파이썬 stdout 64KB 블록 버퍼링이
   프레임을 묶어 초 단위 지연을 만든다 (실측 5fps→20fps 차이의 원인)
-- H264 트레일링 플러시는 scrcpy(Android) 전용 — idb는 청크 경계가 NAL 경계가
-  아니라 잘린 NAL이 디코더를 영구 정지시킨다 (IDR 재전송 없음)
+- **H264 트레일링 플러시 금지 (전 소스)** — scrcpy(TCP)도 idb(파이프)도 청크 경계가
+  NAL 경계가 아니다. 잘린 NAL은 델타 프레임을 오염시키고 IDR 재전송이 없어 잔상이
+  지속된다 (사용자 실검증: 드래그 중 블록 깨짐). 디코더 오류 시 대시보드가
+  `restart-video` 커맨드로 스트림 재시작(새 SPS/IDR)을 요청해 자가 회복한다
 - 에뮬레이터 부팅에 `-gpu host` 유지 — 헤드리스 렌더 fps의 핵심 (7→16fps 실측)
 - iOS 화면 소스 기본은 **셸 takeSnapshot(무결점 5fps)** — idb H.264(20fps)는
   잔상 리스크로 CROSSPANE_IOS_H264=1 옵트인, MJPEG는 3fps라 셸보다 못함 (전부 실측)
 - iOS 30fps급 무결점의 정답은 **SCK 창 캡처**(shell-sck) — 시뮬 창 노출 + 화면기록
   권한 필요. 타이틀바 크롭은 기기 화면비 인자 기반 (클릭 좌표 정합)
+- SCK는 **무한 재시도**(10초) — 권한을 세션 도중 허용해도 자동 활성돼야 한다.
+  단 `open -a Simulator`는 첫 2회만 — 재시도마다 부르면 포커스를 계속 뺏는다
 - Android 입력은 에뮬레이터 gRPC sendTouch(수 ms) — adb input으로 되돌리지 말 것
 - idb H.264는 멀티슬라이스 AU 수정 후에도 반복 드래그에서 고스팅 재발(실앱 실측,
   인코더 참조 구조 특성) — 기본 승격 금지, 옵트인 유지. iOS 화면 소스 우선순위는
