@@ -11,7 +11,7 @@ import { resolvePaneSetup } from './pane-setup.js';
 import type { BrowserEngineName, EngineName, EngineStatus } from './protocol.js';
 import { startDashboardServer } from './server.js';
 import { EngineSession, type InputTarget, type SessionEvents } from './session.js';
-import { normalizeUrl, planUrlSync } from './url-sync.js';
+import { hasDivergedUrls, normalizeUrl, planUrlSync } from './url-sync.js';
 
 async function main(): Promise<void> {
   let argv = process.argv.slice(2);
@@ -102,16 +102,7 @@ async function main(): Promise<void> {
           .catch(() => undefined);
       }
       // 쿨다운으로 미뤄진 어긋남이 남아 있으면 재시도 예약 — 일치할 때까지 계속
-      const leaderUrl = lastNavigationUrl.get(syncable[0]);
-      const stillDiverged = syncable.some((engine) => {
-        const current = lastNavigationUrl.get(engine);
-        return (
-          leaderUrl !== undefined &&
-          current !== undefined &&
-          normalizeUrl(current) !== normalizeUrl(leaderUrl)
-        );
-      });
-      if (stillDiverged) scheduleUrlConvergence();
+      if (hasDivergedUrls(lastNavigationUrl, syncable)) scheduleUrlConvergence();
     }, URL_SYNC_GRACE_MS);
   };
 

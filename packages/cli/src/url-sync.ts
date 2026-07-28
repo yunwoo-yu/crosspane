@@ -63,3 +63,22 @@ export function planUrlSync(input: {
   }
   return plans;
 }
+
+/**
+ * 리더와 어긋난 팔로워가 남아 있는가 — 쿨다운으로 이번 계획에서 빠졌더라도
+ * 수렴 재시도를 예약해야 하는지 판단한다 (planUrlSync와 같은 리더/정규화 규칙).
+ */
+export function hasDivergedUrls(
+  urls: ReadonlyMap<EngineName, string>,
+  syncable: readonly EngineName[],
+): boolean {
+  const leader = pickLeader(syncable);
+  if (!leader) return false;
+  const leaderUrl = urls.get(leader);
+  if (leaderUrl === undefined) return false;
+  const normalizedTarget = normalizeUrl(leaderUrl);
+  return syncable.some((engine) => {
+    const current = urls.get(engine);
+    return current !== undefined && normalizeUrl(current) !== normalizedTarget;
+  });
+}

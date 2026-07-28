@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EngineName } from '../src/protocol';
-import { normalizeUrl, pickLeader, planUrlSync } from '../src/url-sync';
+import { hasDivergedUrls, normalizeUrl, pickLeader, planUrlSync } from '../src/url-sync';
 
 const urls = (entries: [EngineName, string][]) => new Map(entries);
 
@@ -66,5 +66,28 @@ describe('pickLeader', () => {
     expect(pickLeader(['firefox', 'webkit'])).toBe('webkit');
     expect(pickLeader(['firefox'])).toBe('firefox');
     expect(pickLeader([])).toBeUndefined();
+  });
+});
+
+describe('hasDivergedUrls', () => {
+  it('리더와 다른 팔로워가 있으면 true (쿨다운과 무관한 재예약 판단)', () => {
+    const navUrls = new Map<EngineName, string>([
+      ['chromium', 'http://localhost:3000/a'],
+      ['webkit', 'http://localhost:3000/b'],
+    ]);
+    expect(hasDivergedUrls(navUrls, ['chromium', 'webkit'])).toBe(true);
+  });
+
+  it('전부 일치(정규화 포함)하면 false', () => {
+    const navUrls = new Map<EngineName, string>([
+      ['chromium', 'http://localhost:3000/'],
+      ['webkit', 'http://localhost:3000'],
+    ]);
+    expect(hasDivergedUrls(navUrls, ['chromium', 'webkit'])).toBe(false);
+  });
+
+  it('리더 URL 미확정이거나 syncable이 비면 false', () => {
+    expect(hasDivergedUrls(new Map(), ['chromium'])).toBe(false);
+    expect(hasDivergedUrls(new Map(), [])).toBe(false);
   });
 });

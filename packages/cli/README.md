@@ -119,6 +119,7 @@ crosspane <url | :port> [options]
 --user-agent <ua>    exact UA for every engine
 --preset-ua          use Playwright preset UA instead of webview UA emulation
 --fresh              ignore saved login sessions
+--verbose            diagnostic logging (fallback causes, full stacks) — attach to bug reports
 --ios-runtime <ver>  iOS Simulator runtime version (e.g. 17.2)
 --ios-sim            force the iOS Simulator pane (auto when Xcode exists)
 --no-ios-sim         disable the iOS Simulator pane
