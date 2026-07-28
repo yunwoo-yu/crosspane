@@ -40,6 +40,10 @@ First run downloads the engine binaries. If a browser is missing, run
   to Safari (view-only) if the shell can't be built. With the Android SDK installed, a
   REAL Android emulator pane running actual Android Chrome is added — fully interactive
   via adb. A USB-connected Android phone works too.
+- **60fps-class iOS pane (one-time setup)**: the iOS Simulator pane streams via
+  ScreenCaptureKit. On first run macOS asks for Screen Recording permission for your
+  terminal — allow it and restart crosspane to unlock the high-fps stream (without it,
+  the pane falls back to artifact-free snapshots)
 - **Login session persistence**: each engine's cookies/storage are saved on exit and
   restored next run (`~/.crosspane/state/<origin>/`) — log into your app once, not on
   every launch in every engine. Start clean with `--fresh`
