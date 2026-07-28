@@ -75,3 +75,6 @@ paths:
 - 에뮬레이터 부팅에 `-gpu host` 유지 — 헤드리스 렌더 fps의 핵심 (7→16fps 실측)
 - iOS 화면 소스 기본은 **셸 takeSnapshot(무결점 5fps)** — idb H.264(20fps)는
   잔상 리스크로 CROSSPANE_IOS_H264=1 옵트인, MJPEG는 3fps라 셸보다 못함 (전부 실측)
+- iOS 30fps급 무결점의 정답은 **SCK 창 캡처**(shell-sck) — 시뮬 창 노출 + 화면기록
+  권한 필요. 타이틀바 크롭은 기기 화면비 인자 기반 (클릭 좌표 정합)
+- Android 입력은 에뮬레이터 gRPC sendTouch(수 ms) — adb input으로 되돌리지 말 것

@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { type CaptureLoop, startCaptureLoop } from './capture-loop.js';
+import { ensureSckHelper } from './ios-sck.js';
 import type { InputTarget, SessionEvents } from './session.js';
 
 const execFileAsync = promisify(execFile);
@@ -396,11 +397,77 @@ export class IosSimulatorSession implements InputTarget {
    * - idb MJPEG: 무결점이지만 인코딩이 느려 3fps — 셸보다 못해 채택 안 함
    */
   startVideoStream(onChunk: (chunk: Buffer) => void): void {
-    if (process.env.CROSSPANE_IOS_H264 !== '1') return; // 기본: 무결점 셸 스냅샷 유지
-    const idb = IDB_CANDIDATES.find((path) => existsSync(path));
-    if (!idb) return;
-    this.videoChunkHandler = onChunk;
-    this.spawnVideoStream(idb);
+    if (process.env.CROSSPANE_IOS_H264 === '1') {
+      const idb = IDB_CANDIDATES.find((path) => existsSync(path));
+      if (idb) {
+        this.videoChunkHandler = onChunk;
+        this.spawnVideoStream(idb);
+        return;
+      }
+    }
+    // 기본: SCK 창 캡처 (30fps 무결점 JPEG) — 실패(권한/창 없음) 시 셸 스냅샷 유지
+    void this.startSckStream();
+  }
+
+  private sckProcess: ReturnType<typeof spawn> | null = null;
+  private jpegBuffer: Buffer = Buffer.alloc(0);
+
+  private async startSckStream(): Promise<void> {
+    try {
+      const helper = await ensureSckHelper();
+      // 시뮬레이터 창을 화면에 노출 (SCK는 창이 보여야 캡처 가능)
+      await execFileAsync('open', ['-a', 'Simulator'], {
+        env: { ...process.env, DEVELOPER_DIR: this.developerDir },
+        timeout: 30_000,
+      }).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 4_000)); // 창 렌더 대기
+      const viewport = '0.4613'; // iPhone 세로 화면비(w/h) 근사 — 타이틀바 크롭용
+      const proc = spawn(helper, [viewport], { stdio: ['ignore', 'pipe', 'pipe'] });
+      this.sckProcess = proc;
+      let sawFrame = false;
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        if (!sawFrame) {
+          sawFrame = true;
+          console.log('  ▶ ios-sim: SCK 창 캡처 30fps 활성');
+          this.enqueue({ type: 'pauseFrames' });
+          this.captureLoop?.stop();
+        }
+        this.consumeJpegStream(chunk);
+      });
+      proc.stderr?.on('data', (data: Buffer) => {
+        const message = String(data);
+        if (message.includes('TCC') || message.includes('sck-error')) {
+          console.warn(
+            '  ⚠ ios-sim: 화면 기록 권한이 없어 SCK 30fps를 못 씁니다 — 시스템 설정 → 개인정보 보호 → 화면 기록에서 터미널을 허용하면 다음 실행부터 활성됩니다 (셸 스냅샷으로 계속)',
+          );
+        }
+      });
+      proc.on('exit', () => {
+        if (this.sckProcess === proc) this.sckProcess = null;
+      });
+    } catch {
+      // swiftc 미존재 등 — 셸 스냅샷 유지
+    }
+  }
+
+  /** SCK 헬퍼의 JPEG 연속 스트림(FFD8…FFD9)을 프레임으로 분리한다 */
+  private consumeJpegStream(chunk: Buffer): void {
+    this.jpegBuffer = Buffer.concat([this.jpegBuffer, chunk]);
+    while (true) {
+      const start = this.jpegBuffer.indexOf(Buffer.from([0xff, 0xd8]));
+      if (start < 0) {
+        this.jpegBuffer = Buffer.alloc(0);
+        return;
+      }
+      const end = this.jpegBuffer.indexOf(Buffer.from([0xff, 0xd9]), start + 2);
+      if (end < 0) {
+        if (start > 0) this.jpegBuffer = this.jpegBuffer.subarray(start);
+        return;
+      }
+      const jpeg = Buffer.from(this.jpegBuffer.subarray(start, end + 2));
+      this.jpegBuffer = this.jpegBuffer.subarray(end + 2);
+      this.events?.onFrame(ENGINE, jpeg, -1);
+    }
   }
 
   restartVideoStream(): void {
@@ -489,6 +556,7 @@ export class IosSimulatorSession implements InputTarget {
 
   async dispose(): Promise<void> {
     this.stoppedVideo = true;
+    this.sckProcess?.kill('SIGKILL');
     this.videoProcess?.kill('SIGKILL');
     this.captureLoop?.stop();
     this.commandWaiter?.([]);
