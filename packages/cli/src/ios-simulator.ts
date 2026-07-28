@@ -412,6 +412,8 @@ export class IosSimulatorSession implements InputTarget {
   private sckProcess: ReturnType<typeof spawn> | null = null;
   private jpegBuffer: Buffer = Buffer.alloc(0);
 
+  private sckRetries = 0;
+
   private async startSckStream(): Promise<void> {
     try {
       const helper = await ensureSckHelper();
@@ -425,9 +427,19 @@ export class IosSimulatorSession implements InputTarget {
       const proc = spawn(helper, [viewport], { stdio: ['ignore', 'pipe', 'pipe'] });
       this.sckProcess = proc;
       let sawFrame = false;
+      // TCC 승인 대기 등으로 무한 행 — 첫 프레임이 없으면 정리하고 재시도/안내
+      const watchdog = setTimeout(() => {
+        if (!sawFrame) {
+          console.warn(
+            '  ⚠ ios-sim: SCK 캡처가 시작되지 않습니다 — 시스템 설정 → 개인정보 보호 → 화면 기록에서 터미널 허용 후 재실행하면 30fps가 됩니다 (셸 스냅샷으로 계속)',
+          );
+          proc.kill('SIGKILL');
+        }
+      }, 12_000);
       proc.stdout?.on('data', (chunk: Buffer) => {
         if (!sawFrame) {
           sawFrame = true;
+          clearTimeout(watchdog);
           console.log('  ▶ ios-sim: SCK 창 캡처 30fps 활성');
           this.enqueue({ type: 'pauseFrames' });
           this.captureLoop?.stop();
@@ -442,11 +454,20 @@ export class IosSimulatorSession implements InputTarget {
           );
         }
       });
-      proc.on('exit', () => {
+      proc.on('exit', (code) => {
+        clearTimeout(watchdog);
         if (this.sckProcess === proc) this.sckProcess = null;
+        // 창이 아직 안 떠서(no-simulator-window) 죽는 초기 레이스 — 재시도
+        if (!sawFrame && !this.stoppedVideo && this.sckRetries < 4) {
+          this.sckRetries += 1;
+          console.log(`  ↻ ios-sim: SCK 재시도 ${this.sckRetries}/4 (exit ${code})`);
+          setTimeout(() => void this.startSckStream(), 5_000);
+        }
       });
-    } catch {
-      // swiftc 미존재 등 — 셸 스냅샷 유지
+    } catch (err) {
+      console.warn(
+        `  ⚠ ios-sim: SCK 헬퍼 빌드 실패 — 셸 스냅샷 유지 (${String(err).slice(0, 120)})`,
+      );
     }
   }
 
