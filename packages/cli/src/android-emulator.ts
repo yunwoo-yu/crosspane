@@ -18,6 +18,10 @@ const IDLE_CAPTURE_INTERVAL_MS = 1_500;
 const ACTIVE_CAPTURE_INTERVAL_MS = 400;
 // 이보다 짧은 스와이프는 Android 터치 슬롭 근처라 탭으로 오인될 수 있다
 const MIN_SWIPE_PX = 60;
+// gRPC 제스처는 fling 없는 정밀 스크롤 — 탭 슬롭(~24px)만 넘기면 된다
+const MIN_GRPC_SCROLL_PX = 32;
+/** scrcpy 프레임의 긴 변 상한 — 대시보드 델타(프레임 px)를 기기 px로 환산할 때도 쓴다 */
+const SCRCPY_MAX_SIZE = 1600;
 const ACTIVITY_WINDOW_MS = 5_000;
 // 기준 뷰포트(iPhone 15 프리셋 844px) 대비 스와이프 거리 환산에 쓴다
 const REFERENCE_VIEWPORT_HEIGHT = 844;
@@ -391,10 +395,16 @@ export class AndroidEmulatorSession implements InputTarget {
   // 델타를 누적해 최소 길이 이상일 때만 스와이프로 방출한다
   private pendingScrollPx = 0;
 
+  /** 대시보드 델타는 scrcpy 프레임 px — 기기 px로 환산 */
+  private frameToDevicePx(delta: number): number {
+    const longSide = Math.max(this.screen.width, this.screen.height);
+    return longSide > SCRCPY_MAX_SIZE ? delta * (longSide / SCRCPY_MAX_SIZE) : delta;
+  }
+
   async scrollBy(deltaY: number): Promise<void> {
-    // 대시보드가 프레임(=기기) 픽셀 단위로 보낸다 — 추가 스케일 없이 그대로, 상한만
     const limit = this.screen.height * 0.6;
-    this.pendingScrollPx += Math.max(-limit, Math.min(limit, deltaY));
+    this.pendingScrollPx += Math.max(-limit, Math.min(limit, this.frameToDevicePx(deltaY)));
+    if (this.grpc) return this.flushWheelGesture();
     const distance = Math.trunc(this.pendingScrollPx);
     if (Math.abs(distance) < MIN_SWIPE_PX) return;
     this.pendingScrollPx -= distance;
@@ -403,6 +413,41 @@ export class AndroidEmulatorSession implements InputTarget {
     const endY = startY - distance;
     // duration을 짧게 주면 fling으로 해석돼 관성이 과하게 붙는다 — 드래그로 해석되는 길이
     this.runInputCommand(['input', 'swipe', x, startY, x, endY, 140]);
+  }
+
+  private wheelGestureRunning = false;
+
+  /**
+   * 휠 스크롤을 gRPC 터치 제스처로 — adb `input swipe`(스폰+애니메이션 ~250ms) 대비
+   * 시작 지연이 수 ms다. 끝에서 잠깐 멈춘 뒤 떼서 fling이 붙지 않는 정밀 스크롤이 된다.
+   * 제스처 중 도착한 델타는 누적했다가 끝난 직후 이어서 방출한다.
+   */
+  private async flushWheelGesture(): Promise<void> {
+    if (this.wheelGestureRunning) return;
+    const grpc = this.grpc;
+    if (!grpc) return;
+    const distance = Math.trunc(this.pendingScrollPx);
+    if (Math.abs(distance) < MIN_GRPC_SCROLL_PX) return;
+    this.pendingScrollPx -= distance;
+    this.wheelGestureRunning = true;
+    try {
+      const x = Math.round(this.screen.width / 2);
+      const clampY = (y: number) => Math.max(10, Math.min(this.screen.height - 10, y));
+      const startY = clampY(Math.round(this.screen.height / 2 + distance / 2));
+      const endY = clampY(startY - distance);
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const steps = 4;
+      grpc.sendTouch(x, startY, 1024);
+      for (let i = 1; i <= steps; i++) {
+        await sleep(12);
+        grpc.sendTouch(x, Math.round(startY + ((endY - startY) * i) / steps), 1024);
+      }
+      await sleep(50); // 속도 0으로 홀드 — fling 방지
+      grpc.sendTouch(x, endY, 0);
+    } finally {
+      this.wheelGestureRunning = false;
+    }
+    if (Math.abs(this.pendingScrollPx) >= MIN_GRPC_SCROLL_PX) void this.flushWheelGesture();
   }
 
   async pressKey(key: string): Promise<void> {
@@ -493,7 +538,7 @@ export class AndroidEmulatorSession implements InputTarget {
         '-s',
         this.serial,
         'shell',
-        `CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server ${version} tunnel_forward=true video=true audio=false control=false cleanup=false raw_stream=true max_size=1200 video_bit_rate=8000000`,
+        `CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server ${version} tunnel_forward=true video=true audio=false control=false cleanup=false raw_stream=true max_size=${SCRCPY_MAX_SIZE} video_bit_rate=10000000`,
       ],
       { stdio: ['ignore', 'ignore', 'ignore'] },
     );

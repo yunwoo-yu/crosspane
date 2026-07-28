@@ -22,6 +22,7 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
   private var inflightSnapshots = 0
   private var lastFrameHash = 0
   private var unchangedFrames = 0
+  private var lastSnapshotWasIdle = false
   // 스트림 프레임의 px/pt 비율 — 대시보드 스크롤 델타(프레임 px)를 pt로 환산한다
   private var lastPixelsPerPoint: CGFloat = 1
 
@@ -98,7 +99,11 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
     // 헤드리스 시뮬레이터는 컴포지터가 게을러 false면 캐시 서피스를 반환한다(실측) —
     // true로 대기 중인 변경을 강제 렌더시켜야 스크롤 중간 프레임이 잡힌다
     config.afterScreenUpdates = true
-    config.snapshotWidth = NSNumber(value: Double(webView.bounds.width) / 2)
+    // 활성 중엔 절반 해상도로 fps를, 유휴 진입 후엔 풀해상도로 선명함을 얻는다
+    let idle = frameInterval == frameIntervalIdle
+    let resChanged = idle != lastSnapshotWasIdle
+    lastSnapshotWasIdle = idle
+    config.snapshotWidth = NSNumber(value: Double(webView.bounds.width) / (idle ? 1 : 2))
     webView.takeSnapshot(with: config) { image, _ in
       defer { self.inflightSnapshots -= 1 }
       guard let image else { return scheduleNext(self.frameInterval) }
@@ -120,6 +125,11 @@ final class ShellViewController: UIViewController, WKScriptMessageHandler, WKNav
             return scheduleNext(self.frameInterval)
           }
           self.lastFrameHash = hash
+          if resChanged {
+            // 해상도 전환으로 인한 해시 변화 — 활동으로 치지 않는다 (idle↔fast 진동 방지)
+            self.postFrame(jpeg, scrollY: scrollY)
+            return scheduleNext(self.frameInterval)
+          }
           self.unchangedFrames = 0
           self.frameInterval = self.frameIntervalFast
           self.postFrame(jpeg, scrollY: scrollY)
