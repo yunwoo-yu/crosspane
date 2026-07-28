@@ -91,6 +91,16 @@ export function parseScreenSize(wmSizeOutput: string): { width: number; height: 
 }
 
 /**
+ * 대시보드 스크롤 델타(scrcpy 프레임 px)를 기기 px로 환산한다 —
+ * scrcpy는 긴 변을 SCRCPY_MAX_SIZE로 다운스케일하므로 그 역비율을 곱한다.
+ * 어긋나면 스크롤 거리가 실제 화면과 불일치한다 (스크롤 정합의 핵심 상수).
+ */
+export function frameToDevicePx(delta: number, screen: { width: number; height: number }): number {
+  const longSide = Math.max(screen.width, screen.height);
+  return longSide > SCRCPY_MAX_SIZE ? delta * (longSide / SCRCPY_MAX_SIZE) : delta;
+}
+
+/**
  * deltaY(CSS px)를 기기 픽셀 스와이프 거리로 환산한다.
  * 화면 밖으로 나가지 않도록 화면 높이의 60%로 제한.
  */
@@ -404,8 +414,7 @@ export class AndroidEmulatorSession implements InputTarget {
 
   /** 대시보드 델타는 scrcpy 프레임 px — 기기 px로 환산 */
   private frameToDevicePx(delta: number): number {
-    const longSide = Math.max(this.screen.width, this.screen.height);
-    return longSide > SCRCPY_MAX_SIZE ? delta * (longSide / SCRCPY_MAX_SIZE) : delta;
+    return frameToDevicePx(delta, this.screen);
   }
 
   async scrollBy(deltaY: number): Promise<void> {

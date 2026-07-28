@@ -390,27 +390,54 @@ export class EngineSession implements InputTarget {
 
   private async captureAndEmitFrame(events: SessionEvents): Promise<void> {
     try {
-      // 캡처 직전의 스크롤 위치/페이지 높이 — 풀페이지 여부 판단 + 로컬 팬 보정용
-      const [scrollY, pageHeight] = await this.page
+      // 캡처 직전의 스크롤 위치/페이지 높이/고정 크롬 유무 — 풀페이지 여부 판단 + 로컬 팬 보정용
+      const [scrollY, pageHeight, pinnedChrome] = await this.page
         .evaluate(() => {
+          // cli tsconfig에는 DOM lib가 없다 — 브라우저 컨텍스트 타입은 구조 타입으로 선언
+          type El = { parentElement: El | null };
           const g = globalThis as unknown as {
             scrollY: number;
-            document: { documentElement: { scrollHeight: number } };
+            innerWidth: number;
+            innerHeight: number;
+            document: {
+              documentElement: { scrollHeight: number };
+              elementFromPoint(x: number, y: number): El | null;
+            };
+            getComputedStyle(el: El): { position: string };
             __crosspaneScroller?: { scrollTop: number; isConnected: boolean } | null;
           };
           // 내부 컨테이너가 스크롤 중이면 그 기준으로 — 로컬 에코 정합
           const scroller = g.__crosspaneScroller;
           const scrollY = scroller?.isConnected ? scroller.scrollTop : g.scrollY;
-          return [scrollY, g.document.documentElement.scrollHeight] as const;
+          // 뷰포트 상/하단 가장자리에 fixed/sticky 요소(탭바·헤더)가 붙어 있는가 —
+          // 풀페이지 캡처는 이들을 문서 위치로 찍어 스크롤 중 엉뚱한 곳에 보이게 한다.
+          // 가장자리 두 점의 조상 체인만 보므로 프레임당 비용은 O(트리 깊이)다
+          let pinned = false;
+          for (const y of [8, g.innerHeight - 8]) {
+            let el = g.document.elementFromPoint(g.innerWidth / 2, y);
+            while (el) {
+              const position = g.getComputedStyle(el).position;
+              if (position === 'fixed' || position === 'sticky') {
+                pinned = true;
+                break;
+              }
+              el = el.parentElement;
+            }
+            if (pinned) break;
+          }
+          return [scrollY, g.document.documentElement.scrollHeight, pinned] as const;
         })
-        .catch(() => [SCROLL_Y_UNKNOWN, 0] as const);
+        .catch(() => [SCROLL_Y_UNKNOWN, 0, false] as const);
       // 폴링 엔진(WebKit/Firefox)의 이원 전략:
       // - 입력 활성 중: 풀페이지 프레임 → 대시보드가 로컬 크롭 팬 (스크롤 60fps, 빈 영역 0)
       // - 유휴: 뷰포트 프레임 → sticky/fixed 요소까지 정확한 실제 화면
-      //   (풀페이지 캡처는 sticky를 문서 위치로 찍는다 — 멈추면 즉시 정확 화면으로 수렴)
+      // 단, 가장자리에 고정 크롬이 있는 페이지는 풀페이지 팬이 탭바/헤더를 문서
+      // 위치에 그려 스크롤 중 오배치가 보인다(실사용 보고) — 뷰포트 모드로 강등해
+      // 정확성을 우선한다 (스크롤 체감은 로컬 에코가 담당)
       // 과도하게 긴 페이지는 캡처 비용 폭증 → 뷰포트 모드로 폴백
       const active = Date.now() < this.activeUntil;
-      const fullPage = active && pageHeight > 0 && pageHeight <= MAX_FULL_PAGE_CSS_PX;
+      const fullPage =
+        active && !pinnedChrome && pageHeight > 0 && pageHeight <= MAX_FULL_PAGE_CSS_PX;
       const jpeg = await this.page.screenshot({
         type: 'jpeg',
         quality: JPEG_QUALITY,

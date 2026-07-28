@@ -9,8 +9,8 @@ import { ToastStack, useToasts } from './components/ui/toast';
 import { ENGINE_SHORT_LABEL } from './constants';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
 import { usePanelHeight } from './hooks/usePanelHeight';
-import { countErrorsSinceLastNavigation, detectUrlDesync } from './log-utils';
 import { buildReportHtml, downloadReport } from './report-utils';
+import { computeSessionView } from './session-view';
 import type { ClientCommand, EngineName } from './types';
 
 export default function App() {
@@ -50,21 +50,19 @@ export default function App() {
   );
   const { panelHeight, startPanelResize } = usePanelHeight();
 
-  // 파생 상태는 전부 useMemo — 로그가 흐를 때(EVENT_BATCH_MS=50, 초당 ~20렌더)
-  // 매 렌더 재계산·새 식별자가 하위 effect/컴포넌트를 연쇄로 흔드는 것을 막는다
-  const engineNames = useMemo(() => hello?.engines ?? [], [hello]);
-  // pane은 실행 중(starting/running/error)인 엔진만 — 중지된 엔진은 그리드에서 빠지고
-  // 툴바 토글로 다시 추가한다 (빈 슬롯이 공간을 차지하지 않도록)
-  const activeEngines = useMemo(
-    () => engineNames.filter((engine) => (engineStates[engine]?.status ?? 'stopped') !== 'stopped'),
-    [engineNames, engineStates],
-  );
-  // 세션이 확정한 값(셸 성공 시 ios-sim 인터랙티브) > hello의 초기 가정
-  const isViewOnly = useCallback(
-    (engine: EngineName) =>
-      engineStates[engine]?.viewOnly ?? (hello?.viewOnlyEngines ?? []).includes(engine),
-    [engineStates, hello],
-  );
+  // 파생 상태는 session-view(순수 함수)에서 한 번에 계산하고 useMemo로 고정 —
+  // 로그가 흐를 때(EVENT_BATCH_MS=50, 초당 ~20렌더) 매 렌더 재계산·새 식별자가
+  // 하위 effect/컴포넌트를 연쇄로 흔드는 것을 막는다
+  const {
+    engineNames,
+    activeEngines,
+    isViewOnly,
+    urlDesynced,
+    syncTargetUrl,
+    errorCounts,
+    errorLogCount,
+    paneViewport,
+  } = useMemo(() => computeSessionView(hello, engineStates, logs), [hello, engineStates, logs]);
   // 포커스 모드: 한 pane만 크게. Esc로 해제
   const [focusedEngine, setFocusedEngine] = useState<EngineName | null>(null);
   // 포커스 중인 pane이 중지되면 포커스도 해제 (빈 화면에 갇히지 않도록)
@@ -88,39 +86,6 @@ export default function App() {
       ),
     [engineNames],
   );
-  // view-only 엔진(iOS 시뮬레이터)은 클릭을 따라가지 못해 URL이 뒤처지는 게 정상이고,
-  // 중지된 엔진의 URL은 과거 값이다 — desync 판단은 실행 중 + 미러링 엔진끼리만 한다
-  const { urlDesynced, syncTargetUrl } = useMemo(() => {
-    const mirroredStates = Object.fromEntries(
-      Object.entries(engineStates).filter(
-        ([engine]) =>
-          activeEngines.includes(engine as EngineName) && !isViewOnly(engine as EngineName),
-      ),
-    );
-    return {
-      urlDesynced: detectUrlDesync(mirroredStates),
-      syncTargetUrl: activeEngines
-        .filter((engine) => !isViewOnly(engine))
-        .map((engine) => engineStates[engine]?.currentUrl)
-        .find((url) => Boolean(url)),
-    };
-  }, [engineStates, activeEngines, isViewOnly]);
-
-  // pane 배지와 같은 기준(엔진별 마지막 내비게이션 이후) — 두 배지가 어긋나지 않게.
-  // 엔진×로그 순회를 렌더당 1회로 고정한다
-  const errorCounts = useMemo(() => {
-    const counts = new Map<EngineName, number>();
-    for (const engine of engineNames) {
-      counts.set(engine, countErrorsSinceLastNavigation(logs, engine));
-    }
-    return counts;
-  }, [logs, engineNames]);
-  const errorLogCount = useMemo(
-    () => [...errorCounts.values()].reduce((sum, count) => sum + count, 0),
-    [errorCounts],
-  );
-  const paneViewport = useMemo(() => hello?.viewport ?? { width: 390, height: 659 }, [hello]);
-
   const exportReport = useCallback(() => {
     if (!hello) return;
     const html = buildReportHtml({

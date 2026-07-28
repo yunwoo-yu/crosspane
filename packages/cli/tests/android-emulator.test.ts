@@ -5,6 +5,7 @@ import {
   adbExecutableName,
   androidSdkCandidateDirs,
   emulatorExecutableName,
+  frameToDevicePx,
   parseScreenSize,
   toSwipeDistance,
 } from '../src/android-emulator';
@@ -67,5 +68,16 @@ describe('ANDROID_KEYCODES', () => {
       expect(ANDROID_KEYCODES[key]).toBeTypeOf('number');
     }
     expect(ANDROID_KEYCODES.Back).toBe(4); // 실제 Android 뒤로가기
+  });
+});
+
+describe('frameToDevicePx', () => {
+  it('scrcpy 다운스케일(긴 변 1600 상한)의 역비율로 환산한다', () => {
+    // 1080x2400 기기: 긴 변 2400 → 프레임은 1600으로 축소 → 델타 ×1.5
+    expect(frameToDevicePx(100, { width: 1080, height: 2400 })).toBe(150);
+  });
+
+  it('긴 변이 상한 이하면 그대로 통과한다', () => {
+    expect(frameToDevicePx(100, { width: 720, height: 1280 })).toBe(100);
   });
 });
