@@ -7,11 +7,16 @@ on:
 
 jobs:
   ci:
-    # 코어는 모든 OS에서 동작해야 한다 — Windows 경로/실행 회귀를 CI에서 잡는다
+    # 코어는 모든 OS에서 동작해야 한다 — Windows 경로/실행 회귀를 CI에서 잡는다.
+    # Node는 engines 하한(20)과 최신 LTS(22)를 모두 검증 — 하한은 ubuntu에서만 (매트릭스 비용 절충)
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22]
+        include:
+          - os: ubuntu-latest
+            node: 20
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +27,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install dependencies
@@ -30,6 +35,9 @@ jobs:
 
       - name: Biome check
         run: pnpm exec biome ci .
+
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Test
         run: pnpm test
