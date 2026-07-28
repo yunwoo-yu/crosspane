@@ -75,9 +75,9 @@ describe('Toolbar', () => {
       />,
     );
     // 실행 중(chromium) → stop, 중지(webkit) → start
-    fireEvent.click(screen.getByTitle('chromium pane 중지 (리소스 반환)'));
+    fireEvent.click(screen.getByTitle('Stop chromium pane (frees resources)'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'stop-engine', engine: 'chromium' });
-    fireEvent.click(screen.getByTitle('webkit pane 시작'));
+    fireEvent.click(screen.getByTitle('Start webkit pane'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'start-engine', engine: 'webkit' });
   });
 
@@ -102,15 +102,15 @@ describe('Toolbar', () => {
       'value',
       'http://localhost:3000',
     );
-    expect(screen.queryByText(/재동기화/)).toBeNull(); // 정상 상태에선 숨김
+    expect(screen.queryByText(/resync/)).toBeNull(); // 정상 상태에선 숨김
 
-    fireEvent.click(screen.getByTitle('뒤로가기'));
+    fireEvent.click(screen.getByTitle('Back'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'back' });
 
-    fireEvent.click(screen.getByTitle('앞으로가기'));
+    fireEvent.click(screen.getByTitle('Forward'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'forward' });
 
-    fireEvent.click(screen.getByTitle('모든 엔진 새로고침'));
+    fireEvent.click(screen.getByTitle('Reload all engines'));
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'reload' });
 
     fireEvent.click(screen.getByText('clear logs'));
@@ -153,7 +153,7 @@ describe('Toolbar', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText(/재동기화/));
+    fireEvent.click(screen.getByText(/resync/));
     expect(onSendCommand).toHaveBeenCalledWith({
       type: 'navigate',
       url: 'http://localhost:3000/?date=2026-08-03',
@@ -384,14 +384,16 @@ describe('EnginePane', () => {
   it('pane의 ✕ 버튼은 stop-engine을 보낸다', () => {
     const onSendCommand = vi.fn();
     renderEnginePane({ status: 'ready', onSendCommand });
-    fireEvent.click(screen.getByTitle('이 pane 닫기 (엔진 중지, 툴바 토글로 재시작)'));
+    fireEvent.click(
+      screen.getByTitle('Close this pane (stops the engine; restart from the toolbar toggle)'),
+    );
     expect(onSendCommand).toHaveBeenCalledWith({ type: 'stop-engine', engine: 'chromium' });
   });
 
   it('포커스 토글 버튼이 onToggleFocus를 호출한다', () => {
     const onToggleFocus = vi.fn();
     renderEnginePane({ onToggleFocus });
-    fireEvent.click(screen.getByTitle('이 pane만 크게'));
+    fireEvent.click(screen.getByTitle('Focus this pane'));
     expect(onToggleFocus).toHaveBeenCalled();
   });
 });

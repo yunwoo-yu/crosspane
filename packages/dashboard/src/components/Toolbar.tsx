@@ -61,7 +61,7 @@ export function Toolbar({
               variant={active ? 'active' : 'ghost'}
               size="icon"
               className="gap-1.5"
-              title={active ? `${engine} pane 중지 (리소스 반환)` : `${engine} pane 시작`}
+              title={active ? `Stop ${engine} pane (frees resources)` : `Start ${engine} pane`}
               aria-pressed={active}
               onClick={() =>
                 onSendCommand({ type: active ? 'stop-engine' : 'start-engine', engine })
@@ -88,7 +88,7 @@ export function Toolbar({
           onChange={(event) => setUrlInput(event.target.value)}
           onFocus={() => setEditing(true)}
           onBlur={() => setEditing(false)}
-          placeholder=":3000 또는 URL"
+          placeholder=":3000 or URL"
           aria-label="navigate all engines"
           spellCheck={false}
         />
@@ -97,10 +97,10 @@ export function Toolbar({
       {urlDesynced && syncTargetUrl && (
         <Button
           variant="warn"
-          title={`모든 엔진을 ${syncTargetUrl}로 이동`}
+          title={`Navigate all engines to ${syncTargetUrl}`}
           onClick={() => onSendCommand({ type: 'navigate', url: syncTargetUrl })}
         >
-          ⚠ URL 어긋남 — 재동기화
+          ⚠ URLs diverged — resync
         </Button>
       )}
       <div className="ml-auto flex items-center gap-1">
@@ -108,7 +108,7 @@ export function Toolbar({
           variant="ghost"
           size="icon"
           onClick={() => onSendCommand({ type: 'back' })}
-          title="뒤로가기"
+          title="Back"
         >
           ←
         </Button>
@@ -116,7 +116,7 @@ export function Toolbar({
           variant="ghost"
           size="icon"
           onClick={() => onSendCommand({ type: 'forward' })}
-          title="앞으로가기"
+          title="Forward"
         >
           →
         </Button>
@@ -124,7 +124,7 @@ export function Toolbar({
           variant="ghost"
           size="icon"
           onClick={() => onSendCommand({ type: 'reload' })}
-          title="모든 엔진 새로고침"
+          title="Reload all engines"
         >
           ⟳
         </Button>
@@ -135,7 +135,7 @@ export function Toolbar({
         <Button
           variant="outline"
           size="icon"
-          title="스크린샷+로그+네트워크를 단일 HTML로 저장"
+          title="Save screenshots + logs + network as one HTML report"
           onClick={onExportReport}
         >
           ⤓ report

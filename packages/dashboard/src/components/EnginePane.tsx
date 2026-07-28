@@ -73,7 +73,7 @@ export const EnginePane = memo(function EnginePane({
         <Button
           variant="ghost"
           size="icon"
-          title={focused ? '포커스 해제 (Esc)' : '이 pane만 크게'}
+          title={focused ? 'Exit focus (Esc)' : 'Focus this pane'}
           onClick={onToggleFocus}
         >
           {focused ? '⤢' : '⤡'}
@@ -81,7 +81,7 @@ export const EnginePane = memo(function EnginePane({
         <Button
           variant="ghost"
           size="icon"
-          title="이 pane 닫기 (엔진 중지, 툴바 토글로 재시작)"
+          title="Close this pane (stops the engine; restart from the toolbar toggle)"
           onClick={() => onSendCommand({ type: 'stop-engine', engine })}
         >
           ✕
@@ -110,7 +110,7 @@ export const EnginePane = memo(function EnginePane({
         {/* 대상 서버 연결 실패 — 빈 화면 대신 원인과 해법을 보여준다 */}
         {state?.currentUrl?.startsWith('chrome-error://') && (
           <div className="absolute inset-x-0 top-0 z-10 bg-danger/15 px-4 py-2 text-center text-danger text-xs">
-            대상 서버에 연결할 수 없어요 — dev 서버 실행 후 ⟳ 로 재시도
+            Can't reach the target server — start your dev server, then hit ⟳
           </div>
         )}
         <canvas
@@ -130,7 +130,7 @@ export const EnginePane = memo(function EnginePane({
                 <span>starting…</span>
                 {(engine === 'android' || engine === 'ios-sim') && (
                   <span className="text-[11px] text-fg-muted">
-                    실기기 부팅은 1~2분 정도 걸릴 수 있어요
+                    Real-device boot can take 1–2 minutes
                   </span>
                 )}
               </>

@@ -52,18 +52,18 @@ export function DiffPanel({ engines, getPaneCanvas }: DiffPanelProps) {
     setError(null);
     setResult(null);
     if (!engineA || !engineB || engineA === engineB) {
-      setError('서로 다른 두 엔진을 선택하세요');
+      setError('Select two different engines');
       return;
     }
     const canvasA = getPaneCanvas(engineA);
     const canvasB = getPaneCanvas(engineB);
     if (!canvasA || !canvasB) {
-      setError('두 엔진 모두 프레임이 있어야 합니다 (pane이 실행 중인지 확인)');
+      setError('Both engines need a frame (check that the panes are running)');
       return;
     }
     const extracted = extractImageData(canvasA, canvasB);
     if (!extracted) {
-      setError('프레임을 읽을 수 없습니다');
+      setError('Could not read frames');
       return;
     }
     const diffResult = computePixelDiff(extracted.a, extracted.b);
@@ -110,16 +110,18 @@ export function DiffPanel({ engines, getPaneCanvas }: DiffPanelProps) {
           ))}
         </select>
         <Button variant="default" size="icon" onClick={runCompare}>
-          비교
+          Compare
         </Button>
         {result && (
           <span className={result.mismatchRatio > 0.001 ? 'font-semibold text-warn' : 'text-fg'}>
-            차이 {formatMismatchRatio(result.mismatchRatio)} (
+            Diff {formatMismatchRatio(result.mismatchRatio)} (
             {result.mismatchedPixels.toLocaleString()}px)
           </span>
         )}
         {error && <span className="text-danger">{error}</span>}
-        <span className="ml-auto text-fg-muted">빨간 영역 = 두 엔진의 렌더링이 다른 픽셀</span>
+        <span className="ml-auto text-fg-muted">
+          Red = pixels that differ between the two engines
+        </span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto bg-app/60 p-2">
         <canvas
@@ -131,7 +133,7 @@ export function DiffPanel({ engines, getPaneCanvas }: DiffPanelProps) {
         />
         {!result && (
           <div className="flex h-full items-center justify-center text-fg-muted text-sm">
-            두 엔진을 선택하고 비교를 누르면 렌더링 차이가 하이라이트됩니다
+            Pick two engines and hit Compare to highlight rendering differences
           </div>
         )}
       </div>

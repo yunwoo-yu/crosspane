@@ -45,14 +45,14 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
           className="max-w-56"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="URL 검색"
+          placeholder="Filter URLs"
           aria-label="search requests"
         />
         <Button
           variant={xhrOnly ? 'active' : 'ghost'}
           size="icon"
           onClick={() => setXhrOnly((v) => !v)}
-          title="정적 리소스를 숨기고 XHR/fetch만 표시"
+          title="Hide static assets — show XHR/fetch only"
         >
           XHR/fetch
         </Button>
@@ -60,7 +60,7 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
           variant={errorsOnly ? 'active' : 'ghost'}
           size="icon"
           onClick={() => setErrorsOnly((v) => !v)}
-          title="4xx/5xx가 있는 요청만"
+          title="Only requests with 4xx/5xx"
         >
           errors
         </Button>
@@ -152,7 +152,7 @@ export function NetworkPanel({ entries, engines }: NetworkPanelProps) {
           </tbody>
         </table>
         {rows.length === 0 && (
-          <div className="px-4 py-6 text-fg-muted">요청 없음 — 페이지를 조작해보세요</div>
+          <div className="px-4 py-6 text-fg-muted">No requests yet — interact with the page</div>
         )}
       </div>
     </div>

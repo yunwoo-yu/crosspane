@@ -234,11 +234,13 @@ export class IosSimulatorSession implements InputTarget {
         // 셸 빌드/설치 실패 — Safari 폴백으로 계속하되, 이유를 남겨야
         // "왜 view-only지?"를 진단할 수 있다
         const reason = err instanceof Error ? err.message : String(err);
-        console.warn(`  ⚠ ios-sim: WKWebView 셸 실패 → Safari(view-only) 폴백: ${reason}`);
+        console.warn(
+          `  ⚠ ios-sim: WKWebView shell failed → falling back to Safari (view-only): ${reason}`,
+        );
         events.onConsole(
           ENGINE,
           'warning',
-          `[crosspane] WKWebView 셸 실패 (${reason}) — Safari view-only로 동작합니다`,
+          `[crosspane] WKWebView shell failed (${reason}) — running Safari view-only`,
         );
       }
     }
@@ -321,7 +323,7 @@ export class IosSimulatorSession implements InputTarget {
       if (this.stoppedVideo) return;
       const stalled = this.lastShellPollAt > 0 && Date.now() - this.lastShellPollAt > 25_000;
       if (!stalled || this.shellRelaunching) return;
-      console.warn('  ⚠ ios-sim: 셸 폴링이 끊겼습니다 — 셸 재실행 시도');
+      console.warn('  ⚠ ios-sim: shell polling went silent — relaunching shell');
       if (!this.sckProcess && !this.shellStallFallbackActive) {
         this.shellStallFallbackActive = true;
         this.captureLoop?.stop();
@@ -350,7 +352,7 @@ export class IosSimulatorSession implements InputTarget {
         },
         timeout: 60_000,
       });
-      console.log('  ▶ ios-sim: 셸 재실행 완료');
+      console.log('  ▶ ios-sim: shell relaunched');
     } catch (err) {
       console.warn(
         `  ⚠ ios-sim: 셸 재실행 실패 — 다음 감시 주기에 재시도 (${String(err).slice(0, 80)})`,
@@ -502,7 +504,7 @@ export class IosSimulatorSession implements InputTarget {
               '  ℹ ios-sim: 시뮬레이터 베젤 표시를 껐습니다 — 다음 Simulator 실행부터 캡처 크롭이 정합됩니다',
             );
           } else {
-            console.log('  ℹ ios-sim: 시뮬레이터 베젤 표시를 끕니다 (창 캡처 크롭 정합)');
+            console.log('  ℹ ios-sim: hiding simulator bezel (keeps window-capture crop aligned)');
           }
         }
       }
@@ -536,7 +538,7 @@ export class IosSimulatorSession implements InputTarget {
         if (!sawFrame) {
           sawFrame = true;
           clearTimeout(watchdog);
-          console.log('  ▶ ios-sim: SCK 창 캡처 30fps 활성');
+          console.log('  ▶ ios-sim: SCK window capture active (30fps)');
           this.enqueue({ type: 'pauseFrames' });
           this.captureLoop?.stop();
         }
@@ -560,7 +562,9 @@ export class IosSimulatorSession implements InputTarget {
         if (sawFrame) {
           // 세션 도중 사망(Simulator 창 닫힘 등) — 붙을 때 셸 프레임을 pause했으므로
           // 되살리지 않으면 pane이 마지막 SCK 프레임에서 굳는다
-          console.warn('  ⚠ ios-sim: SCK 캡처가 끊겼습니다 — 셸 스냅샷으로 폴백, 10초마다 재시도');
+          console.warn(
+            '  ⚠ ios-sim: SCK capture died — falling back to shell snapshots, retrying every 10s',
+          );
           this.enqueue({ type: 'resumeFrames' });
           if (this.events) this.startPolling(this.events);
         }

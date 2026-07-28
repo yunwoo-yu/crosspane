@@ -62,7 +62,7 @@ export function ConsolePanel({ logs, engines }: ConsolePanelProps) {
               variant={levelFilter === level ? 'active' : 'ghost'}
               size="icon"
               onClick={() => setLevelFilter(level)}
-              title={level === 'warning' ? 'warning 이상' : level}
+              title={level === 'warning' ? 'warning and above' : level}
             >
               {level}
             </Button>
@@ -72,7 +72,7 @@ export function ConsolePanel({ logs, engines }: ConsolePanelProps) {
           className="max-w-48"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="로그 검색"
+          placeholder="Filter logs"
           aria-label="search logs"
         />
         {!follow && (
@@ -85,9 +85,9 @@ export function ConsolePanel({ logs, engines }: ConsolePanelProps) {
               const body = bodyRef.current;
               if (body) body.scrollTop = body.scrollHeight;
             }}
-            title="새 로그 따라가기 재개"
+            title="Resume following new logs"
           >
-            ↓ 최신
+            ↓ Latest
           </Button>
         )}
       </div>

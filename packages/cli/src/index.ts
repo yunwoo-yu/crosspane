@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   const targetPort = /^http:\/\/localhost:(\d+)/.exec(options.url)?.[1];
   if (targetPort && !(await probePort(Number(targetPort)))) {
     console.warn(
-      `  ⚠ 대상 ${options.url} 에 연결할 수 없습니다 — dev 서버가 떠 있는지 확인하세요 (뜨면 대시보드에서 ⟳)`,
+      `  ⚠ Cannot reach ${options.url} — make sure your dev server is running (then hit ⟳ in the dashboard)`,
     );
   }
 
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
       });
       for (const plan of plans) {
         urlSyncAttempted.set(plan.engine, { target: normalizeUrl(plan.target), ts: Date.now() });
-        console.log(`  ↺ ${plan.engine} URL 수렴 → ${plan.target}`);
+        console.log(`  ↺ ${plan.engine} converging URL → ${plan.target}`);
         void sessions
           .get(plan.engine)
           ?.navigate(plan.target)
@@ -156,11 +156,15 @@ async function main(): Promise<void> {
         if (isBrowserEngine && isMissingBrowserError(err) && !browserInstallAttempted.has(engine)) {
           browserInstallAttempted.add(engine);
           startingEngines.delete(engine);
-          console.log(`  ⬇ ${engine} 브라우저가 없어 설치합니다 (최초 1회, 수십 MB)…`);
+          console.log(
+            `  ⬇ ${engine} browser not installed — installing now (one-time, tens of MB)…`,
+          );
           if (await installPlaywrightBrowser(engine)) {
             return paneController.startEngine(engine);
           }
-          console.error(`  ✗ ${engine} 설치 실패 — 수동 설치: npx playwright install ${engine}`);
+          console.error(
+            `  ✗ ${engine} install failed — install manually: npx playwright install ${engine}`,
+          );
         }
         sessionEvents.onStatus(engine, 'error', String(err));
         console.error(`  ✗ ${engine} failed: ${String(err)}`);
@@ -258,7 +262,7 @@ async function main(): Promise<void> {
   const dashboardUrl = `http://localhost:${server.port}`;
   console.log(`crosspane dashboard → ${dashboardUrl}`);
   console.log(
-    `target: ${options.url}  device: ${options.device}  auto-start: ${paneSetup.autoStart.join(', ')} (나머지 pane은 대시보드 상단 토글로)`,
+    `target: ${options.url}  device: ${options.device}  auto-start: ${paneSetup.autoStart.join(', ')} (start the rest from the dashboard toggles)`,
   );
   // 터미널에서 직접 실행했으면 대시보드를 바로 연다 (파이프/CI에서는 열지 않음)
   if (options.openBrowser && isInteractiveTerminal) openInBrowser(dashboardUrl);

@@ -197,7 +197,9 @@ export class AndroidEmulatorSession implements InputTarget {
         detail = `${serial} · WebView`;
       } catch (err) {
         const reason = err instanceof Error ? err.message.split('\n')[0] : String(err);
-        console.warn(`  ⚠ android: WebView 셸 실패 → Chrome 폴백: ${reason.slice(0, 200)}`);
+        console.warn(
+          `  ⚠ android: WebView shell failed → falling back to Chrome: ${reason.slice(0, 200)}`,
+        );
       }
     }
     session.grpc = (await EmulatorGrpc.connect(sdkDir, 8554)) ?? null;

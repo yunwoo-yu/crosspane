@@ -30,9 +30,9 @@ export default function App() {
   const sendCommandWithFeedback = useCallback(
     (command: ClientCommand) => {
       if (command.type === 'start-engine') {
-        showToast(`${ENGINE_SHORT_LABEL[command.engine]} pane 시작 중…`);
+        showToast(`Starting ${ENGINE_SHORT_LABEL[command.engine]} pane…`);
       } else if (command.type === 'stop-engine') {
-        showToast(`${ENGINE_SHORT_LABEL[command.engine]} pane을 닫았어요`);
+        showToast(`Closed ${ENGINE_SHORT_LABEL[command.engine]} pane`);
       }
       sendCommand(command);
     },
@@ -102,7 +102,7 @@ export default function App() {
       networkEntries,
     });
     downloadReport(html, hello.url);
-    showToast('리포트를 저장했어요');
+    showToast('Report saved');
   }, [hello, engineNames, engineStates, logs, networkEntries, showToast]);
 
   return (
@@ -129,8 +129,8 @@ export default function App() {
         {activeEngines.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 text-fg-muted">
             <span className="text-2xl">🪟</span>
-            <span className="text-sm">실행 중인 pane이 없어요</span>
-            <span className="text-xs">상단의 엔진 토글을 눌러 시작해 보세요</span>
+            <span className="text-sm">No panes running</span>
+            <span className="text-xs">Click an engine toggle above to get started</span>
           </div>
         )}
         {activeEngines.map((engine) => (
@@ -160,7 +160,7 @@ export default function App() {
         <div
           className="resize-handle"
           onPointerDown={startPanelResize}
-          title="드래그로 패널 높이 조절"
+          title="Drag to resize panel"
         />
         <div className="flex items-center gap-1.5 border-line border-b px-4 py-2">
           <Button
