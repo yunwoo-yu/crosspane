@@ -27,7 +27,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # pnpm 버전은 루트 package.json의 packageManager 필드가 단일 소스다
       - uses: pnpm/action-setup@v4
