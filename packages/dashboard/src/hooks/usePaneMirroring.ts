@@ -39,9 +39,11 @@ export function usePaneMirroring({
   const screenStateRef = useRef<PaneScreen | null>(null);
   // Android(비디오 지연 ~0.5s, scrollY 미상)는 상대 에코(시간 감쇠)로 선행 표시,
   // 나머지는 절대 에코(scrollY 정합)
+  // 실기기 pane은 상대 에코 — 내부 스크롤 시 절대(scrollY 정합) 에코는 셸 리포트가
+  // 메인 스크롤뷰 기준이라 매 프레임 리셋돼 무효가 된다 (한 박자 늦는 체감의 원인)
   screenStateRef.current ??= new PaneScreen(
     viewport,
-    engine === 'android' ? 'relative' : 'absolute',
+    engine === 'android' || engine === 'ios-sim' ? 'relative' : 'absolute',
   );
   const sendCommandRef = useRef(sendCommand);
   sendCommandRef.current = sendCommand;

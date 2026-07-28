@@ -42,6 +42,8 @@ export interface DashboardServerOptions {
   shellBridge?: ShellBridge;
   /** 새 대시보드 접속 시 호출 — 비디오 스트림을 키프레임부터 다시 시작시키는 용도 */
   onClientConnect?: () => void;
+  /** 디코더 오류 등으로 특정 엔진 스트림 재시작 요청 */
+  onRestartVideo?: (engine: EngineName) => void;
   /**
    * 시청 중인 엔진 합집합 변화 — 아무도 안 보는 엔진은 캡처를 멈춘다.
    * (클라이언트 0명이면 빈 집합, watch를 안 보내는 클라이언트는 전체 시청으로 간주)
@@ -54,10 +56,10 @@ const EVENT_HISTORY_LIMIT = 300;
 // 네트워크 이벤트는 양이 많아 콘솔 히스토리를 밀어내지 않도록 별도 버퍼를 쓴다
 const NETWORK_HISTORY_LIMIT = 600;
 
-/** 미러링 대상 입력 커맨드 (pane 제어/시청 신호 제외) */
+/** 미러링 대상 입력 커맨드 (pane 제어/시청/스트림 신호 제외) */
 type MirrorCommand = Exclude<
   ClientCommand,
-  { type: 'start-engine' } | { type: 'stop-engine' } | { type: 'watch' }
+  { type: 'start-engine' } | { type: 'stop-engine' } | { type: 'watch' } | { type: 'restart-video' }
 >;
 
 const ALL_ENGINES: readonly EngineName[] = ['chromium', 'webkit', 'firefox', 'ios-sim', 'android'];
@@ -242,7 +244,9 @@ export function startDashboardServer(options: DashboardServerOptions): Promise<D
       try {
         const command = JSON.parse(String(raw)) as ClientCommand;
         // pane 제어는 세션 미러링이 아니라 라이프사이클 컨트롤러가 처리한다
-        if (command.type === 'watch') {
+        if (command.type === 'restart-video') {
+          options.onRestartVideo?.(command.engine);
+        } else if (command.type === 'watch') {
           clientWatches.set(client, new Set(command.engines));
           notifyWatchedEngines();
         } else if (command.type === 'start-engine') {

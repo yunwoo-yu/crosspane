@@ -185,6 +185,12 @@ async function main(): Promise<void> {
     sessions,
     paneController,
     // 새 대시보드 접속 → 비디오 스트림을 키프레임부터 재시작 (늦은 접속자 대응)
+    onRestartVideo(engine) {
+      const session = sessions.get(engine);
+      if (session && 'restartVideoStream' in session) {
+        (session as AndroidEmulatorSession | IosSimulatorSession).restartVideoStream();
+      }
+    },
     onClientConnect() {
       for (const session of sessions.values()) {
         if ('restartVideoStream' in session) {

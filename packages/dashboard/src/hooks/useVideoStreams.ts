@@ -6,8 +6,6 @@ import type { EngineName } from '../types';
 export type DecodedFrameSink = (engine: EngineName, frame: VideoFrame) => void;
 
 const FRAME_DURATION_US = 33_333; // 타임스탬프 용도 (30fps 가정, 표시 타이밍엔 미사용)
-// 스트림이 이 시간 조용하면 pending의 마지막 프레임을 플러시 (다음 시작코드 대기 지연 제거)
-const IDLE_FLUSH_MS = 25;
 
 interface EngineVideoPipeline {
   parser: H264AnnexBParser;
@@ -15,23 +13,24 @@ interface EngineVideoPipeline {
   configured: boolean;
   sawKeyframe: boolean;
   timestamp: number;
-  flushTimer: number | null;
 }
 
 /**
  * 엔진별 H.264 스트림 → WebCodecs 디코드 파이프라인.
  * WebCodecs 미지원 브라우저에서는 조용히 무시한다 (서버의 스크린샷 폴백이 커버).
  */
-export function useVideoStreams(onFrame: DecodedFrameSink) {
+export function useVideoStreams(
+  onFrame: DecodedFrameSink,
+  onStreamError?: (engine: EngineName) => void,
+) {
   const pipelinesRef = useRef(new Map<EngineName, EngineVideoPipeline>());
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
+  const onStreamErrorRef = useRef(onStreamError);
+  onStreamErrorRef.current = onStreamError;
 
   const resetPipeline = useCallback((engine: EngineName) => {
     const pipeline = pipelinesRef.current.get(engine);
-    if (pipeline?.flushTimer !== null && pipeline?.flushTimer !== undefined) {
-      window.clearTimeout(pipeline.flushTimer);
-    }
     if (pipeline?.decoder && pipeline.decoder.state !== 'closed') pipeline.decoder.close();
     pipelinesRef.current.delete(engine);
   }, []);
@@ -43,8 +42,12 @@ export function useVideoStreams(onFrame: DecodedFrameSink) {
         const decoder = new VideoDecoder({
           // createImageBitmap 변환 왕복을 생략하고 VideoFrame을 곧장 canvas로
           output: (frame) => onFrameRef.current(engine, frame),
-          // 스트림 오류(잘린 NAL 플러시 등) — 파이프라인을 버리고 다음 키프레임부터 재시작
-          error: () => resetPipeline(engine),
+          // 스트림 오류 — 파이프라인 리셋 + 서버에 재시작 요청(새 SPS/IDR).
+          // scrcpy/idb는 주기 키프레임이 없어 요청 없이는 잔상이 지속된다
+          error: () => {
+            resetPipeline(engine);
+            onStreamErrorRef.current?.(engine);
+          },
         });
         decoder.configure({ codec: pipeline.parser.codec, optimizeForLatency: true });
         pipeline.decoder = decoder;
@@ -77,22 +80,13 @@ export function useVideoStreams(onFrame: DecodedFrameSink) {
           configured: false,
           sawKeyframe: false,
           timestamp: 0,
-          flushTimer: null,
         };
         pipelinesRef.current.set(engine, pipeline);
       }
       const active = pipeline;
 
-      // 트레일링 플러시는 청크 경계 == NAL 경계가 보장되는 소스(scrcpy)에만.
-      // idb는 파이프 경계가 임의라 잘린 NAL이 디코더를 죽인다 (IDR 재전송 없음 → 영구 정지 실측)
-      if (engine === 'android') {
-        if (active.flushTimer !== null) window.clearTimeout(active.flushTimer);
-        active.flushTimer = window.setTimeout(() => {
-          active.flushTimer = null;
-          for (const unit of active.parser.flushPending()) decodeUnit(engine, active, unit);
-        }, IDLE_FLUSH_MS);
-      }
-
+      // 트레일링 플러시 금지 — scrcpy(TCP)도 청크 경계가 NAL 경계가 아니라서
+      // 잘린 NAL이 디코더 델타를 오염시킨다 (사용자 실검증에서 블록 깨짐 확인)
       for (const unit of active.parser.push(bytes)) decodeUnit(engine, active, unit);
     },
     [decodeUnit],
@@ -102,7 +96,6 @@ export function useVideoStreams(onFrame: DecodedFrameSink) {
     const pipelines = pipelinesRef.current;
     return () => {
       for (const pipeline of pipelines.values()) {
-        if (pipeline.flushTimer !== null) window.clearTimeout(pipeline.flushTimer);
         if (pipeline.decoder && pipeline.decoder.state !== 'closed') pipeline.decoder.close();
       }
       pipelines.clear();

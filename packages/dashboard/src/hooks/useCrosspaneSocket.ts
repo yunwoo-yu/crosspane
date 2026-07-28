@@ -101,9 +101,17 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     [],
   );
 
-  // 실시간 비디오 스트림(H.264) — 디코드 결과는 스냅샷 프레임과 같은 경로로 흐른다
-  const { pushVideoChunk, resetPipeline } = useVideoStreams((engine, frame) =>
-    dispatchFrame(engine, frame, SCROLL_Y_UNKNOWN),
+  // 실시간 비디오 스트림(H.264) — 디코드 결과는 스냅샷 프레임과 같은 경로로 흐른다.
+  // 디코더 오류 시 서버에 재시작을 요청해 키프레임부터 자가 회복 (잔상 방지)
+  const lastRestartRef = useRef(0);
+  const { pushVideoChunk, resetPipeline } = useVideoStreams(
+    (engine, frame) => dispatchFrame(engine, frame, SCROLL_Y_UNKNOWN),
+    (engine) => {
+      const now = Date.now();
+      if (now - lastRestartRef.current < 1_500) return;
+      lastRestartRef.current = now;
+      sendCommand({ type: 'restart-video', engine });
+    },
   );
 
   const handleServerEvent = useCallback(
