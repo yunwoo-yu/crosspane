@@ -66,11 +66,10 @@ jobs:
         if: steps.auth.outputs.ready == 'true'
         uses: changesets/action@v1
         with:
-          # 1) `pnpm run` 안에서 실행하면 pnpm이 npm_config_*(git-checks 등)를
-          #    주입하고 최신 npm이 미지 플래그를 에러로 거부한다
-          # 2) changesets 액션은 publish를 셸로 해석하지 않는다 — `&&` 금지
-          # → 단일 커맨드 npx 직접 실행이 유일하게 안전한 형태
-          publish: npx changeset publish
+          # changeset publish 미사용 — pnpm publish 경유 시 --git-checks가 최신
+          # npm에서 에러가 된다. 사유와 대체 절차는 scripts/ci-publish.mjs 주석 참조
+          # (publish 입력은 셸 미해석이므로 단일 커맨드여야 한다)
+          publish: node scripts/ci-publish.mjs
           title: 'chore: version packages'
           commit: 'chore: version packages'
         env:
