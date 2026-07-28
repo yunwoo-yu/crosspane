@@ -12,6 +12,11 @@ updates:
       production-dependencies:
         dependency-type: production
     open-pull-requests-limit: 5
+    ignore:
+      # jsdom 30+은 Node 22 전용 (webidl markAsUncloneable) — 우리 CI는
+      # 배포 패키지의 하한인 Node 20 레그를 유지하므로 26.x에 고정
+      - dependency-name: jsdom
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
