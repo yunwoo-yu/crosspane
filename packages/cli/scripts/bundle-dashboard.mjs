@@ -16,3 +16,9 @@ if (!existsSync(dashboardDist)) {
 rmSync(bundleTarget, { recursive: true, force: true });
 cpSync(dashboardDist, bundleTarget, { recursive: true });
 console.log(`bundled dashboard → ${bundleTarget}`);
+
+// npm 페이지는 패키지 루트의 README/LICENSE만 보여준다 — 저장소 루트에서 동기화
+for (const doc of ['README.md', 'LICENSE']) {
+  cpSync(resolve(here, '../../..', doc), resolve(here, '..', doc));
+}
+console.log('synced README.md / LICENSE from repo root');
