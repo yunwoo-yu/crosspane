@@ -1,5 +1,118 @@
 # @crosspane/agent
 
+## 0.5.0
+
+### Minor Changes
+
+- bdaa6ee: Add `agent.copyCapture()` — puts the capture JSON on the clipboard and resolves to whether it
+  worked.
+
+  Offline capture is the main path on a security-locked build, but the only exit was a blob
+  download, which a webview honours only if the host app implements downloads (and in-app
+  browsers usually block outright) — with no way to detect the failure from JavaScript. The
+  modern alternatives are unavailable exactly where they are needed: an in-house build served
+  from `http://<lan-ip>` is not a secure context, so `navigator.clipboard` and `navigator.share`
+  are `undefined` there. `copyCapture()` therefore falls back to `execCommand('copy')`, which is
+  the working path in that environment rather than a legacy one.
+
+  The README now documents how to get a capture off a locked device, including the
+  native-bridge route for React Native and WKWebView hosts.
+
+- 9bd4782: Collapse consecutive duplicate console events into one with a `repeat` count.
+
+  A broken webview emits the same error thousands of times per second, and that one line used
+  to consume every buffer in the system. Measured before this change: after 3,000 identical
+  messages, the hub's 2,000-event history held **one distinct message** and the error that
+  started the cascade was gone — which makes the capture file, the primary path on a
+  security-locked build, useless exactly when it matters.
+
+  Coalescing happens in the agent's ring buffer (so exported captures stay useful) and in the
+  live transport's pending queue (so the hub's history and any late-joining dashboard see it
+  too, and the connection carries less). Only console and page errors coalesce — network and
+  navigation events stay separate, because requesting the same URL twice is not the same fact
+  as requesting it once. The first occurrence's timestamp is kept so timeline position doesn't
+  drift, and the count is shown rather than hidden.
+
+  `SessionEvent` gains an optional `repeat` field on `console` and `pageerror` (absent means 1),
+  which is backward compatible — older dashboards ignore it, and the capture file version is
+  unchanged.
+
+- c42a14d: Record when a repeated error stopped, not just when it started.
+
+  Coalescing consecutive duplicates keeps the first occurrence's timestamp so the timeline
+  position stays put — but that alone loses something important. An error repeating every five
+  seconds for ten minutes collapsed to a single line stamped `10:00:00 ×120`, which reads as
+  "it happened a few times at the start and stopped". Whether it is _still_ happening is often
+  the most useful fact in the log.
+
+  `console` and `pageerror` events now carry an optional `repeatUntil` (the last occurrence), and
+  the dashboard shows the span next to the count — `×120 10m` — so an ongoing failure can't be
+  mistaken for a burst. Bursts shorter than a second show no span, since a duration adds nothing
+  there.
+
+### Patch Changes
+
+- 66bc6e8: Two fixes found by adding coverage to previously untested paths.
+
+  **Navigation hook now restores the true original.** `hookNavigation` stored
+  `history.pushState.bind(history)` as the "original" and restored that on `dispose()`, so every
+  init → dispose cycle left another `bind` layer wrapped around `history.pushState` and the real
+  original was never recovered. This is the permanent-pollution failure mode the SDK is supposed
+  to prevent, and it triggers in HMR and in any app that toggles the agent.
+
+  **Capture filenames keep non-ASCII labels.** The label was sanitized with `[^\w-]+`, which
+  does not match Korean (or any non-Latin script) — a label like `결제 웹뷰` collapsed to a
+  single `_`, making the filename useless for exactly the teams this tool targets. Labels now
+  keep letters and digits from any script. The hub's `GET /capture/:id` sends the name as RFC
+  6266 (`filename*=UTF-8''…` plus an ASCII fallback), because Node rejects non-ASCII header
+  values and would otherwise throw while writing the response.
+
+- 5b76984: Require an access token when the hub is exposed to a network.
+
+  Measured before this change: with `--host 0.0.0.0`, any device on the same Wi-Fi could connect
+  to `/ws` with a non-browser client and read every session's full history — console text
+  included, which in a real session carries tokens and user data — download any capture file from
+  `/capture/:id`, and register fake sessions through `/agent`. The Origin check that prevents
+  cross-site WebSocket hijacking does not apply to clients that send no Origin, so it never stood
+  in the way.
+
+  Exposing the hub now generates a one-time token, printed with the URLs at startup and required
+  on `/ws`, `/agent`, `/capture/:id`, and `/hub-info`. Loopback binds are unchanged — the OS
+  already restricts those, and a token there would be friction with no benefit. `--no-auth` opts
+  out for networks you fully trust.
+
+  The dashboard picks the token up from its own URL, removes it from the address bar, and keeps it
+  for the tab. The agent takes it from `serverUrl` (`http://<ip>:7788/?t=…`), and `crosspane mcp`
+  from `--hub`. `SECURITY.md` now states what exposure means instead of listing it as out of scope.
+
+- ef8e7ac: The agent no longer serializes an entire object before deciding to truncate it. `JSON.stringify` used to run to completion and the result was then cut, so a page logging a large object paid the full cost of building a string that was mostly discarded — instrumentation should not slow down the page it observes. Serialization now stops expanding once it exceeds the text budget, and truncation is reported explicitly rather than silently dropping data.
+
+  The dashboard's screen panel also survives environments without `ResizeObserver` instead of throwing on mount; it falls back to a single measurement and gives up resize tracking.
+
+- f2cd34f: Cut the cost of logging large payloads, and stop losing content on circular references.
+
+  Console serialization runs on the page's own critical path, so it was measured in a real
+  browser rather than reasoned about. Two findings:
+
+  - **Large arrays were the real cost.** Logging a 10,000-item API response cost 497µs; a
+    100,000-element array cost 6ms — a third of a frame, spent by the debugging tool. An array's
+    `length` is O(1), so serializing only the head is free to detect: now 64µs and 24µs
+    respectively (8× and 250×). The omitted count is reported in the output.
+  - **Circular references discarded the whole object.** `JSON.stringify` throws on them, and the
+    fallback was `String(value)` — `"[object Object]"`, no content at all. Now a second pass with
+    a visited set marks just the circular edge, so the rest of the object survives.
+
+  Typical logs are unchanged (~1.1µs). Deliberately _not_ changed: a plain object with 50,000
+  keys still costs ~7ms, because `Object.keys` alone is 4.6ms and `JSON.stringify` performs the
+  same enumeration internally — there is no implementation that avoids it. A hand-written
+  bounded serializer was tried and reverted: it was 3× slower on everything typical. Both
+  findings are recorded in `docs/decisions.md`, and `packages/agent/scripts/bench.mjs`
+  reproduces the numbers.
+
+- Updated dependencies [9bd4782]
+- Updated dependencies [c42a14d]
+  - @crosspane/protocol@0.4.0
+
 ## 0.4.0
 
 ### Minor Changes

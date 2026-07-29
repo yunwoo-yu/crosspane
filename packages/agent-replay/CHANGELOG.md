@@ -1,5 +1,18 @@
 # @crosspane/agent-replay
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [bdaa6ee]
+- Updated dependencies [66bc6e8]
+- Updated dependencies [5b76984]
+- Updated dependencies [9bd4782]
+- Updated dependencies [c42a14d]
+- Updated dependencies [ef8e7ac]
+- Updated dependencies [f2cd34f]
+  - @crosspane/agent@0.5.0
+
 ## 0.2.0
 
 ### Minor Changes
