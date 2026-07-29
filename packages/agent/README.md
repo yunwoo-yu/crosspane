@@ -91,6 +91,7 @@ initCrosspane(options?: {
   bufferSize?: number        // ring buffer size (default: 2000 events)
   captureBodies?: boolean    // capture response bodies (default: false)
   bodyPreviewLimit?: number  // default: 2048 chars
+  maxTextLength?: number     // per console/error entry (default: 10000 chars)
 }): CrosspaneAgent
 ```
 
@@ -104,6 +105,8 @@ initCrosspane(options?: {
 
 ## Notes
 
+- Calling `initCrosspane` twice returns the same agent — hooks are never installed
+  twice, so hot reloads and duplicated bundles are safe.
 - Call `initCrosspane` as early as possible — anything logged before it runs isn't captured.
 - The ring buffer keeps the **last** N events, so a crash still leaves you the moments
   before it. Events are buffered whether or not the live connection is up.

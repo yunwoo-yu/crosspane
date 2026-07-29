@@ -21,6 +21,11 @@ export interface CrosspaneAgentOptions {
   /** 네트워크 응답 바디 수집 — 기본 꺼짐 (프라이버시 안전 기본값) */
   captureBodies?: boolean;
   bodyPreviewLimit?: number;
+  /**
+   * 콘솔/에러 텍스트 1건의 최대 길이 (기본 10000자).
+   * 거대한 객체를 로그하는 페이지가 링버퍼와 회선을 잠식하는 것을 막는다.
+   */
+  maxTextLength?: number;
 }
 
 export interface CrosspaneAgent {
@@ -60,10 +65,18 @@ function detectPlatform(userAgent: string): string {
  * crosspane 에이전트 초기화 — 앱 부트스트랩에서 가능한 한 일찍 호출할 것
  * (호출 이전의 콘솔/에러는 잡지 못한다).
  */
+/**
+ * 활성 에이전트 — 중복 초기화 방지용.
+ * 두 번 init하면 console/fetch가 이중 후킹돼 이벤트가 중복 발생하고, dispose가
+ * 한 겹만 복원해 원본이 영영 돌아오지 않는다 (HMR·중복 번들에서 실제로 발생한다).
+ */
+let activeAgent: CrosspaneAgent | null = null;
+
 export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAgent {
   const enabled =
     typeof options.enabled === 'function' ? options.enabled() : (options.enabled ?? true);
   if (!enabled || typeof window === 'undefined') return DISABLED_AGENT;
+  if (activeAgent) return activeAgent;
 
   const session: SessionMeta = {
     id: `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -88,12 +101,13 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
     emit,
     captureBodies: options.captureBodies ?? false,
     bodyPreviewLimit: options.bodyPreviewLimit ?? 2_048,
+    maxTextLength: options.maxTextLength ?? 10_000,
   });
 
   // 페이지 진입도 하나의 내비게이션으로 기록 — 리플레이의 시작점이 된다
   emit({ type: 'navigation', sessionId: session.id, url: location.href, ts: Date.now() });
 
-  return {
+  const agent: CrosspaneAgent = {
     enabled: true,
     session,
     capture(): SessionCapture {
@@ -117,6 +131,10 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
     dispose(): void {
       for (const teardown of teardowns) teardown();
       transport?.dispose();
+      activeAgent = null;
     },
   };
+
+  activeAgent = agent;
+  return agent;
 }

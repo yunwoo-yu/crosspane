@@ -69,6 +69,35 @@ describe('initCrosspane', () => {
     vi.unstubAllGlobals();
   });
 
+  it('중복 init은 같은 에이전트를 돌려준다 (이중 후킹 방지)', () => {
+    agent = initCrosspane({ label: 'first' });
+    const hooked = console.log;
+    const second = initCrosspane({ label: 'second' });
+    // 두 번째 호출이 훅을 덧씌우지 않아야 한다 — 덧씌우면 이벤트가 중복되고
+    // dispose가 한 겹만 복원해 원본이 영영 돌아오지 않는다
+    expect(second).toBe(agent);
+    expect(console.log).toBe(hooked);
+    console.log('once');
+    expect(agent.capture().events.filter((e) => e.type === 'console')).toHaveLength(1);
+  });
+
+  it('dispose 후에는 다시 init할 수 있다', () => {
+    const first = initCrosspane();
+    first.dispose();
+    agent = initCrosspane();
+    expect(agent).not.toBe(first);
+    expect(agent.enabled).toBe(true);
+  });
+
+  it('거대한 콘솔 인자는 상한에서 잘리고 잘렸음을 알린다', () => {
+    agent = initCrosspane({ maxTextLength: 50 });
+    console.log('x'.repeat(500));
+    const entry = agent.capture().events.find((e) => e.type === 'console');
+    const text = entry?.type === 'console' ? entry.text : '';
+    expect(text.length).toBeLessThan(120);
+    expect(text).toContain('truncated, 500 chars');
+  });
+
   it('capture()는 유효한 SessionCapture를 만든다 (버전/세션/이벤트)', () => {
     agent = initCrosspane({ label: 'QA 빌드' });
     console.log('x');

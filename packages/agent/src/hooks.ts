@@ -6,6 +6,8 @@ export interface HookOptions {
   /** 네트워크 응답 바디 수집 (기본 꺼짐 — 프라이버시 안전 기본값) */
   captureBodies: boolean;
   bodyPreviewLimit: number;
+  /** 콘솔/에러 텍스트 1건 상한 — 거대 객체 로그가 버퍼·회선을 잠식하는 것을 막는다 */
+  maxTextLength: number;
 }
 
 /** 훅 해제 함수 목록을 돌려준다 — dispose 시 원본 복원 */
@@ -17,6 +19,11 @@ export function installHooks(options: HookOptions): (() => void)[] {
   teardowns.push(hookXhr(options));
   teardowns.push(hookNavigation(options));
   return teardowns;
+}
+
+/** 상한을 넘으면 잘라내고 잘렸음을 알린다 — 조용히 버리면 디버깅을 오도한다 */
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}… (truncated, ${text.length} chars)`;
 }
 
 function serializeArg(arg: unknown): string {
@@ -33,7 +40,7 @@ function serializeArg(arg: unknown): string {
 const CONSOLE_LEVELS = ['log', 'info', 'warn', 'error', 'debug'] as const;
 type ConsoleLevel = (typeof CONSOLE_LEVELS)[number];
 
-function hookConsole({ sessionId, emit }: HookOptions): () => void {
+function hookConsole({ sessionId, emit, maxTextLength }: HookOptions): () => void {
   const originals = new Map<ConsoleLevel, (...args: unknown[]) => void>();
   for (const level of CONSOLE_LEVELS) {
     const original = console[level] as (...args: unknown[]) => void;
@@ -44,7 +51,7 @@ function hookConsole({ sessionId, emit }: HookOptions): () => void {
         type: 'console',
         sessionId,
         level: level === 'warn' ? 'warning' : level,
-        text: args.map(serializeArg).join(' '),
+        text: truncate(args.map(serializeArg).join(' '), maxTextLength),
         ts: Date.now(),
       });
     };
@@ -56,13 +63,14 @@ function hookConsole({ sessionId, emit }: HookOptions): () => void {
   };
 }
 
-function hookErrors({ sessionId, emit }: HookOptions): () => void {
+function hookErrors({ sessionId, emit, maxTextLength }: HookOptions): () => void {
   const onError = (event: ErrorEvent): void => {
     emit({
       type: 'pageerror',
       sessionId,
-      message: event.message,
-      stack: event.error instanceof Error ? event.error.stack : undefined,
+      message: truncate(event.message, maxTextLength),
+      stack:
+        event.error instanceof Error ? truncate(event.error.stack ?? '', maxTextLength) : undefined,
       ts: Date.now(),
     });
   };
@@ -71,8 +79,11 @@ function hookErrors({ sessionId, emit }: HookOptions): () => void {
     emit({
       type: 'pageerror',
       sessionId,
-      message: `Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`,
-      stack: reason instanceof Error ? reason.stack : undefined,
+      message: truncate(
+        `Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`,
+        maxTextLength,
+      ),
+      stack: reason instanceof Error ? truncate(reason.stack ?? '', maxTextLength) : undefined,
       ts: Date.now(),
     });
   };
