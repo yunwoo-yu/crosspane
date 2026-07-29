@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { CaptureParseError, type LoadedCapture, parseCaptureFile } from './capture-file';
+import { ConnectHint } from './components/ConnectHint';
 import { ConsolePanel } from './components/ConsolePanel';
 import { NetworkPanel } from './components/NetworkPanel';
 import { ScreenPanel } from './components/ScreenPanel';
@@ -152,6 +153,7 @@ export default function App() {
             hub, or drop a <code className="text-fg">.crosspane.json</code> capture file here to
             replay it.
           </span>
+          {!replay && <ConnectHint />}
         </main>
       )}
 

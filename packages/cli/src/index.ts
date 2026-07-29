@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { networkInterfaces } from 'node:os';
+import { lanAddresses } from './addresses.js';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
 import { setVerbose } from './debug.js';
 import { startMcpServer } from './mcp/index.js';
@@ -104,17 +104,6 @@ function runMcp(argv: string[]): void {
   server = startMcpServer({ hubUrl: options.hubUrl, onInputEnd: shutdown });
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-}
-
-/** LAN에서 접근 가능한 IPv4 주소 목록 — 에이전트 serverUrl 안내용 */
-function lanAddresses(): string[] {
-  const addresses: string[] = [];
-  for (const nets of Object.values(networkInterfaces())) {
-    for (const net of nets ?? []) {
-      if (net.family === 'IPv4' && !net.internal) addresses.push(net.address);
-    }
-  }
-  return addresses.length > 0 ? addresses : ['<your-ip>'];
 }
 
 /** OS 기본 브라우저로 URL 열기 — 실패해도 조용히 무시 (사용자가 직접 열면 됨) */

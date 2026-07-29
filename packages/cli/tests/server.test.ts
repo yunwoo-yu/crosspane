@@ -7,6 +7,7 @@ import { WebSocket } from 'ws';
 import {
   captureFileStem,
   contentDisposition,
+  type HubInfo,
   type HubServer,
   isAllowedWsOrigin,
   startHubServer,
@@ -391,5 +392,39 @@ describe('captureFileStem', () => {
 
   it('과도하게 긴 라벨을 자른다 (파일명 상한 방어)', () => {
     expect(captureFileStem('x'.repeat(200))).toHaveLength(60);
+  });
+});
+
+describe('GET /hub-info', () => {
+  let server: HubServer | undefined;
+  afterEach(() => {
+    server?.close();
+    server = undefined;
+  });
+
+  it('로컬 전용이면 localhost 주소와 exposed=false를 알린다', async () => {
+    server = await startHubServer({ port: 0 });
+    const info = (await (
+      await fetch(`http://127.0.0.1:${server.port}/hub-info`)
+    ).json()) as HubInfo;
+
+    expect(info.exposed).toBe(false);
+    expect(info.port).toBe(server.port);
+    // 대시보드가 이 값을 그대로 스니펫에 넣는다 — 실제 포트여야 한다
+    expect(info.serverUrls).toEqual([`http://localhost:${server.port}`]);
+  });
+
+  it('--host로 노출하면 LAN 주소를 알린다 (실기기 serverUrl)', async () => {
+    server = await startHubServer({ port: 0, host: '0.0.0.0' });
+    const info = (await (
+      await fetch(`http://127.0.0.1:${server.port}/hub-info`)
+    ).json()) as HubInfo;
+
+    expect(info.exposed).toBe(true);
+    expect(info.serverUrls.length).toBeGreaterThan(0);
+    for (const url of info.serverUrls) {
+      expect(url).toMatch(new RegExp(`^http://.+:${server?.port}$`));
+      expect(url).not.toContain('localhost');
+    }
   });
 });

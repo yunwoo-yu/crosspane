@@ -8,7 +8,10 @@
 - `args.ts` — 플래그 파싱 + HELP_TEXT + cliVersion
 - `server.ts` — `/agent` 수신(등록·이벤트), `/ws` 중계, 세션 레지스트리·히스토리,
   `GET /capture/:id`(라이브 세션 → 캡처 파일. 허브가 원본 이벤트를 갖고 있으므로
-  대시보드가 표시용 엔트리를 역변환하는 것보다 정확하다)
+  대시보드가 표시용 엔트리를 역변환하는 것보다 정확하다),
+  `GET /hub-info`(실제 포트·LAN 주소 → 대시보드가 붙여넣을 스니펫을 만든다.
+  허브만 이 정보를 알고 사용자는 대시보드를 본다)
+- `addresses.ts` — LAN IPv4 목록. CLI 안내와 `/hub-info`가 공유한다
 - `static.ts` — 대시보드 정적 서빙 (경로 탈출 방어, SPA 폴백)
 - `protocol.ts` — `@crosspane/protocol` 재수출 (소비자 import 경로 유지용)
 - `mcp/` — `crosspane mcp`: 코딩 에이전트용 MCP stdio 서버.

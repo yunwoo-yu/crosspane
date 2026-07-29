@@ -8,7 +8,10 @@
 - `event-log.ts` — 이벤트 → 세션 상태/로그/네트워크 엔트리 (순수 함수)
 - `capture-file.ts` — 캡처 파일 파싱 → 라이브와 **같은 엔트리 모양** (패널 코드 공유)
 - `hooks/useEventBatcher.ts` — 로그 폭주 시 리렌더 상한 (EVENT_BATCH_MS)
-- `components/` — SessionList / ConsolePanel / NetworkPanel
+- `components/` — SessionList / ConsolePanel / NetworkPanel / ScreenPanel
+- `components/ConnectHint.tsx` — 빈 상태의 "여기로 붙여라" 스니펫.
+  포트·LAN 주소는 `GET /hub-info`에서 받는다 — 하드코딩하면 포트 폴백 시
+  잘못된 값을 안내해 세션이 사라진다(실측)
 - `components/ui/` — shadcn 스타일 기본 컴포넌트. **새 UI는 반드시 이걸로**
 - `lib/cn.ts` — clsx + tailwind-merge. 스타일은 Tailwind 유틸리티(@theme 토큰)
 

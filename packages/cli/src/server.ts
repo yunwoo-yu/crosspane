@@ -10,6 +10,7 @@ import {
   type SessionMeta,
 } from '@crosspane/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
+import { lanAddresses } from './addresses.js';
 import { debugLog } from './debug.js';
 import { resolveDashboardDir, serveDashboardFile } from './static.js';
 
@@ -19,6 +20,19 @@ export interface HubServer {
   /** 현재 알려진 세션 (연결 종료 후에도 히스토리 유지분 포함) */
   sessions(): SessionMeta[];
   close(): void;
+}
+
+/** 대시보드가 "여기로 붙여라"를 화면에 띄우기 위해 필요한 정보 */
+export interface HubInfo {
+  port: number;
+  /** LAN에 노출됐는지 (--host) — 실기기가 붙을 수 있는지를 결정한다 */
+  exposed: boolean;
+  /**
+   * 에이전트 serverUrl에 넣을 후보 주소. 노출됐으면 LAN IP들, 아니면 localhost.
+   * 허브만 이걸 알고 사용자는 대시보드를 보고 있으므로 반드시 화면까지 전달해야 한다
+   * (터미널에만 찍으면 놓치고, serverUrl을 잘못 넣어 빈 대시보드를 마주한다 — 실측)
+   */
+  serverUrls: string[];
 }
 
 export interface HubServerOptions {
@@ -94,11 +108,27 @@ interface SessionRecord {
 
 export function startHubServer(options: HubServerOptions): Promise<HubServer> {
   const dashboardDir = resolveDashboardDir();
+  const host = options.host ?? '127.0.0.1';
   const historyLimit = options.historyLimit ?? DEFAULT_HISTORY_LIMIT;
   const retainedSessions = options.retainedSessions ?? DEFAULT_RETAINED_SESSIONS;
 
   const httpServer = http.createServer((req, res) => {
     const pathname = (req.url ?? '').split('?')[0];
+    // 대시보드가 "에이전트를 여기로 붙여라"를 화면에 띄우기 위한 정보
+    if (pathname === '/hub-info') {
+      const port = (httpServer.address() as AddressInfo | null)?.port ?? options.port;
+      const exposed = host !== '127.0.0.1' && host !== 'localhost';
+      const info: HubInfo = {
+        port,
+        exposed,
+        serverUrls: exposed
+          ? lanAddresses().map((address) => `http://${address}:${port}`)
+          : [`http://localhost:${port}`],
+      };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(info));
+      return;
+    }
     // 라이브로 보고 있는 세션을 파일로 저장한다. 허브가 원본 이벤트를 갖고 있으므로
     // 대시보드가 표시용 엔트리를 역변환하는 것보다 정확하다(배칭·상한 손실 없음)
     const captureMatch = /^\/capture\/([\w-]+)$/.exec(pathname);
@@ -250,7 +280,7 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
     const maxAttempts = Math.max(1, options.portAttempts ?? 1);
     let attempt = 0;
     const tryListen = (): void => {
-      httpServer.listen(options.port + attempt, options.host ?? '127.0.0.1');
+      httpServer.listen(options.port + attempt, host);
     };
     const onStartupError = (err: Error): void => {
       const isAddrInUse = (err as NodeJS.ErrnoException).code === 'EADDRINUSE';
