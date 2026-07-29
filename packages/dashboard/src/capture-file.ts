@@ -1,10 +1,12 @@
-import { logEntryFromEvent, networkEntryFromEvent } from './event-log';
+import { logEntryFromEvent, networkEntryFromEvent, screenEventFromEvent } from './event-log';
 import type { LogEntry, NetworkEntry, SessionCapture, SessionMeta } from './types';
 
 export interface LoadedCapture {
   session: SessionMeta;
   logs: LogEntry[];
   networkEntries: NetworkEntry[];
+  /** rrweb 이벤트 원본 — 화면 기록이 있는 캡처만 채워진다 */
+  screenEvents: unknown[];
 }
 
 export class CaptureParseError extends Error {}
@@ -27,8 +29,14 @@ export function parseCaptureFile(text: string): LoadedCapture {
 
   const logs: LogEntry[] = [];
   const networkEntries: NetworkEntry[] = [];
+  const screenEvents: unknown[] = [];
   let id = 0;
   for (const event of capture.events) {
+    const screen = screenEventFromEvent(event);
+    if (screen) {
+      screenEvents.push(screen.data);
+      continue;
+    }
     const networkEntry = networkEntryFromEvent(event);
     if (networkEntry) {
       networkEntries.push({ ...networkEntry, id: id++ });
@@ -37,5 +45,5 @@ export function parseCaptureFile(text: string): LoadedCapture {
     const logEntry = logEntryFromEvent(event);
     if (logEntry) logs.push({ ...logEntry, id: id++ });
   }
-  return { session: capture.session, logs, networkEntries };
+  return { session: capture.session, logs, networkEntries, screenEvents };
 }

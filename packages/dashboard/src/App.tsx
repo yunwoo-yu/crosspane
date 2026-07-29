@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { CaptureParseError, type LoadedCapture, parseCaptureFile } from './capture-file';
 import { ConsolePanel } from './components/ConsolePanel';
 import { NetworkPanel } from './components/NetworkPanel';
+import { ScreenPanel } from './components/ScreenPanel';
 import { SessionList } from './components/SessionList';
 import { Button } from './components/ui/button';
 import { ToastStack, useToasts } from './components/ui/toast';
@@ -10,9 +11,9 @@ import { usePanelHeight } from './hooks/usePanelHeight';
 import type { LogEntry, NetworkEntry, SessionMeta } from './types';
 
 export default function App() {
-  const { connected, sessions, sessionStates, logs, networkEntries, clearLogs } =
+  const { connected, sessions, sessionStates, logs, networkEntries, screenEvents, clearLogs } =
     useCrosspaneSocket();
-  const [bottomTab, setBottomTab] = useState<'console' | 'network'>('console');
+  const [bottomTab, setBottomTab] = useState<'console' | 'network' | 'screen'>('console');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 리플레이 모드: 파일을 열면 라이브 스트림 대신 이 캡처를 본다 */
   const [replay, setReplay] = useState<LoadedCapture | null>(null);
@@ -44,17 +45,22 @@ export default function App() {
   );
 
   // 라이브/리플레이가 같은 패널을 쓰도록 여기서 소스만 바꾼다
-  const view: { sessions: SessionMeta[]; logs: LogEntry[]; networkEntries: NetworkEntry[] } =
-    useMemo(() => {
-      if (replay) {
-        return {
-          sessions: [replay.session],
-          logs: replay.logs,
-          networkEntries: replay.networkEntries,
-        };
-      }
-      return { sessions: Object.values(sessions), logs, networkEntries };
-    }, [replay, sessions, logs, networkEntries]);
+  const view: {
+    sessions: SessionMeta[];
+    logs: LogEntry[];
+    networkEntries: NetworkEntry[];
+    screenEvents: Record<string, unknown[]>;
+  } = useMemo(() => {
+    if (replay) {
+      return {
+        sessions: [replay.session],
+        logs: replay.logs,
+        networkEntries: replay.networkEntries,
+        screenEvents: { [replay.session.id]: replay.screenEvents },
+      };
+    }
+    return { sessions: Object.values(sessions), logs, networkEntries, screenEvents };
+  }, [replay, sessions, logs, networkEntries, screenEvents]);
 
   const visibleLogs = useMemo(
     () => (selectedId ? view.logs.filter((log) => log.sessionId === selectedId) : view.logs),
@@ -67,6 +73,11 @@ export default function App() {
         : view.networkEntries,
     [view.networkEntries, selectedId],
   );
+  // 화면 탭은 선택된 세션(없으면 기록이 있는 첫 세션)의 것을 보여준다
+  const visibleScreenEvents = useMemo(() => {
+    if (selectedId) return view.screenEvents[selectedId] ?? [];
+    return Object.values(view.screenEvents).find((events) => events.length > 0) ?? [];
+  }, [view.screenEvents, selectedId]);
   const errorLogCount = useMemo(
     () => visibleLogs.filter((log) => log.level === 'error').length,
     [visibleLogs],
@@ -163,11 +174,22 @@ export default function App() {
           >
             Network
           </Button>
+          <Button
+            variant={bottomTab === 'screen' ? 'active' : 'ghost'}
+            size="icon"
+            onClick={() => setBottomTab('screen')}
+          >
+            Screen
+            {visibleScreenEvents.length > 0 && (
+              <span className="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+            )}
+          </Button>
         </div>
         {bottomTab === 'console' && <ConsolePanel logs={visibleLogs} sessions={view.sessions} />}
         {bottomTab === 'network' && (
           <NetworkPanel entries={visibleNetwork} sessions={view.sessions} />
         )}
+        {bottomTab === 'screen' && <ScreenPanel events={visibleScreenEvents} />}
       </section>
       <ToastStack toasts={toasts} />
     </div>

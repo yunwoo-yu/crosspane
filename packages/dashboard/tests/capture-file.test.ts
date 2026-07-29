@@ -6,6 +6,7 @@ const validCapture = JSON.stringify({
   session: { id: 's-1', label: 'checkout webview', userAgent: 'ua', startedAt: 0 },
   events: [
     { type: 'navigation', sessionId: 's-1', url: 'http://app/checkout', ts: 1 },
+    { type: 'screen', sessionId: 's-1', format: 'rrweb', data: { type: 2 }, ts: 1 },
     { type: 'console', sessionId: 's-1', level: 'error', text: 'boom', ts: 2 },
     {
       type: 'network',
@@ -26,6 +27,8 @@ describe('parseCaptureFile', () => {
     expect(loaded.session.label).toBe('checkout webview');
     expect(loaded.logs.map((l) => l.kind)).toEqual(['navigation', 'console']);
     expect(loaded.networkEntries).toHaveLength(1);
+    // 화면 이벤트는 로그/네트워크와 섞이지 않고 별도로 복원된다
+    expect(loaded.screenEvents).toEqual([{ type: 2 }]);
     expect(loaded.networkEntries[0]).toMatchObject({ status: 500, url: 'http://api/pay' });
     // id는 패널 key로 쓰이므로 유일해야 한다
     const ids = [...loaded.logs, ...loaded.networkEntries].map((e) => e.id);

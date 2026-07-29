@@ -7,6 +7,7 @@ import {
   reduceSessionStates,
   type SessionMetas,
   type SessionStates,
+  screenEventFromEvent,
 } from '../event-log';
 import type { ServerEvent } from '../types';
 import { useEventBatcher } from './useEventBatcher';
@@ -17,6 +18,8 @@ export interface CrosspaneConnection {
   sessionStates: SessionStates;
   logs: ReturnType<typeof useEventBatcher>['logs'];
   networkEntries: ReturnType<typeof useEventBatcher>['networkEntries'];
+  /** 세션별 rrweb 이벤트 — 화면 기록 플러그인을 쓰는 세션만 채워진다 */
+  screenEvents: Record<string, unknown[]>;
   clearLogs: () => void;
 }
 
@@ -30,6 +33,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState<SessionMetas>({});
   const [sessionStates, setSessionStates] = useState<SessionStates>({});
+  const [screenEvents, setScreenEvents] = useState<Record<string, unknown[]>>({});
 
   const batcher = useEventBatcher();
   const { appendLog, appendNetwork, clear: clearBatched } = batcher;
@@ -38,7 +42,18 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     (event: ServerEvent) => {
       // hello는 접속당 1회의 세션 경계다 — 서버가 접속마다 히스토리를 전량
       // 재생하므로, 이전 분을 비우지 않으면 재접속마다 로그가 중복 누적된다
-      if (event.type === 'hello') clearBatched();
+      if (event.type === 'hello') {
+        clearBatched();
+        setScreenEvents({});
+      }
+      const screen = screenEventFromEvent(event);
+      if (screen) {
+        setScreenEvents((prev) => ({
+          ...prev,
+          [screen.sessionId]: [...(prev[screen.sessionId] ?? []), screen.data],
+        }));
+        return;
+      }
       setSessions((prev) => reduceSessionMetas(prev, event));
       setSessionStates((prev) => reduceSessionStates(prev, event));
       const networkEntry = networkEntryFromEvent(event);
@@ -89,6 +104,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     sessionStates,
     logs: batcher.logs,
     networkEntries: batcher.networkEntries,
+    screenEvents,
     clearLogs: batcher.clear,
   };
 }

@@ -8,14 +8,8 @@
     "declaration": true,
     "outDir": "dist",
     "rootDir": "src",
-    "skipLibCheck": true,
-    "composite": true,
-    "declarationMap": true
+    "skipLibCheck": true
   },
   "include": ["src"],
-  "references": [
-    {
-      "path": "../protocol"
-    }
-  ]
+  "references": [{ "path": "../agent" }]
 }

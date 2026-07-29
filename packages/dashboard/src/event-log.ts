@@ -93,6 +93,14 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
   }
 }
 
+/** 화면 재생용 rrweb 이벤트 추출 — screen 이벤트의 data를 그대로 돌려준다 */
+export function screenEventFromEvent(
+  event: ServerEvent,
+): { sessionId: string; data: unknown } | null {
+  if (event.type !== 'screen') return null;
+  return { sessionId: event.sessionId, data: event.data };
+}
+
 /** 네트워크 패널 엔트리 매핑 (순수 함수). 해당 없으면 null */
 export function networkEntryFromEvent(event: ServerEvent): Omit<NetworkEntry, 'id'> | null {
   if (event.type !== 'network') return null;

@@ -9,7 +9,8 @@
 ## 명령어
 
 ```bash
-pnpm build              # protocol → agent → dashboard → cli (cli가 dashboard dist를 번들)
+pnpm build              # protocol → agent → agent-replay → dashboard → cli
+                        # (cli가 dashboard dist를 dist/public에 번들)
 pnpm test               # 전 패키지 vitest
 pnpm typecheck
 pnpm check:publishable  # 배포본 메타데이터 검사 (workspace: 잔존·README/LICENSE 누락)
@@ -32,6 +33,7 @@ agent-browser --session cp snapshot -i        # ref는 페이지 재로드 시 �
 ```
 CLAUDE.md                     ← 공통 명령어/규칙 (항상 로드)
 packages/*/CLAUDE.md          ← 패키지 모듈 맵 (해당 디렉터리 작업 시)
+│   agent / agent-replay / cli / dashboard
 .claude/rules/                ← 불변 규칙 (paths: 매칭 파일을 건드릴 때만)
 ├── agent-sdk.md                번들 크기·페이지 무영향·게이팅·링버퍼
 ├── protocol-sync.md            프로토콜 단일 소스·이벤트 추가 절차

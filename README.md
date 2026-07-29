@@ -79,6 +79,8 @@ requests and navigations show up in the dashboard — or in the exported file.
 - **Navigation timeline** — SPA route changes included, so logs are grouped by screen
 - **Session list** — several devices at once, each labeled, live/ended state, error badges
 - **Replay** — drop a `.crosspane.json` into the dashboard; identical UI, no server needed
+- **Screen recording** (opt-in) — add `@crosspane/agent-replay` to record the DOM and play
+  it back in the Screen tab, in the same timeline as the logs
 
 ## Why not just use remote debugging?
 
@@ -153,7 +155,7 @@ Electron, kiosk browsers. The hub runs on macOS, Windows and Linux (Node ≥ 20)
 
 ## Roadmap
 
-- [ ] Live screen mirroring via rrweb (DOM stream, not screenshots)
+- [x] Screen recording via rrweb — [@crosspane/agent-replay](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent-replay)
 - [ ] Attach mode: Android WebView over CDP (`adb`) for full DevTools on debug builds
 - [ ] iOS WebKit Inspector attach via pymobiledevice3
 - [ ] MCP server — let coding agents query session logs directly

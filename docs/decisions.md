@@ -76,6 +76,25 @@ CI runs typecheck before build, so a workspace dependency's `dist` does not exis
 Path mapping to the dependency's source conflicts with `rootDir`, so the packages use
 `composite` + `references` and build with `tsc -b`, which resolves the ordering itself.
 
+## Screen recording lives in a separate package
+
+`@crosspane/agent-replay` records the DOM with rrweb. It is not part of the core agent
+because rrweb is tens of times larger than the core (~2.5 KB gzipped) — folding it in would
+break the promise that makes the SDK adoptable in the first place. Teams that only need
+console and network data must not pay for screen capture.
+
+Two constraints follow from that split:
+
+- The plugin emits through the core's `agent.emit` rather than opening its own transport.
+  One connection, one session, one ordered timeline — and screen frames land in
+  `.crosspane.json` exports for free.
+- The protocol's `screen` event carries a `format` string (currently `'rrweb'`) instead of
+  rrweb-shaped fields, so a different capture method can occupy the same slot without a
+  protocol break.
+
+The dashboard loads the player through a dynamic import. rrweb's player is hundreds of
+kilobytes; sessions without a recording should not pay for it.
+
 ## What the agent deliberately cannot do
 
 - **Breakpoints.** JavaScript cannot pause itself; this is why weinre and its successors

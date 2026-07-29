@@ -48,7 +48,14 @@ export type SessionEvent =
       bodyTruncated?: boolean;
       ts: number;
     }
-  | { type: 'navigation'; sessionId: string; url: string; ts: number };
+  | { type: 'navigation'; sessionId: string; url: string; ts: number }
+  /**
+   * 화면 기록 조각 — 플러그인(@crosspane/agent-replay 등)이 싣는다.
+   * 코어는 내용을 해석하지 않고 그대로 중계하며, 대시보드가 format으로 플레이어를
+   * 고른다. format을 열어둔 이유: rrweb 외의 방식(canvas 스트림 등)이 같은 슬롯을
+   * 쓸 수 있어야 하고, 코어 프로토콜이 특정 라이브러리에 묶이면 안 되기 때문.
+   */
+  | { type: 'screen'; sessionId: string; format: string; data: unknown; ts: number };
 
 /** 에이전트 → 서버 (WS /agent). 등록 후에는 이벤트를 배열로 배칭해 보낸다 */
 export type AgentMessage =

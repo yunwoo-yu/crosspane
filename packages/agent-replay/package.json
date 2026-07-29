@@ -1,0 +1,55 @@
+{
+  "name": "@crosspane/agent-replay",
+  "version": "0.1.0",
+  "description": "Optional screen-recording plugin for @crosspane/agent — streams the DOM with rrweb so you can see what the screen looked like, not just what it logged",
+  "keywords": [
+    "crosspane",
+    "webview",
+    "debugging",
+    "session-replay",
+    "rrweb"
+  ],
+  "license": "MIT",
+  "author": "yunwoo-yu",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@crosspane/agent": "^0.3.0",
+    "rrweb": "^2.1.1"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yunwoo-yu/crosspane.git",
+    "directory": "packages/agent-replay"
+  },
+  "homepage": "https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent-replay#readme",
+  "bugs": {
+    "url": "https://github.com/yunwoo-yu/crosspane/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

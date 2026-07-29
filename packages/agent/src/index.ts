@@ -35,6 +35,12 @@ export interface CrosspaneAgent {
   capture(): SessionCapture;
   /** capture()를 .crosspane.json 파일로 다운로드 (웹뷰에서는 공유 시트 연동 등 앱 측 처리) */
   exportFile(): void;
+  /**
+   * 플러그인이 세션 타임라인에 이벤트를 싣는 확장 지점.
+   * 링버퍼와 라이브 전송을 코어와 공유하므로 연결·세션이 하나로 유지된다
+   * (플러그인이 자체 전송을 만들면 타임라인이 갈라진다).
+   */
+  emit(event: SessionEvent): void;
   /** 훅 해제 + 라이브 연결 종료 (원본 console/fetch 복원) */
   dispose(): void;
 }
@@ -51,6 +57,7 @@ const DISABLED_AGENT: CrosspaneAgent = {
     };
   },
   exportFile() {},
+  emit() {},
   dispose() {},
 };
 
@@ -62,16 +69,16 @@ function detectPlatform(userAgent: string): string {
 }
 
 /**
- * crosspane 에이전트 초기화 — 앱 부트스트랩에서 가능한 한 일찍 호출할 것
- * (호출 이전의 콘솔/에러는 잡지 못한다).
- */
-/**
  * 활성 에이전트 — 중복 초기화 방지용.
  * 두 번 init하면 console/fetch가 이중 후킹돼 이벤트가 중복 발생하고, dispose가
  * 한 겹만 복원해 원본이 영영 돌아오지 않는다 (HMR·중복 번들에서 실제로 발생한다).
  */
 let activeAgent: CrosspaneAgent | null = null;
 
+/**
+ * crosspane 에이전트 초기화 — 앱 부트스트랩에서 가능한 한 일찍 호출할 것
+ * (호출 이전의 콘솔/에러는 잡지 못한다).
+ */
 export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAgent {
   const enabled =
     typeof options.enabled === 'function' ? options.enabled() : (options.enabled ?? true);
@@ -128,6 +135,7 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
       link.click();
       URL.revokeObjectURL(link.href);
     },
+    emit,
     dispose(): void {
       for (const teardown of teardowns) teardown();
       transport?.dispose();
