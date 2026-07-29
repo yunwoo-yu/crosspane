@@ -56,6 +56,19 @@ alias한다. dist로 해석되게 두면 테스트가 빌드 순서에 묶이고
 남아 "최신"으로 판단해 빌드를 건너뛰고, 의존 패키지가 TS2307로 죽는다 (실측).
 `pnpm clean`을 쓸 것 — dist와 tsbuildinfo를 함께 지운다.
 
+## 패널 컴포넌트 테스트
+
+패널은 **배선과 표시 계약**을 고정한다 — 필터 로직 자체는 순수 모듈(`log-utils`·
+`network-utils`)에서 검증하니 중복하지 말 것. 패널에서 볼 것:
+- 필터 조작이 실제로 목록을 바꾸는가 (`fireEvent.click`/`change`)
+- 상한·합친 횟수를 **화면에 밝히는가** (숨긴 건수, `×N`)
+- 오토스크롤이 사용자 스크롤을 존중하는가 — jsdom은 레이아웃이 없으므로
+  `Object.defineProperties`로 `scrollTop`/`scrollHeight`/`clientHeight`를 심는다
+- 텍스트가 필터 버튼 라벨과 겹칠 수 있다(`error`) — `container.querySelector`로 범위를 좁힐 것
+
+`ScreenPanel`은 rrweb-player 동적 import 이후를 jsdom에서 검증할 수 없다.
+플레이어 **이전** 분기만 고정하고, 실제 재생은 실브라우저로 확인한다.
+
 ## 그 외
 
 - vitest `globals: true`를 끄지 말 것 — testing-library의 auto-cleanup이

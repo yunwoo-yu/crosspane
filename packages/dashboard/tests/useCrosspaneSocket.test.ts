@@ -99,6 +99,51 @@ describe('useCrosspaneSocket', () => {
     expect(result.current.logs).toHaveLength(0);
   });
 
+  it('화면 이벤트는 세션별 버퍼로, 로그·네트워크와 섞지 않는다', async () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    act(() => {
+      latest().emit({ type: 'hello', sessions: [session('a')] });
+      latest().emit({
+        type: 'screen',
+        sessionId: 'a',
+        format: 'rrweb',
+        data: { type: 2 },
+        ts: 1,
+      });
+    });
+
+    await waitFor(() => expect(result.current.screenEvents.a).toHaveLength(1));
+    expect(result.current.logs).toHaveLength(0);
+    expect(result.current.networkEntries).toHaveLength(0);
+  });
+
+  it('네트워크 이벤트는 네트워크 목록으로만 간다', async () => {
+    const { result } = renderHook(() => useCrosspaneSocket());
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    act(() => {
+      latest().emit({ type: 'hello', sessions: [session('a')] });
+      latest().emit({
+        type: 'network',
+        sessionId: 'a',
+        method: 'POST',
+        url: 'https://api.test/pay',
+        status: 502,
+        durationMs: 12,
+        ts: 1,
+      });
+    });
+
+    await waitFor(() => expect(result.current.networkEntries).toHaveLength(1));
+    expect(result.current.networkEntries[0]).toMatchObject({
+      status: 502,
+      url: 'https://api.test/pay',
+    });
+    expect(result.current.logs).toHaveLength(0);
+  });
+
   it('session-left는 세션을 지우지 않고 live만 내린다 (사후 분석 유지)', async () => {
     const { result } = renderHook(() => useCrosspaneSocket());
     act(() => {
