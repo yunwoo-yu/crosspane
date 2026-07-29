@@ -1,5 +1,41 @@
 # @crosspane/protocol
 
+## 0.4.0
+
+### Minor Changes
+
+- 9bd4782: Collapse consecutive duplicate console events into one with a `repeat` count.
+
+  A broken webview emits the same error thousands of times per second, and that one line used
+  to consume every buffer in the system. Measured before this change: after 3,000 identical
+  messages, the hub's 2,000-event history held **one distinct message** and the error that
+  started the cascade was gone — which makes the capture file, the primary path on a
+  security-locked build, useless exactly when it matters.
+
+  Coalescing happens in the agent's ring buffer (so exported captures stay useful) and in the
+  live transport's pending queue (so the hub's history and any late-joining dashboard see it
+  too, and the connection carries less). Only console and page errors coalesce — network and
+  navigation events stay separate, because requesting the same URL twice is not the same fact
+  as requesting it once. The first occurrence's timestamp is kept so timeline position doesn't
+  drift, and the count is shown rather than hidden.
+
+  `SessionEvent` gains an optional `repeat` field on `console` and `pageerror` (absent means 1),
+  which is backward compatible — older dashboards ignore it, and the capture file version is
+  unchanged.
+
+- c42a14d: Record when a repeated error stopped, not just when it started.
+
+  Coalescing consecutive duplicates keeps the first occurrence's timestamp so the timeline
+  position stays put — but that alone loses something important. An error repeating every five
+  seconds for ten minutes collapsed to a single line stamped `10:00:00 ×120`, which reads as
+  "it happened a few times at the start and stopped". Whether it is _still_ happening is often
+  the most useful fact in the log.
+
+  `console` and `pageerror` events now carry an optional `repeatUntil` (the last occurrence), and
+  the dashboard shows the span next to the count — `×120 10m` — so an ongoing failure can't be
+  mistaken for a burst. Bursts shorter than a second show no span, since a duration adds nothing
+  there.
+
 ## 0.3.0
 
 ### Minor Changes

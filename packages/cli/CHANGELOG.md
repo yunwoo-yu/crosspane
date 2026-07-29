@@ -1,5 +1,151 @@
 # crosspane
 
+## 0.9.0
+
+### Minor Changes
+
+- 961e763: The empty dashboard now shows the exact snippet to paste into your app, with the hub's real
+  address filled in.
+
+  Only the hub knows which port it ended up on and which LAN addresses reach it, but the user is
+  looking at the dashboard. Printing it to the terminal alone is easy to miss — and if the default
+  port was taken, the hub quietly moved to the next one while the app still pointed at 7788, so
+  sessions went nowhere and the dashboard sat empty with no explanation. A new `GET /hub-info`
+  endpoint reports the bound port and reachable addresses, and the empty state renders a
+  copy-pasteable `initCrosspane({ serverUrl: … })` from it. When the hub is bound to localhost it
+  also says how to accept sessions from a phone.
+
+- 5b76984: Require an access token when the hub is exposed to a network.
+
+  Measured before this change: with `--host 0.0.0.0`, any device on the same Wi-Fi could connect
+  to `/ws` with a non-browser client and read every session's full history — console text
+  included, which in a real session carries tokens and user data — download any capture file from
+  `/capture/:id`, and register fake sessions through `/agent`. The Origin check that prevents
+  cross-site WebSocket hijacking does not apply to clients that send no Origin, so it never stood
+  in the way.
+
+  Exposing the hub now generates a one-time token, printed with the URLs at startup and required
+  on `/ws`, `/agent`, `/capture/:id`, and `/hub-info`. Loopback binds are unchanged — the OS
+  already restricts those, and a token there would be friction with no benefit. `--no-auth` opts
+  out for networks you fully trust.
+
+  The dashboard picks the token up from its own URL, removes it from the address bar, and keeps it
+  for the tab. The agent takes it from `serverUrl` (`http://<ip>:7788/?t=…`), and `crosspane mcp`
+  from `--hub`. `SECURITY.md` now states what exposure means instead of listing it as out of scope.
+
+- 12512ee: Add `crosspane mcp` — an MCP stdio server that exposes the hub's live sessions to coding
+  agents, so you can ask "why did the payment webview fail?" instead of reading the dashboard
+  and copying logs out by hand.
+
+  Five tools: `list_sessions`, `get_errors` (exceptions, console errors and failed requests in
+  one call), `get_console`, `get_network`, and `get_timeline`. Sessions can be named by id, by
+  label, or by part of a label, and omitted entirely when only one device is attached.
+
+  It attaches to the running hub as an ordinary dashboard client over `/ws`, so it receives the
+  full session history on connect and the hub needed no changes. No new dependencies — the
+  JSON-RPC layer is implemented directly rather than pulling in a 4 MB SDK for five methods.
+
+- 40ff430: Save a live session to a file from the dashboard. Until now the agent could export a capture and the dashboard could replay one, but there was no way to keep what you were watching — an odd gap for a tool whose main workflow is "reproduce, then hand it to a developer". The hub serves `GET /capture/:id` from its original event history, so a saved file is byte-identical in shape to an agent export and replays through the same code path.
+
+### Patch Changes
+
+- 66bc6e8: Two fixes found by adding coverage to previously untested paths.
+
+  **Navigation hook now restores the true original.** `hookNavigation` stored
+  `history.pushState.bind(history)` as the "original" and restored that on `dispose()`, so every
+  init → dispose cycle left another `bind` layer wrapped around `history.pushState` and the real
+  original was never recovered. This is the permanent-pollution failure mode the SDK is supposed
+  to prevent, and it triggers in HMR and in any app that toggles the agent.
+
+  **Capture filenames keep non-ASCII labels.** The label was sanitized with `[^\w-]+`, which
+  does not match Korean (or any non-Latin script) — a label like `결제 웹뷰` collapsed to a
+  single `_`, making the filename useless for exactly the teams this tool targets. Labels now
+  keep letters and digits from any script. The hub's `GET /capture/:id` sends the name as RFC
+  6266 (`filename*=UTF-8''…` plus an ASCII fallback), because Node rejects non-ASCII header
+  values and would otherwise throw while writing the response.
+
+- c758936: The session panel now fills the window. Since the pane grid was removed in 0.7.0 the layout still reserved space above the panel, so logs were confined to a strip at the bottom while most of the screen sat empty. The now-vestigial drag-to-resize handle is gone with it.
+- dfc9fcb: Add named scripts for running things by hand. `node packages/cli/dist/index.js` in one terminal
+  and `node examples/demo/serve.mjs` in another is not memorable, and forgetting the second one
+  leaves the dashboard looking empty with no explanation.
+
+  ```bash
+  pnpm try        # hub + demo page together, prints what to open
+  pnpm try:lan    # same, reachable from a phone on your Wi-Fi
+  pnpm hub
+  pnpm demo
+  pnpm mcp
+  ```
+
+  Two related fixes: the demo server now reports a port collision in one line instead of throwing
+  a Node stack trace, and the demo page takes the hub's port from the server rather than
+  hard-coding 7788 — so `CROSSPANE_PORT=7801 PORT=7802 pnpm try` connects instead of silently
+  failing to.
+
+- b1904d3: Consistency fixes in the dev scripts and docs.
+
+  `pnpm try` printed its guidance in Korean while the rest of the project's user-facing output is
+  English; it now matches. It also passed `--port` unconditionally, which disabled the hub's
+  port fallback — so `pnpm hub` moved out of the way when 7788 was taken while `pnpm try` died.
+  Now the fallback applies to both, the banner waits for the hub to report its real address
+  instead of guessing, and the demo server starts only after that port is known so the page's
+  `serverUrl` can't point at a hub that moved.
+
+  `ARCHITECTURE.md` had drifted — it described neither the MCP server, the access token, repeat
+  coalescing, the render cap, nor the capture escape hatches. The bundle-size figure was stated
+  three different ways across README files and the decision log; all now read the measured value.
+
+- 82feaa9: Cover the dashboard panels with tests. No behaviour change — this closes the largest untested
+  surface in the project (the three panels were at 0%), including the render-window notice and
+  the `×N` repeat badge that shipped in the previous two releases without any test.
+
+  What the tests pin down: filter controls actually change the list, caps and repeat counts are
+  stated on screen rather than applied silently, autoscroll stops when the user scrolls up and
+  resumes on demand, network rows expand to show the full URL, error reason, response headers and
+  body preview, and a large capture renders bounded DOM rather than freezing.
+
+  Dashboard coverage: 73% → 92% statements, 60% → 89% branches.
+
+- 1c39356: Two fixes for things that were confusing or slow in practice.
+
+  **Replay no longer renders an entire capture file at once.** A 100,000-event capture produced
+  400,000 DOM nodes, a 170MB heap, and a 669ms frozen frame on one keystroke in the filter box.
+  Every entry is still kept in memory — filter and search reach any of them — but only the most
+  recent 500 log rows and 800 network rows are rendered, and the number hidden is shown so the
+  view doesn't quietly look complete. Capture parsing now also coalesces consecutive duplicate
+  log entries and caps screen-recording events at a replayable checkpoint, matching live behaviour.
+
+  **A port fallback is now stated loudly.** Starting the hub while port 7788 is taken silently
+  moves it to 7789, but your app's `serverUrl` still points at 7788 — so sessions go to the other
+  hub (or nowhere) and the dashboard sits empty with no hint why. This is now printed as a warning
+  naming both ports.
+
+- 2e6abc4: Two fixes found by auditing the codebase against its own invariants.
+
+  **The MCP tools omitted repeat counts.** A console error coalesced into `×3000 over 10m` showed
+  in the dashboard but reached a coding agent as a single line, so the agent concluded it happened
+  once. Two consumers of the same data drew different conclusions, which defeats the reason the
+  MCP server reads through the same channel the dashboard does. Repeat count and span are now in
+  the tool output, and session counts add up actual occurrences rather than coalesced entries.
+
+  **Autoscroll fought the user on large captures.** The render cap introduced in the previous
+  release sliced the log list on every render, so the follow-the-tail effect fired on every
+  re-render instead of only when logs changed — scrolling up to read earlier output got undone by
+  the next keystroke in the filter box. Measured: three no-op re-renders forced three scrolls;
+  now zero.
+
+- b96885f: Fix screen replay in the dashboard: the player's stylesheet was never loaded, so controls stacked unstyled and the replay area had no size, and the player was created with an unmeasured width that pushed the recording outside the panel. It now loads the stylesheet alongside the player and sizes itself from a measured container (via `ResizeObserver`), so replays render correctly and follow panel resizes.
+
+  Screen events are also batched now instead of triggering a state update per event. rrweb emits one event per DOM mutation, so the previous per-event `setState` copied the whole buffer and re-rendered hundreds of times a second once recording started. They share the existing batching path with logs and network, and are capped per session — trimming only ever happens at a replayable checkpoint, because cutting mid-stream would drop the full snapshot and make the recording unplayable.
+
+- ef8e7ac: The agent no longer serializes an entire object before deciding to truncate it. `JSON.stringify` used to run to completion and the result was then cut, so a page logging a large object paid the full cost of building a string that was mostly discarded — instrumentation should not slow down the page it observes. Serialization now stops expanding once it exceeds the text budget, and truncation is reported explicitly rather than silently dropping data.
+
+  The dashboard's screen panel also survives environments without `ResizeObserver` instead of throwing on mount; it falls back to a single measurement and gives up resize tracking.
+
+- Updated dependencies [9bd4782]
+- Updated dependencies [c42a14d]
+  - @crosspane/protocol@0.4.0
+
 ## 0.8.0
 
 ### Minor Changes

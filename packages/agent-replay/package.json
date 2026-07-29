@@ -1,6 +1,6 @@
 {
   "name": "@crosspane/agent-replay",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Optional screen-recording plugin for @crosspane/agent — streams the DOM with rrweb so you can see what the screen looked like, not just what it logged",
   "keywords": [
     "crosspane",
@@ -36,7 +36,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@crosspane/agent": "^0.4.0",
+    "@crosspane/agent": "^0.5.0",
     "rrweb": "^2.1.1"
   },
   "devDependencies": {
