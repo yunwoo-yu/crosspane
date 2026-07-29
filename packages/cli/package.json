@@ -43,9 +43,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node ./scripts/bundle-dashboard.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsc -p tsconfig.json --watch",
+    "build": "tsc -b && node ./scripts/bundle-dashboard.mjs",
+    "typecheck": "tsc -b",
+    "dev": "tsc -b --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "pnpm run build && pnpm test"

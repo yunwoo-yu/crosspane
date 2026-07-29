@@ -1,4 +1,4 @@
-import type { LogLevel, SessionEvent } from '@crosspane/protocol';
+import type { SessionEvent } from '@crosspane/protocol';
 
 export interface HookOptions {
   sessionId: string;
@@ -29,10 +29,13 @@ function serializeArg(arg: unknown): string {
   }
 }
 
+/** 후킹 대상 console 메서드 — LogLevel(=string 포함)로 인덱싱하면 타입이 풀린다 */
+const CONSOLE_LEVELS = ['log', 'info', 'warn', 'error', 'debug'] as const;
+type ConsoleLevel = (typeof CONSOLE_LEVELS)[number];
+
 function hookConsole({ sessionId, emit }: HookOptions): () => void {
-  const levels: (keyof Console & LogLevel)[] = ['log', 'info', 'warn', 'error', 'debug'];
-  const originals = new Map<string, (...args: unknown[]) => void>();
-  for (const level of levels) {
+  const originals = new Map<ConsoleLevel, (...args: unknown[]) => void>();
+  for (const level of CONSOLE_LEVELS) {
     const original = console[level] as (...args: unknown[]) => void;
     originals.set(level, original);
     (console as unknown as Record<string, unknown>)[level] = (...args: unknown[]) => {
