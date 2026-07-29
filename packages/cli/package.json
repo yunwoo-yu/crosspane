@@ -1,6 +1,6 @@
 {
   "name": "crosspane",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Debug web screens where devtools can't reach — a hub dashboard for live @crosspane/agent sessions (webviews, in-app browsers, kiosks) and offline capture replay.",
   "license": "MIT",
   "author": "yunwoo-yu",
@@ -51,7 +51,7 @@
     "prepublishOnly": "pnpm run build && pnpm test"
   },
   "dependencies": {
-    "@crosspane/protocol": "^0.2.0",
+    "@crosspane/protocol": "^0.3.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
