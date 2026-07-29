@@ -87,6 +87,8 @@ requests and navigations show up in the dashboard — or in the exported file.
   someone sent you back into the dashboard; identical UI either way
 - **Screen recording** (opt-in) — add `@crosspane/agent-replay` to record the DOM and play
   it back in the Screen tab, in the same timeline as the logs
+- **MCP server** — `crosspane mcp` lets a coding agent read the sessions itself, so you can
+  ask "why did the payment webview fail?" instead of copying logs out of the dashboard
 
 ![Replaying a recorded session in the Screen tab](https://raw.githubusercontent.com/yunwoo-yu/crosspane/main/docs/images/dashboard-screen-replay.png)
 
@@ -138,6 +140,30 @@ crosspane [options]
 -h, --help     show help
 ```
 
+## Ask a coding agent instead (MCP)
+
+`crosspane mcp` exposes the running hub's sessions over the Model Context Protocol, so a
+coding agent can read the console and network itself. Register it once:
+
+```json
+{ "mcpServers": { "crosspane": { "command": "crosspane", "args": ["mcp"] } } }
+```
+
+Then, with the hub running and a device attached, ask in plain language — *"the checkout
+webview on the test phone is stuck on the spinner, what's failing?"* The agent calls
+`list_sessions`, then `get_errors`, and reads the stack and the failed request itself.
+
+| Tool | Returns |
+|---|---|
+| `list_sessions` | attached sessions with labels, platform and event counts |
+| `get_errors` | exceptions, console errors and failed requests, in order |
+| `get_console` | console output, filterable by level and text |
+| `get_network` | requests with status and duration, `failedOnly` to narrow |
+| `get_timeline` | everything chronologically, to see the lead-up to a failure |
+
+Sessions can be named by id, by label, or by part of a label; omit it entirely when only one
+device is attached. Pass `--hub <url>` if the hub isn't on the default port.
+
 ## Agent API
 
 ```ts
@@ -164,9 +190,9 @@ Electron, kiosk browsers. The hub runs on macOS, Windows and Linux (Node ≥ 20)
 ## Roadmap
 
 - [x] Screen recording via rrweb — [@crosspane/agent-replay](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent-replay)
+- [x] MCP server — `crosspane mcp`, so coding agents query session logs directly
 - [ ] Attach mode: Android WebView over CDP (`adb`) for full DevTools on debug builds
 - [ ] iOS WebKit Inspector attach via pymobiledevice3
-- [ ] MCP server — let coding agents query session logs directly
 - [ ] Framework adapters (React Native bridge, Flutter)
 
 ## Development

@@ -16,10 +16,12 @@ Starts the crosspane hub: a dashboard that receives live sessions from the
 
 Usage:
   crosspane [options]
+  crosspane mcp [--hub <url>]
 
 Examples:
   crosspane                       # dashboard on http://localhost:7788 (replay files, local agents)
   crosspane --host 0.0.0.0        # accept live agents from devices on your network
+  crosspane mcp                   # MCP server: let a coding agent query live sessions
 
 Options:
   --port <n>           Dashboard port (default: 7788; the default port falls back +1
@@ -34,6 +36,14 @@ Options:
 Add the agent to your app (dev/QA builds):
   import { initCrosspane } from '@crosspane/agent'
   initCrosspane({ label: 'checkout webview', serverUrl: 'http://<your-ip>:7788' })
+
+MCP mode (crosspane mcp):
+  Exposes the running hub's sessions to a coding agent over stdio, so it can ask
+  "why did the payment webview fail?" and read the console/network itself.
+  Register it with your agent, e.g. in .mcp.json:
+    { "mcpServers": { "crosspane": { "command": "crosspane", "args": ["mcp"] } } }
+
+  --hub <url>          Hub to attach to (default: http://127.0.0.1:7788)
 `;
 
 export interface CliOptions {
@@ -94,4 +104,40 @@ export function parseCliArguments(argv: string[]): CliOptions {
   }
 
   return { port, portExplicit, host, openBrowser, verbose };
+}
+
+export interface McpCliOptions {
+  /** 붙을 허브 주소 */
+  hubUrl: string;
+  verbose: boolean;
+}
+
+const DEFAULT_HUB_URL = `http://127.0.0.1:${DEFAULT_PORT}`;
+
+/** `crosspane mcp` 이후의 인자 (서브커맨드 토큰은 호출자가 제거해 넘긴다) */
+export function parseMcpArguments(argv: string[]): McpCliOptions {
+  const args = [...argv];
+  let hubUrl = DEFAULT_HUB_URL;
+  let verbose = false;
+
+  while (args.length > 0) {
+    const flag = args.shift();
+    if (flag === undefined) break;
+    if (flag === '--verbose') {
+      verbose = true;
+      continue;
+    }
+    if (flag !== '--hub') throw new Error(`Unknown option ${flag}`);
+    const value = args.shift();
+    if (value === undefined) throw new Error('Missing value for --hub');
+    // 포트만 준 경우를 받아준다 — `--hub 7788`이 자연스러운 오타 이상의 기대치다
+    const candidate = /^\d+$/.test(value) ? `http://127.0.0.1:${value}` : value;
+    try {
+      hubUrl = new URL(candidate).origin;
+    } catch {
+      throw new Error(`Invalid value for --hub: "${value}"`);
+    }
+  }
+
+  return { hubUrl, verbose };
 }

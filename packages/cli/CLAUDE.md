@@ -11,6 +11,13 @@
   대시보드가 표시용 엔트리를 역변환하는 것보다 정확하다)
 - `static.ts` — 대시보드 정적 서빙 (경로 탈출 방어, SPA 폴백)
 - `protocol.ts` — `@crosspane/protocol` 재수출 (소비자 import 경로 유지용)
+- `mcp/` — `crosspane mcp`: 코딩 에이전트용 MCP stdio 서버.
+  **불변식은 `.claude/rules/mcp-server.md`에 있다** (stdout 전용 채널 / 의존성 0 / 대시보드
+  클라이언트로 붙기) — 수정 전에 읽을 것
+  - `store.ts` — 허브 `/ws`에서 받은 세션·이벤트 보관 (hello가 경계)
+  - `tools.ts` — 툴 정의 + 핸들러. 스토어만 주면 테스트되는 순수 계층
+  - `rpc.ts` — JSON-RPC 디스패치 (initialize/ping/tools.list/tools.call)
+  - `index.ts` — WS 클라이언트 + stdio 프레이밍 조립
 
 ## 보안 불변식
 

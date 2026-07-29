@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cliVersion, parseCliArguments } from '../src/args';
+import { cliVersion, parseCliArguments, parseMcpArguments } from '../src/args';
 
 describe('parseCliArguments', () => {
   it('기본값: 포트 7788, 로컬 전용 바인딩, 브라우저 자동 열기', () => {
@@ -30,5 +30,31 @@ describe('parseCliArguments', () => {
 
   it('cliVersion은 package.json의 semver를 읽는다', () => {
     expect(cliVersion()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
+
+describe('parseMcpArguments', () => {
+  it('기본 허브는 로컬 7788', () => {
+    expect(parseMcpArguments([])).toEqual({ hubUrl: 'http://127.0.0.1:7788', verbose: false });
+  });
+
+  it('--hub는 origin으로 정규화한다 (경로·쿼리는 버린다)', () => {
+    expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/x?y=1']).hubUrl).toBe(
+      'http://10.0.0.5:9000',
+    );
+  });
+
+  it('--hub에 포트만 줘도 받는다', () => {
+    expect(parseMcpArguments(['--hub', '9000']).hubUrl).toBe('http://127.0.0.1:9000');
+  });
+
+  it('--verbose를 반영한다 (진단 출력은 stderr로만 간다)', () => {
+    expect(parseMcpArguments(['--verbose']).verbose).toBe(true);
+  });
+
+  it('알 수 없는 옵션과 잘못된 URL은 명확한 에러', () => {
+    expect(() => parseMcpArguments(['--port', '1'])).toThrow(/Unknown option/);
+    expect(() => parseMcpArguments(['--hub'])).toThrow(/Missing value/);
+    expect(() => parseMcpArguments(['--hub', 'not a url'])).toThrow(/Invalid value/);
   });
 });

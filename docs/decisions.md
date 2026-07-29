@@ -95,6 +95,48 @@ Reconstructing a capture from those would be lossy and would duplicate the mappi
 reverse. This way live-save and agent-export produce the same file format, and a saved file
 replays through the exact code path a file from a tester does.
 
+## The MCP server attaches to the hub as a dashboard client
+
+`crosspane mcp` connects to the running hub over `/ws` — the same endpoint the dashboard
+uses — rather than sharing memory with it or reading through a new query API. The hub
+already replays `hello` plus full session history to every dashboard that connects, so the
+MCP server gets everything for free and the hub needed no changes at all. It also means the
+two consumers cannot drift: whatever the dashboard can show, the agent can read.
+
+The alternative — a query API on the hub, or running the MCP server in-process — would put
+the same data behind two code paths, and would force `crosspane mcp` and `crosspane` into
+one process even though they have different lifetimes (the coding agent starts and stops the
+MCP server; the developer starts and stops the hub).
+
+## MCP is implemented directly, without the official SDK
+
+`@modelcontextprotocol/sdk` is over 4 MB unpacked. What a tools-only stdio server needs from
+it is five JSON-RPC methods — `initialize`, `ping`, `tools/list`, `tools/call`, and ignoring
+notifications. `crosspane` is fetched with `npx`, so install size is felt directly on first
+run, and the trade is a bad one at that ratio.
+
+Writing the dispatch by hand also made it testable as a pure function: `handleRpcMessage`
+takes a parsed message and a store and returns a response, so protocol behaviour (version
+negotiation, notifications getting no reply, tool failures returning `isError` instead of a
+protocol error) is covered by unit tests rather than by an integration harness.
+
+The cost is that new MCP capabilities — resources, prompts, sampling — have to be written
+rather than picked up from a dependency. That is acceptable while the server exposes tools
+only; if it grows to need the fuller surface, revisit this.
+
+## Tool output is text, not JSON
+
+The consumer is a language model. Line-oriented text carries the same console and network
+information in well under half the tokens of the equivalent JSON, and it is readable as-is
+when the model quotes it back to the developer. Structure that JSON would provide — which
+field is the status, which is the URL — is unambiguous from position and from the tool
+description.
+
+Two related choices follow from designing for a model rather than a program: session
+selectors accept an id, a label, a label substring, or nothing at all when only one session
+exists; and a failed lookup returns the list of candidates, so the model corrects itself on
+the next call instead of asking the developer.
+
 ## The agent ships prebuilt single-file bundles
 
 `tsc` output is multi-file ESM, which cannot be loaded with a plain `<script>` tag. The
