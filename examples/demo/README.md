@@ -4,10 +4,13 @@ A page that generates every kind of event the agent captures — logs, errors,
 failed requests, SPA navigations — so you can see the dashboard fill up in seconds.
 
 ```bash
-pnpm build                      # builds the agent this page loads
-node packages/cli/dist/index.js # terminal 1 — the hub, http://localhost:7788
-node examples/demo/serve.mjs    # terminal 2 — the demo, http://localhost:7999
+pnpm build   # builds the agent this page loads
+pnpm try     # hub on :7788 and this page on :7999, in one terminal
 ```
+
+Then open <http://localhost:7999> and click the buttons; they show up in the dashboard at
+<http://localhost:7788>. Use `pnpm try:lan` instead to reach it from a phone on your Wi-Fi, and
+`pnpm hub` / `pnpm demo` if you want them in separate terminals.
 
 Open **http://localhost:7999**, click the buttons, and watch them appear in the
 dashboard at **http://localhost:7788**.
@@ -24,8 +27,7 @@ The GIF and screenshot in the root README were produced from this demo:
 
 ```bash
 pnpm build
-node packages/cli/dist/index.js --no-open &
-node examples/demo/serve.mjs &
+pnpm try &
 
 agent-browser --session dash set viewport 1280 720
 agent-browser --session dash open http://localhost:7788

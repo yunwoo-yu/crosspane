@@ -18,7 +18,12 @@
     "prepare": "husky",
     "release": "pnpm build && pnpm exec changeset publish",
     "smoke": "node scripts/smoke.mjs",
-    "start": "node packages/cli/dist/index.js",
+    "hub": "node packages/cli/dist/index.js",
+    "hub:lan": "node packages/cli/dist/index.js --host 0.0.0.0",
+    "demo": "node examples/demo/serve.mjs",
+    "mcp": "node packages/cli/dist/index.js mcp",
+    "try": "node scripts/try.mjs",
+    "try:lan": "node scripts/try.mjs --lan",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "version": "changeset version && pnpm install --lockfile-only"

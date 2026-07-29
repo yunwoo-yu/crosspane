@@ -20,15 +20,28 @@ pnpm smoke              # E2E: 실제 허브 기동 → 에이전트 왕복·히
 ./node_modules/.bin/biome check --write .
 ```
 
-로컬 실행: `node packages/cli/dist/index.js`
+## 손으로 확인할 때
 
-실브라우저 확인이 필요하면 (`examples/demo` + `agent-browser` CLI):
 ```bash
-node packages/cli/dist/index.js --no-open &   # 허브 :7788
-node examples/demo/serve.mjs &                # 데모 :7999
+pnpm try                # 허브(:7788) + 데모(:7999)를 함께 — 이걸 쓸 것
+pnpm try:lan            # 위와 같고 --host 0.0.0.0 (폰에서 접속)
+pnpm hub                # 허브만
+pnpm demo               # 데모 페이지만
+pnpm mcp                # MCP stdio 서버 (허브가 떠 있어야 한다)
+```
+
+포트를 바꾸려면 `CROSSPANE_PORT=7801 PORT=7802 pnpm try` — 데모 페이지의 serverUrl은
+serve.mjs가 주입하므로 함께 따라간다(하드코딩하면 조용히 연결 실패한다).
+
+실브라우저 확인은 `agent-browser`로:
+```bash
+pnpm try &
 agent-browser --session cp open http://localhost:7999
 agent-browser --session cp snapshot -i        # ref는 페이지 재로드 시 무효화된다
 ```
+**클릭이 안 먹으면** 요소가 뷰포트 밖일 수 있다 — `scrollIntoView` 먼저 의심할 것.
+**테스트로 띄운 프로세스는 회차 끝에 반드시 정리한다** (허브가 두 개면 포트 폴백으로
+세션이 엉뚱한 곳에 붙어 원인을 찾기 어렵다).
 
 ## 하네스 트리 — 컨텍스트는 필요한 만큼만
 

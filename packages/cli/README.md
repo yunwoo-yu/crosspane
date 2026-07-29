@@ -236,8 +236,14 @@ Electron, kiosk browsers. The hub runs on macOS, Windows and Linux (Node ≥ 20)
 
 ```bash
 pnpm install
-pnpm test      # unit + integration
 pnpm build
+pnpm try       # hub on :7788 + demo page on :7999 — open the demo page and click things
+```
+
+```bash
+pnpm test      # unit + integration
+pnpm coverage  # same, with the coverage ratchet enforced
+pnpm typecheck # sources and tests
 pnpm smoke     # end-to-end: real hub process + agent round-trip (no browsers needed)
 ```
 

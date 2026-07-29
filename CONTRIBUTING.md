@@ -17,10 +17,30 @@ pnpm build
 
 ```bash
 pnpm exec biome check --write .   # format + lint
+pnpm typecheck                    # sources and tests
 pnpm test                         # unit + integration
+pnpm coverage                     # same, with the coverage ratchet enforced
 pnpm build
 pnpm smoke                        # e2e: real hub process + agent round-trip
 ```
+
+To try your change by hand, `pnpm try` starts the hub and the demo page together and prints
+what to open — the demo page is where you click things, the dashboard is where they show up:
+
+```bash
+pnpm try            # hub on :7788 + demo page on :7999
+pnpm try:lan        # same, bound to 0.0.0.0 so a phone on your Wi-Fi can reach it
+pnpm hub            # hub only
+pnpm demo           # demo page only
+pnpm mcp            # MCP stdio server (needs a running hub)
+```
+
+Use different ports with `CROSSPANE_PORT=7801 PORT=7802 pnpm try`; the demo page's `serverUrl`
+follows automatically.
+
+Some regressions only appear in a real browser — a webview-shaped one especially. Screen
+recording, clipboard export, and anything layout-related have all shipped broken past a green
+`pnpm test`, so exercise those in a browser before opening a PR.
 
 CI runs lint + typecheck + tests + build on macOS, Windows and Linux, and the smoke
 test on Linux. A pre-commit hook (husky) enforces Biome on staged files. To run a
