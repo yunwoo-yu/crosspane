@@ -34,6 +34,12 @@ alias한다. dist로 해석되게 두면 테스트가 빌드 순서에 묶이고
 먼저 돌리므로 "Failed to resolve import"로 죽는다 (실제 릴리스를 한 번 막았다).
 새 패키지를 추가하면 vitest 설정에 같은 alias를 넣을 것.
 
+## 빌드 산출물을 손으로 지울 때
+
+`rm -rf packages/*/dist`만 하면 `tsc -b`의 증분 정보(`packages/*/tsconfig.tsbuildinfo`)가
+남아 "최신"으로 판단해 빌드를 건너뛰고, 의존 패키지가 TS2307로 죽는다 (실측).
+`pnpm clean`을 쓸 것 — dist와 tsbuildinfo를 함께 지운다.
+
 ## 그 외
 
 - vitest `globals: true`를 끄지 말 것 — testing-library의 auto-cleanup이

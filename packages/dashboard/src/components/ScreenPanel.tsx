@@ -20,10 +20,14 @@ export function ScreenPanel({ events }: ScreenPanelProps) {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const observer = new ResizeObserver(([entry]) => {
-      // 소수점 변동으로 플레이어를 재생성하지 않도록 정수로 스냅
-      setWidth(Math.floor(entry.contentRect.width));
-    });
+    // 소수점 변동으로 플레이어를 재생성하지 않도록 정수로 스냅
+    const measure = (value: number) => setWidth(Math.floor(value));
+    measure(container.getBoundingClientRect().width);
+
+    // ResizeObserver가 없는 환경(구형 브라우저·jsdom)에서도 패널이 죽지 않아야 한다
+    // — 그 경우 최초 측정값으로 재생하고 리사이즈 추적만 포기한다
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => measure(entry.contentRect.width));
     observer.observe(container);
     return () => observer.disconnect();
   }, []);

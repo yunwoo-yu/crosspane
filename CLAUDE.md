@@ -14,6 +14,7 @@ pnpm build              # protocol → agent → agent-replay → dashboard → 
 pnpm test               # 전 패키지 vitest
 pnpm typecheck
 pnpm check:publishable  # 배포본 메타데이터 검사 (workspace: 잔존·README/LICENSE 누락)
+pnpm clean              # dist + tsbuildinfo 삭제 (dist만 지우면 tsc -b가 건너뛴다)
 pnpm smoke              # E2E: 실제 허브 기동 → 에이전트 왕복·히스토리 재생 (브라우저 불필요)
 ./node_modules/.bin/biome check --write .
 ```

@@ -95,7 +95,7 @@ describe('initCrosspane', () => {
     const entry = agent.capture().events.find((e) => e.type === 'console');
     const text = entry?.type === 'console' ? entry.text : '';
     expect(text.length).toBeLessThan(120);
-    expect(text).toContain('truncated, 500 chars');
+    expect(text).toContain('(truncated)');
   });
 
   it('capture()는 유효한 SessionCapture를 만든다 (버전/세션/이벤트)', () => {
@@ -118,5 +118,43 @@ describe('initCrosspane', () => {
     const errors = agent.capture().events.filter((e) => e.type === 'pageerror');
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatchObject({ message: 'Unhandled rejection: boom' });
+  });
+});
+
+describe('직렬화 예산 (핫패스 비용)', () => {
+  let agent: CrosspaneAgent | null = null;
+  afterEach(() => {
+    agent?.dispose();
+    agent = null;
+  });
+
+  it('거대한 객체를 전부 직렬화하지 않는다 (예산 초과분은 생략)', () => {
+    agent = initCrosspane({ maxTextLength: 200 });
+    // 예산을 한참 넘는 객체 — 뒤쪽 키는 결과에 들어오지 않아야 한다
+    const huge: Record<string, string> = {};
+    for (let i = 0; i < 2_000; i++) huge[`key${i}`] = 'x'.repeat(100);
+    huge.sentinelAtTheEnd = 'SHOULD_NOT_APPEAR';
+    console.log(huge);
+
+    const entry = agent.capture().events.find((e) => e.type === 'console');
+    const text = entry?.type === 'console' ? entry.text : '';
+    expect(text).not.toContain('SHOULD_NOT_APPEAR');
+    expect(text.length).toBeLessThan(400); // 예산 + 잘림 안내 수준
+  });
+
+  it('순환 참조를 던지지 않고 처리한다', () => {
+    agent = initCrosspane();
+    const circular: Record<string, unknown> = { name: 'loop' };
+    circular.self = circular;
+    expect(() => console.log(circular)).not.toThrow();
+    expect(agent.capture().events.some((e) => e.type === 'console')).toBe(true);
+  });
+
+  it('Error 인자는 스택을 싣는다', () => {
+    agent = initCrosspane();
+    console.error(new Error('with stack'));
+    const entry = agent.capture().events.find((e) => e.type === 'console');
+    const text = entry?.type === 'console' ? entry.text : '';
+    expect(text).toContain('with stack');
   });
 });
