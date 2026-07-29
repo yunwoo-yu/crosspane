@@ -19,6 +19,13 @@ for (const entry of readdirSync('packages', { withFileTypes: true })) {
   const pkg = JSON.parse(readFileSync(manifestPath, 'utf-8'));
   if (pkg.private) continue;
 
+  /**
+   * devDependencies는 의도적으로 제외한다: 소비자가 설치할 때 npm은 **의존성의**
+   * devDependencies를 설치하지 않으므로 `workspace:*`가 남아 있어도 해석되지 않는다.
+   * 실제로 `crosspane`은 `crosspane-dashboard: workspace:*`를 devDependency로 들고
+   * 배포되며, 새 프로젝트에서 설치·기동 모두 정상이다(0.9.0으로 실측).
+   * 0.7.0을 설치 불가로 만든 것은 **런타임** 의존성이었다 — 아래 세 필드가 그것이다.
+   */
   for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
     for (const [dep, range] of Object.entries(pkg[field] ?? {})) {
       if (typeof range === 'string' && /^(workspace|link|file):/.test(range)) {
