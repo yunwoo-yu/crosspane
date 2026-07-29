@@ -37,7 +37,7 @@ serve the goal.
 Two splits, two different reasons.
 
 **`agent-replay` is separate because of cost.** rrweb is roughly twenty times the size of
-the core agent (57 KB vs 2.5 KB gzipped), and many users never want screen capture. Code
+the core agent (57 KB vs 3.4 KB gzipped), and many users never want screen capture. Code
 that ships inside someone else's app has to let them decline what they don't use. The
 plugin emits through the core's `agent.emit` rather than opening its own transport, so
 there is still one connection, one session, one ordered timeline.
@@ -142,7 +142,7 @@ the next call instead of asking the developer.
 `tsc` output is multi-file ESM, which cannot be loaded with a plain `<script>` tag. The
 users this project targets are frequently the ones who *cannot* run a bundler — injecting
 through a proxy, kiosk images, static pages maintained by another team. `dist/crosspane-agent.esm.js`
-and `dist/crosspane-agent.global.js` (built by esbuild, ES2019, ~2.5 KB gzipped) exist for
+and `dist/crosspane-agent.global.js` (built by esbuild, ES2019, ~3.4 KB gzipped) exist for
 them, and a budget test fails if the bundle grows past 4 KB gzipped.
 
 ## Tests resolve workspace dependencies from source
@@ -162,7 +162,7 @@ Path mapping to the dependency's source conflicts with `rootDir`, so the package
 ## Screen recording lives in a separate package
 
 `@crosspane/agent-replay` records the DOM with rrweb. It is not part of the core agent
-because rrweb is tens of times larger than the core (~2.5 KB gzipped) — folding it in would
+because rrweb is tens of times larger than the core (~3.4 KB gzipped) — folding it in would
 break the promise that makes the SDK adoptable in the first place. Teams that only need
 console and network data must not pay for screen capture.
 

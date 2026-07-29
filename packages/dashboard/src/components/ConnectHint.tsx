@@ -73,7 +73,12 @@ export function ConnectHint() {
 }
 
 /**
- * 클립보드 복사. 에이전트의 `clipboard.ts`와 같은 이유로 execCommand 폴백이 필요하다:
+ * 클립보드 복사. **`packages/agent/src/clipboard.ts`와 의도적 중복이다** —
+ * 대시보드가 SDK를 의존하면 안 되고(의존 방향), 프로토콜에는 런타임 코드를 둘 수 없다.
+ * 한쪽을 고치면 다른 쪽도 보라. 에이전트 쪽에는 포커스 복원이 더 있다(입력 중인
+ * 사용자를 방해하지 않기 위해). 여기는 빈 상태 화면이라 그 위험이 없다.
+ *
+ * execCommand 폴백이 필요한 이유는 양쪽이 같다:
  * 대시보드를 `http://<사내 IP>`로 열면 보안 컨텍스트가 아니라 `navigator.clipboard`가 없다.
  * 에이전트에서 import하지 않는 이유는 의존 방향이다 — 대시보드가 SDK를 의존하면 안 된다.
  */

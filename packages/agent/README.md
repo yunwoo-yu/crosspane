@@ -44,7 +44,7 @@ server connection needed.
 ## Without a bundler
 
 If you can't run a bundler — injecting into a page through a proxy, a kiosk build, a
-plain static page — use the prebuilt single-file bundles (~2.5 KB gzipped):
+plain static page — use the prebuilt single-file bundles (~3.4 KB gzipped):
 
 ```html
 <!-- ES module -->

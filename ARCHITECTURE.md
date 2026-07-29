@@ -22,25 +22,34 @@
 ┌─ packages/agent (npm: @crosspane/agent) ─ 사용자 앱 번들에 들어간다 ──┐
 │  hooks.ts ──── console / error·rejection / fetch / XHR / navigation  │
 │                (원본 동작 보존 + 해제 함수 반환)                       │
-│  buffer.ts ─── 크래시 내성 링버퍼 (마지막 N개 이벤트)                  │
-│  transport.ts ─ 라이브 WS 전송 (배칭·재접속·큐 상한)                   │
+│  serialize.ts ─ 예산 한계 직렬화 (핫패스 — 측정 근거는 파일 주석)       │
+│  buffer.ts ─── 크래시 내성 링버퍼 (마지막 N개 + 버린 수)               │
+│  repeat.ts ─── 연속 중복 합치기 (버퍼·전송 큐 공용)                    │
+│  transport.ts ─ 라이브 WS 전송 (배칭·재접속·큐 상한·토큰 전달)          │
+│  clipboard.ts ─ 다운로드가 막힌 웹뷰의 캡처 탈출 경로                   │
 │  index.ts ──── initCrosspane 게이팅 / capture() / exportFile()       │
+│                / copyCapture()                                       │
 └──────────┬───────────────────────────────────────────────────────────┘
            │ WS /agent (라이브)          │ .crosspane.json (오프라인)
            ▼                             ▼
 ┌─ packages/cli (npm: crosspane) ─ 허브 ──┐   (파일은 대시보드에 직접 드롭)
 │  server.ts ─ /agent 수신 + /ws 중계     │
 │              세션 레지스트리 · 히스토리 │
+│              /capture/:id · /hub-info   │
+│              노출 시 접속 토큰 검증      │
 │  static.ts ─ 대시보드 정적 서빙          │
+│  mcp/ ────── crosspane mcp (아래 참조)  │
 │  args.ts / index.ts ─ CLI               │
 └──────────┬──────────────────────────────┘
-           │ WS /ws (JSON 이벤트)
+           │ WS /ws (JSON 이벤트)          └─→ mcp/도 같은 /ws 클라이언트로 붙는다
            ▼
 ┌─ packages/dashboard (React + Vite) ─────────────────────────────────┐
 │  useCrosspaneSocket ─ 연결/재접속 + 이벤트 배칭                       │
 │  event-log.ts ─ 이벤트 → 상태/로그/네트워크 엔트리 (순수 함수)          │
 │  capture-file.ts ─ .crosspane.json → 같은 엔트리 모양 (리플레이)       │
-│  SessionList / ConsolePanel / NetworkPanel                          │
+│  SessionList / ConsolePanel / NetworkPanel / ScreenPanel            │
+│  ConnectHint ─ 빈 상태의 접속 스니펫 (/hub-info에서 주소·토큰)         │
+│  hub-token.ts ─ URL의 ?t=를 받아 모든 허브 요청에 붙인다               │
 └─────────────────────────────────────────────────────────────────────┘
 
 packages/protocol (npm: @crosspane/protocol) — 위 셋이 공유하는 타입 단일 소스
@@ -61,7 +70,13 @@ packages/agent-replay (npm: @crosspane/agent-replay) — 옵셔널 화면 기록
 | **링버퍼 + 즉시 적재** | 페이지가 하드 크래시하면 에이전트도 함께 죽는다. 전송 성공 여부와 무관하게 버퍼에 먼저 넣어야 "죽기 직전"이 남는다 |
 | **게이팅 API를 명시적으로** | 디버깅 채널을 스토어 빌드에 넣는 것 자체가 심사 리스크다. `enabled: false`가 훅을 아예 설치하지 않고, 문서는 번들러 데드코드 제거를 권장한다 |
 | **기본 루프백 바인딩** | 허브는 세션 로그(사용자 데이터)가 흐르는 채널이다. LAN 노출은 `--host` 옵트인 |
-| **대시보드 WS Origin 검증** | 임의 웹사이트가 `ws://localhost:7788/ws`로 붙어 로그를 훔치는 CSWSH 차단. 에이전트 채널은 Origin이 임의라 검증 대신 노출 자체를 옵트인으로 통제 |
+| **대시보드 WS Origin 검증** | 임의 웹사이트가 `ws://localhost:7788/ws`로 붙어 로그를 훔치는 CSWSH 차단. 에이전트 채널은 Origin이 임의라 검증하지 않는다 |
+| **노출 시 접속 토큰** | Origin 검증은 Origin을 보내지 않는 클라이언트를 통과시키므로 스크립트 접속을 막지 못한다. `--host`로 노출하면 일회용 토큰을 요구한다 — 없으면 같은 네트워크의 누구나 세션 히스토리를 읽고 가짜 세션을 주입할 수 있다(실측). 루프백은 OS가 막아 주므로 토큰을 요구하지 않는다 |
+| **MCP 서버는 대시보드 클라이언트다** | `crosspane mcp`가 허브의 `/ws`에 붙는다. 허브가 접속 시 히스토리를 전량 재생하므로 조회 API도 공유 상태도 필요 없고, 대시보드가 보는 것과 에이전트가 보는 것이 갈라질 수 없다 |
+| **연속 중복은 합친다** | 깨진 웹뷰는 같은 에러를 초당 수천 번 뱉는다. 합치지 않으면 링버퍼·히스토리가 그 한 줄로 가득 차 원인 이벤트가 밀려난다(실측: 3000줄 뒤 distinct 1건). 첫 발생 시각은 유지하고 마지막 발생 시각(`repeatUntil`)을 함께 남긴다 |
+| **상한은 반드시 밝힌다** | 텍스트 `(truncated)`, 중복 `×N`, 렌더 `N older hidden`, 배열 `… N more`, 캡처 `droppedEvents`. 사용자가 못 보는 상한은 "이게 전부"라고 오도한다 — 이 프로젝트에서 상한을 새로 넣을 때 함께 지켜야 하는 규칙이다 |
+| **리플레이는 렌더만 상한한다** | 라이브는 상태 자체를 자르지만, 캡처 파일은 남이 보낸 세션 전체를 봐야 한다. 데이터는 전부 유지하고 렌더 행 수만 제한한다(10만 이벤트를 그대로 그리면 DOM 40만 노드·669ms 멈춤 — 실측) |
+| **캡처 탈출 경로를 복수로** | 오프라인 캡처가 주력인데 blob 다운로드는 앱이 다운로드를 구현하지 않은 웹뷰에서 조용히 실패한다. `copyCapture()`가 클립보드로 내보내고, `http://<사내 IP>`는 보안 컨텍스트가 아니라 `execCommand` 폴백이 주 경로다 |
 
 ## 알려진 한계 (원리적)
 
@@ -73,6 +88,17 @@ packages/agent-replay (npm: @crosspane/agent-replay) — 옵셔널 화면 기록
 - **화면 기록의 한계**: DOM 미러링은 canvas/video 픽셀을 담지 못하고, cross-origin
   iframe 내부를 읽을 수 없고, 에셋을 재생 시점에 재요청한다(사내망 리소스는 깨진다).
   픽셀 정확도가 중요하면 원격 인스펙터나 화면 녹화가 맞다
+
+## crosspane mcp
+
+코딩 에이전트가 세션을 직접 질의하는 stdio MCP 서버. 허브의 `/ws` 클라이언트로 붙어
+세션·이벤트를 들고 있다가 툴 호출에 답한다(`list_sessions`, `get_errors`, `get_console`,
+`get_network`, `get_timeline`). 출력은 JSON이 아니라 줄 단위 텍스트다 — 소비자가 LLM이라
+같은 정보를 절반 이하 토큰으로 싣고, 사람이 대화창에서 그대로 읽는다.
+
+`@modelcontextprotocol/sdk`를 쓰지 않는다: 툴 전용 서버가 필요한 것은 JSON-RPC 5개
+메서드뿐인데 SDK는 4MB가 넘고, `crosspane`은 npx로 받는 CLI라 설치 크기가 첫 실행
+체감이 된다. stdout은 JSON-RPC 전용 채널이므로 진단 출력은 전부 stderr로 간다.
 
 구조 결정의 배경과 폐기된 대안은 `docs/decisions.md`에 따로 기록한다.
 

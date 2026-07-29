@@ -72,7 +72,7 @@ const agent = initCrosspane({
 agent.exportFile()   // downloads <label>.crosspane.json
 ```
 
-No bundler? Load the single-file build (~3 KB gzipped) with a plain script tag —
+No bundler? Load the single-file build (~3.4 KB gzipped) with a plain script tag —
 see the [agent README](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent#without-a-bundler).
 
 **3. Reproduce the bug.** Console logs, uncaught errors, unhandled rejections, failed

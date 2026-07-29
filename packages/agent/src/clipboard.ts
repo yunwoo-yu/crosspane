@@ -6,6 +6,9 @@
  * 조용히 아무 일도 하지 않는다 (Android는 `setDownloadListener`, iOS는
  * `WKDownloadDelegate`가 필요하고, 인앱브라우저는 대개 막아 둔다).
  *
+ * (대시보드의 `ConnectHint.tsx`에도 같은 함수가 있다 — 의존 방향 때문에 의도적으로
+ * 중복시켰다. 한쪽을 고치면 다른 쪽도 볼 것.)
+ *
  * 왜 execCommand가 폴백이 아니라 주 경로인가 (실측): QA 기기가 사내 빌드를 여는
  * `http://<사내 IP>`는 보안 컨텍스트가 아니다 → `navigator.clipboard`와
  * `navigator.share`가 **정의조차 되지 않는다**. 최신 API만 쓰면 정작 타깃 환경에서

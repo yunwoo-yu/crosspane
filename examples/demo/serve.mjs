@@ -51,7 +51,7 @@ server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(
       `demo page: port ${PORT} is already in use — another demo server is probably running.\n` +
-        `  Stop it, or set PORT to something else (PORT=8099 pnpm demo).`,
+        '  Stop it, or set PORT to something else (PORT=8099 pnpm demo).',
     );
     process.exit(1);
   }

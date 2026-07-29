@@ -88,8 +88,11 @@ const DISABLED_AGENT: CrosspaneAgent = {
 /**
  * 라벨 → 파일명 어간. `\w`로 정제하면 한국어 라벨('결제 웹뷰')이 통째로 `_`가 되어
  * 파일명이 무의미해진다 — 이 툴의 사용자층에 직접 영향이 있으므로 스크립트 무관하게
- * 문자·숫자를 남긴다. (허브의 `GET /capture/:id`도 같은 규칙을 쓴다 — 두 경로가
- * 같은 이름을 만들어야 한다)
+ * 문자·숫자를 남긴다.
+ *
+ * **`packages/cli/src/server.ts`의 `captureFileStem`과 의도적 중복이다** — 라이브 저장과
+ * 에이전트 export가 같은 파일명을 만들어야 하는데, 프로토콜은 런타임 코드를 담지 않는다
+ * (`.claude/rules/protocol-sync.md`). 한쪽을 고치면 반드시 다른 쪽도 고칠 것.
  */
 function captureFileStem(label: string): string {
   const cleaned = label
