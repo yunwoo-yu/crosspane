@@ -30,25 +30,31 @@ serve the goal.
 ## Packages
 
 - `@crosspane/agent` — the in-page SDK
-- `@crosspane/agent-replay` — optional screen recording (see below)
+- `@crosspane/agent-replay` — optional screen recording (rrweb)
 - `crosspane` — the hub CLI and dashboard
-- `@crosspane/protocol` — shared wire types **(being folded into the agent, see below)**
+- `@crosspane/protocol` — shared wire types and constants
 
-The split that matters is `agent` vs `agent-replay`: rrweb is roughly twenty times the
-size of the core agent, and plenty of users never want screen capture. That is a real cost
-difference for code that ships inside someone else's app.
+Two splits, two different reasons.
 
-`protocol` is a different story, and the earlier reasoning here was wrong. It holds about
-eighty lines of types and two constants, and in exchange it costs a package, a release
-axis, and version synchronization between packages that always move together — it already
-caused one broken release (an outdated lockfile after a version bump). Splitting for its
-own sake hurt cohesion: the event shape belongs with the code that produces it, which is
-the agent. The `@sentry/browser` → `@sentry/core` comparison used to justify it does not
-transfer; that project has a large core and dozens of packages.
+**`agent-replay` is separate because of cost.** rrweb is roughly twenty times the size of
+the core agent (57 KB vs 2.5 KB gzipped), and many users never want screen capture. Code
+that ships inside someone else's app has to let them decline what they don't use. The
+plugin emits through the core's `agent.emit` rather than opening its own transport, so
+there is still one connection, one session, one ordered timeline.
 
-The plan is to move the types into the agent and have the hub depend on the agent for
-them. This has to be sequenced carefully because `@crosspane/protocol@0.3.0` is already
-published and depended on by `crosspane@0.8.0` and `@crosspane/agent@0.4.0`.
+**`protocol` is separate because of dependency direction.** Folding the types into the
+agent was considered and rejected: the hub is a Node program, and it would then depend on a
+DOM-typed browser package purely for types. That inverts the direction — the shared
+vocabulary should not live inside one of its consumers.
+
+It also keeps the door open for consumers that are not the agent: the planned MCP server,
+attach-mode adapters (Android CDP, iOS WebKit), a CI reporter that ingests
+`.crosspane.json`. Those need the event types without `window`. The generic `screen.format`
+field exists for the same reason — the protocol is meant to outlive any one capture method.
+
+The package being small is not an argument against it; a shared vocabulary is supposed to be
+small. What made it briefly look expensive was a release bug (a stale lockfile after a
+version bump), which is fixed structurally rather than by collapsing the package.
 
 Whatever the packaging, the event shape stays identical from the agent, through the hub, to
 the dashboard and into exported capture files. There is no translation layer, which is what
