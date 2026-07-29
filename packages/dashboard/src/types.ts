@@ -26,6 +26,8 @@ export interface LogEntry {
   text: string;
   /** pageerror의 스택 — 상세 펼침용 */
   detail?: string;
+  /** 연속 반복 횟수 (없으면 1). 스팸이 표시 상한을 잠식하는 것을 막는다 */
+  repeat?: number;
   ts: number;
 }
 

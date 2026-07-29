@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   logEntryFromEvent,
+  mergeRepeatedLog,
   networkEntryFromEvent,
   reduceSessionMetas,
   reduceSessionStates,
 } from '../src/event-log';
-import type { ServerEvent, SessionMeta } from '../src/types';
+import type { LogEntry, ServerEvent, SessionMeta } from '../src/types';
 
 const session = (id: string): SessionMeta => ({
   id,
@@ -100,5 +101,50 @@ describe('logEntryFromEvent / networkEntryFromEvent', () => {
     expect(
       networkEntryFromEvent({ type: 'console', sessionId: 'a', level: 'log', text: 't', ts: 1 }),
     ).toBeNull();
+  });
+});
+
+describe('mergeRepeatedLog', () => {
+  const entry = (partial: Partial<LogEntry>): LogEntry => ({
+    id: 1,
+    sessionId: 'a',
+    kind: 'console',
+    level: 'error',
+    text: 'Failed to fetch',
+    ts: 100,
+    ...partial,
+  });
+
+  it('같은 내용의 연속 로그를 합치고 횟수를 센다', () => {
+    const merged = mergeRepeatedLog(entry({}), entry({ ts: 200 }));
+    expect(merged).toMatchObject({ repeat: 2, ts: 100 }); // ts는 첫 발생 유지
+  });
+
+  it('이미 합쳐진 것끼리도 더한다 (배치 경계에서 갈린 런)', () => {
+    const merged = mergeRepeatedLog(entry({ repeat: 300 }), entry({ repeat: 250 }));
+    expect(merged?.repeat).toBe(550);
+  });
+
+  it('내용·레벨·세션이 다르면 합치지 않는다', () => {
+    expect(mergeRepeatedLog(entry({}), entry({ text: 'other' }))).toBeNull();
+    expect(mergeRepeatedLog(entry({}), entry({ level: 'log' }))).toBeNull();
+    expect(mergeRepeatedLog(entry({}), entry({ sessionId: 'b' }))).toBeNull();
+  });
+
+  it('스택이 다르면 합치지 않는다 — 같은 메시지의 다른 경로다', () => {
+    expect(
+      mergeRepeatedLog(entry({ kind: 'pageerror', detail: 'at a.js' }), {
+        ...entry({ kind: 'pageerror', detail: 'at b.js' }),
+      }),
+    ).toBeNull();
+  });
+
+  it('내비게이션 구분선은 합치지 않는다 — 두 번 이동한 것은 다른 사실이다', () => {
+    const nav = entry({ kind: 'navigation', level: 'info', text: 'http://x/' });
+    expect(mergeRepeatedLog(nav, nav)).toBeNull();
+  });
+
+  it('앞이 없으면 합치지 않는다', () => {
+    expect(mergeRepeatedLog(undefined, entry({}))).toBeNull();
   });
 });

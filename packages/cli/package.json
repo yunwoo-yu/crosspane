@@ -44,7 +44,7 @@
   ],
   "scripts": {
     "build": "tsc -b && node ./scripts/bundle-dashboard.mjs",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
     "dev": "tsc -b --watch",
     "coverage": "vitest run --coverage",
     "test": "vitest run",

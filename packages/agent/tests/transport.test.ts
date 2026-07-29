@@ -29,6 +29,14 @@ class FakeSocket {
     this.readyState = 1;
     this.onopen?.();
   }
+
+  /** 보낸 payload에서 이벤트만 평탄화 — register 메시지는 건너뛴다 */
+  sentEvents(): SessionEvent[] {
+    return this.sent
+      .map((payload) => JSON.parse(payload) as { type: string; events?: SessionEvent[] })
+      .filter((message) => message.type === 'events')
+      .flatMap((message) => message.events ?? []);
+  }
 }
 
 const session: SessionMeta = {
@@ -151,5 +159,53 @@ describe('LiveTransport', () => {
     );
     transport = new LiveTransport('http://hub', session);
     expect(() => transport?.connect()).not.toThrow();
+  });
+
+  describe('연속 중복 합치기', () => {
+    it('보내기 전 큐에서 같은 이벤트를 합친다 (허브 히스토리 보호 + 회선 절약)', () => {
+      transport = new LiveTransport('http://hub.test', session, 10);
+      transport.connect();
+      const socket = FakeSocket.instances[0];
+      socket.open();
+
+      for (let i = 0; i < 500; i++) {
+        transport.enqueue({
+          type: 'console',
+          sessionId: 's-1',
+          level: 'error',
+          text: 'spam',
+          ts: 1,
+        });
+      }
+      vi.advanceTimersByTime(20);
+
+      const events = socket.sentEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ text: 'spam', repeat: 500 });
+    });
+
+    it('이미 보낸 것은 건드리지 않는다 — 플러시 뒤 런은 새 이벤트로 시작한다', () => {
+      transport = new LiveTransport('http://hub.test', session, 10);
+      transport.connect();
+      const socket = FakeSocket.instances[0];
+      socket.open();
+
+      const spam = () =>
+        transport?.enqueue({
+          type: 'console',
+          sessionId: 's-1',
+          level: 'error',
+          text: 'spam',
+          ts: 1,
+        });
+      for (let i = 0; i < 3; i++) spam();
+      vi.advanceTimersByTime(20);
+      for (let i = 0; i < 2; i++) spam();
+      vi.advanceTimersByTime(20);
+
+      // 보낸 이벤트를 나중에 고치면 대시보드가 이미 받은 수와 이중으로 세어진다
+      const repeats = socket.sentEvents().map((event) => (event as { repeat?: number }).repeat);
+      expect(repeats).toEqual([3, 2]);
+    });
   });
 });

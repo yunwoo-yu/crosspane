@@ -1,4 +1,5 @@
 import type { AgentMessage, SessionEvent, SessionMeta } from '@crosspane/protocol';
+import { mergeRepeat } from './repeat.js';
 
 /**
  * 라이브 모드 전송기 — 같은 네트워크의 crosspane 허브로 이벤트를 배칭 전송한다.
@@ -36,14 +37,26 @@ export class LiveTransport {
   }
 
   enqueue(event: SessionEvent): void {
+    // 아직 보내지 않은 마지막 이벤트와 같으면 합친다 — 링버퍼와 같은 이유이고
+    // (스팸이 허브 히스토리를 잠식해 원인 이벤트를 밀어낸다) 회선도 아낀다.
+    // **보낸 것은 건드리지 않는다** — 큐에 남아 있는 것만 합치므로 이중 계수가 없다
+    const merged = mergeRepeat(this.queue[this.queue.length - 1], event);
+    if (merged) {
+      this.queue[this.queue.length - 1] = merged;
+      this.scheduleFlush();
+      return;
+    }
     this.queue.push(event);
     if (this.queue.length > this.maxQueued) this.queue.shift(); // 서버 부재 시 무한 성장 방지
-    if (!this.flushTimer) {
-      this.flushTimer = setTimeout(() => {
-        this.flushTimer = null;
-        this.flush();
-      }, this.batchIntervalMs);
-    }
+    this.scheduleFlush();
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flush();
+    }, this.batchIntervalMs);
   }
 
   private flush(): void {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EVENT_BATCH_MS, MAX_LOGS, MAX_NETWORK_ENTRIES, MAX_SCREEN_EVENTS } from '../constants';
+import { mergeRepeatedLog } from '../event-log';
 import { mergeScreenEvents } from '../screen-events';
 import type { LogEntry, NetworkEntry } from '../types';
 
@@ -36,7 +37,14 @@ export function useEventBatcher() {
         const batch = pendingLogsRef.current;
         pendingLogsRef.current = [];
         setLogs((prev) => {
-          const next = [...prev, ...batch];
+          // 배치 경계에서 갈린 런을 이어 붙인다 — 상한이 서로 다른 엔트리를 담아야
+          // 원인 로그가 스팸에 밀려나지 않는다
+          const next = [...prev];
+          for (const entry of batch) {
+            const merged = mergeRepeatedLog(next[next.length - 1], entry);
+            if (merged) next[next.length - 1] = merged;
+            else next.push(entry);
+          }
           return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
         });
       }
@@ -58,7 +66,15 @@ export function useEventBatcher() {
 
   const appendLog = useCallback(
     (entry: Omit<LogEntry, 'id'>) => {
-      pendingLogsRef.current.push({ ...entry, id: idRef.current++ });
+      // 펜딩 안에서 먼저 합친다 — 폭주 시 id 소비와 배열 성장을 함께 막는다
+      const pending = pendingLogsRef.current;
+      const merged = mergeRepeatedLog(pending[pending.length - 1], entry);
+      if (merged) {
+        pending[pending.length - 1] = merged;
+        scheduleFlush();
+        return;
+      }
+      pending.push({ ...entry, id: idRef.current++ });
       scheduleFlush();
     },
     [scheduleFlush],

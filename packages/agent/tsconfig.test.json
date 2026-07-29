@@ -1,0 +1,25 @@
+{
+  // 테스트도 타입체크한다 — 이게 없으면 테스트가 실제 타입과 어긋난 채 통과한다(실측).
+  // 메인 tsconfig는 dist를 만들므로(rootDir가 src) tests를 넣을 수 없어 noEmit 설정을 따로 둔다.
+  // 해석 방식은 vitest(번들러)와 같게 맞춘다: 확장자 없는 상대 경로 + 워크스페이스 의존을
+  // 소스로 해석(빌드 순서에 묶이지 않게 — vitest alias와 같은 이유).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "rootDir": "..",
+    // 테스트는 node API를 쓴다(fs·zlib·import.meta.dirname). 소스는 메인 tsconfig가
+    // node 타입 없이 검사하므로 SDK가 node API를 쓰는 실수는 여전히 잡힌다
+    "types": ["node"],
+    "paths": {
+      "@crosspane/protocol": ["../protocol/src/index.ts"],
+      "@crosspane/agent": ["../agent/src/index.ts"]
+    }
+  },
+  "include": ["src", "tests"],
+  "references": []
+}

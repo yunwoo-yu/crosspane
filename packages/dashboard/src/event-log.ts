@@ -68,6 +68,7 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
         kind: 'console',
         level: event.level,
         text: event.text,
+        repeat: event.repeat,
         ts: event.ts,
       };
     case 'pageerror':
@@ -77,6 +78,7 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
         level: 'error',
         text: event.message,
         detail: event.stack,
+        repeat: event.repeat,
         ts: event.ts,
       };
     case 'navigation':
@@ -117,4 +119,25 @@ export function networkEntryFromEvent(event: ServerEvent): Omit<NetworkEntry, 'i
     bodyTruncated: event.bodyTruncated,
     ts: event.ts,
   };
+}
+
+/**
+ * 연속 중복 로그를 앞 엔트리에 합친다 (합쳤으면 새 엔트리, 아니면 null).
+ *
+ * 에이전트가 이미 합쳐 보내지만 여기서도 한다: 전송 배치 경계에서 런이 갈리고,
+ * 구버전 에이전트는 합치지 않는다. 표시 상한(MAX_LOGS)이 **서로 다른** 엔트리를
+ * 담아야 원인 로그가 스팸에 밀려나지 않는다.
+ */
+export function mergeRepeatedLog(
+  last: LogEntry | undefined,
+  next: Omit<LogEntry, 'id'>,
+): LogEntry | null {
+  if (!last || last.kind !== next.kind || last.sessionId !== next.sessionId) return null;
+  // 내비게이션 구분선은 합치지 않는다 — 같은 URL로 두 번 이동한 것은 다른 사실이다
+  if (last.kind === 'navigation') return null;
+  if (last.text !== next.text || last.level !== next.level || last.detail !== next.detail) {
+    return null;
+  }
+  // ts는 첫 발생 시각을 유지한다 (에이전트 쪽과 같은 규칙)
+  return { ...last, repeat: (last.repeat ?? 1) + (next.repeat ?? 1) };
 }

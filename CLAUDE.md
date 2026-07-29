@@ -13,7 +13,7 @@ pnpm build              # protocol → agent → agent-replay → dashboard → 
                         # (cli가 dashboard dist를 dist/public에 번들)
 pnpm test               # 전 패키지 vitest
 pnpm coverage           # vitest --coverage (임계값 래칫 — vitest.shared.ts 참조)
-pnpm typecheck
+pnpm typecheck          # 소스 + 테스트 (tsconfig.test.json)
 pnpm check:publishable  # 배포본 메타데이터 검사 (workspace: 잔존·README/LICENSE 누락)
 pnpm clean              # dist + tsbuildinfo 삭제 (dist만 지우면 tsc -b가 건너뛴다)
 pnpm smoke              # E2E: 실제 허브 기동 → 에이전트 왕복·히스토리 재생 (브라우저 불필요)
@@ -42,7 +42,6 @@ packages/*/CLAUDE.md          ← 패키지 모듈 맵 (해당 디렉터리 작�
 ├── mcp-server.md               crosspane mcp: stdout 전용 채널·툴 추가 절차
 └── testing-jsdom.md            jsdom 스텁·훅 계약 테스트 (agent+dashboard 공용)
 docs/decisions.md             ← 구조 결정과 그 근거 (기여자·미래의 나 대상)
-docs/try-it.md                ← 손으로 직접 확인하는 절차 (실기기 포함)
 ```
 
 새 불변식이 생기면(특히 실측으로 알아낸 함정) 해당 스코프의 rules 파일에 추가할 것.

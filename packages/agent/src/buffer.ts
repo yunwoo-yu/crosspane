@@ -1,4 +1,5 @@
 import type { SessionEvent } from '@crosspane/protocol';
+import { mergeRepeat } from './repeat.js';
 
 /**
  * 크래시 내성 링버퍼 — "죽기 직전까지"를 남기는 것이 이 SDK의 존재 이유다.
@@ -12,6 +13,13 @@ export class RingBuffer {
   constructor(private readonly capacity: number) {}
 
   push(event: SessionEvent): void {
+    const merged = mergeRepeat(this.events[this.events.length - 1], event);
+    if (merged) {
+      // 새 객체로 교체한다 — 같은 이벤트 객체가 전송 큐에도 들어가 있으므로
+      // 제자리에서 고치면 전송 측 카운트와 이중으로 세어진다
+      this.events[this.events.length - 1] = merged;
+      return;
+    }
     this.events.push(event);
     if (this.events.length > this.capacity) {
       this.events.shift();

@@ -20,6 +20,7 @@ function fakeAgent(enabled = true): CrosspaneAgent & { emitted: SessionEvent[] }
       exportedAt: 0,
     }),
     exportFile() {},
+    copyCapture: () => Promise.resolve(true),
     emit(event) {
       emitted.push(event);
     },

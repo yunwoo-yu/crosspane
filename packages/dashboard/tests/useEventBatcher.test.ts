@@ -12,6 +12,7 @@ import type { LogEntry, NetworkEntry } from '../src/types';
 
 const log = (text: string): Omit<LogEntry, 'id'> => ({
   sessionId: 's1',
+  kind: 'console',
   level: 'log',
   text,
   ts: 1,
@@ -205,5 +206,60 @@ describe('useEventBatcher', () => {
       vi.advanceTimersByTime(EVENT_BATCH_MS * 4);
     }).not.toThrow();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('연속 중복 합치기', () => {
+  const spam = (): Omit<LogEntry, 'id'> => ({
+    sessionId: 's1',
+    level: 'error',
+    text: 'Failed to fetch',
+    kind: 'console',
+    ts: 1,
+  });
+
+  it('폭주하는 같은 로그가 표시 상한을 잠식하지 않는다 (이 기능의 존재 이유)', () => {
+    const { result } = renderHook(() => useEventBatcher());
+
+    act(() => {
+      result.current.appendLog({ ...log('ROOT CAUSE'), level: 'error' });
+      for (let i = 0; i < 3_000; i++) result.current.appendLog(spam());
+    });
+    flush();
+
+    // 상한(500)이 서로 다른 엔트리를 담아야 원인 로그가 살아남는다
+    expect(result.current.logs).toHaveLength(2);
+    expect(result.current.logs[0].text).toBe('ROOT CAUSE');
+    expect(result.current.logs[1].repeat).toBe(3_000);
+  });
+
+  it('플러시 경계에서 갈린 런을 이어 붙인다', () => {
+    const { result } = renderHook(() => useEventBatcher());
+
+    act(() => {
+      for (let i = 0; i < 10; i++) result.current.appendLog(spam());
+    });
+    flush();
+    act(() => {
+      for (let i = 0; i < 5; i++) result.current.appendLog(spam());
+    });
+    flush();
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].repeat).toBe(15);
+  });
+
+  it('사이에 다른 로그가 끼면 런이 끊긴다', () => {
+    const { result } = renderHook(() => useEventBatcher());
+
+    act(() => {
+      result.current.appendLog(spam());
+      result.current.appendLog(spam());
+      result.current.appendLog(log('something else'));
+      result.current.appendLog(spam());
+    });
+    flush();
+
+    expect(result.current.logs.map((entry) => entry.repeat)).toEqual([2, undefined, undefined]);
   });
 });

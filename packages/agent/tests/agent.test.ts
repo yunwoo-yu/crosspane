@@ -14,6 +14,86 @@ describe('RingBuffer', () => {
   });
 });
 
+describe('RingBuffer 연속 중복 합치기', () => {
+  const consoleEvent = (text: string, level = 'log') =>
+    ({ type: 'console', sessionId: 's', level, text, ts: 1 }) as const;
+
+  it('같은 내용이 연속되면 한 칸에 repeat로 쌓인다', () => {
+    const buffer = new RingBuffer(100);
+    for (let i = 0; i < 500; i++) buffer.push(consoleEvent('Failed to fetch'));
+
+    const snapshot = buffer.snapshot();
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0]).toMatchObject({ text: 'Failed to fetch', repeat: 500 });
+    expect(buffer.droppedCount).toBe(0);
+  });
+
+  it('스팸이 원인 이벤트를 밀어내지 않는다 (이 기능의 존재 이유)', () => {
+    const buffer = new RingBuffer(10);
+    buffer.push({
+      type: 'pageerror',
+      sessionId: 's',
+      message: 'ROOT CAUSE: card token missing',
+      ts: 1,
+    });
+    for (let i = 0; i < 3_000; i++) buffer.push(consoleEvent('Failed to fetch', 'error'));
+
+    const snapshot = buffer.snapshot();
+    expect(snapshot).toHaveLength(2);
+    expect(snapshot[0]).toMatchObject({ message: 'ROOT CAUSE: card token missing' });
+  });
+
+  it('내용이 다르면 합치지 않는다', () => {
+    const buffer = new RingBuffer(100);
+    buffer.push(consoleEvent('a'));
+    buffer.push(consoleEvent('b'));
+    buffer.push(consoleEvent('a'));
+    expect(buffer.snapshot()).toHaveLength(3);
+  });
+
+  it('레벨이 다르면 합치지 않는다', () => {
+    const buffer = new RingBuffer(100);
+    buffer.push(consoleEvent('same', 'log'));
+    buffer.push(consoleEvent('same', 'error'));
+    expect(buffer.snapshot()).toHaveLength(2);
+  });
+
+  it('ts는 첫 발생 시각을 유지한다 — 타임라인 위치가 흔들리면 안 된다', () => {
+    const buffer = new RingBuffer(100);
+    buffer.push({ type: 'console', sessionId: 's', level: 'log', text: 'x', ts: 1_000 });
+    buffer.push({ type: 'console', sessionId: 's', level: 'log', text: 'x', ts: 9_999 });
+    expect(buffer.snapshot()[0]).toMatchObject({ ts: 1_000, repeat: 2 });
+  });
+
+  it('network·navigation은 합치지 않는다 — 각각이 개별 사실이다', () => {
+    const buffer = new RingBuffer(100);
+    for (let i = 0; i < 3; i++) {
+      buffer.push({
+        type: 'network',
+        sessionId: 's',
+        method: 'GET',
+        url: 'https://api.test/poll',
+        status: 200,
+        durationMs: 5,
+        ts: 1,
+      });
+    }
+    buffer.push({ type: 'navigation', sessionId: 's', url: 'http://x/', ts: 1 });
+    buffer.push({ type: 'navigation', sessionId: 's', url: 'http://x/', ts: 1 });
+    expect(buffer.snapshot()).toHaveLength(5);
+  });
+
+  it('원본 이벤트 객체를 제자리에서 고치지 않는다 (전송 큐와 이중 계수 방지)', () => {
+    const buffer = new RingBuffer(100);
+    const first = { type: 'console', sessionId: 's', level: 'log', text: 'x', ts: 1 } as const;
+    buffer.push(first);
+    buffer.push({ type: 'console', sessionId: 's', level: 'log', text: 'x', ts: 2 });
+    // 같은 객체가 전송 큐에도 들어가 있으므로 제자리 변경은 이중 계수를 만든다
+    expect((first as { repeat?: number }).repeat).toBeUndefined();
+    expect(buffer.snapshot()[0]).toMatchObject({ repeat: 2 });
+  });
+});
+
 describe('initCrosspane', () => {
   let agent: CrosspaneAgent | null = null;
   afterEach(() => {

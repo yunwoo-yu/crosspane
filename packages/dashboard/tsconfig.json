@@ -14,5 +14,5 @@
       "@crosspane/protocol": ["../protocol/src/index.ts"]
     }
   },
-  "include": ["src", "../cli/src/protocol.ts"]
+  "include": ["src", "tests", "../cli/src/protocol.ts"]
 }

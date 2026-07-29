@@ -27,6 +27,22 @@ paths:
 1. 원본이 여전히 호출되고 반환값이 그대로인가
 2. `dispose()` 후 전역이 원래 함수로 돌아오는가 (`console.log === originalLog`)
 
+## 테스트도 타입체크된다
+
+각 패키지의 `typecheck`는 `tsc -b` 다음에 `tsc -p tsconfig.test.json`을 돌린다
+(대시보드는 메인 tsconfig의 include에 `tests`가 들어 있다).
+
+이게 없던 동안 테스트 300여 건이 타입 검증 없이 통과했고, 실제로 어긋난 것이 있었다
+(리플레이 테스트의 대역 에이전트에 `copyCapture` 누락, `LogEntry.kind` 누락).
+**테스트가 실제 타입과 어긋난 채 초록불이면 신뢰가 가짜다.**
+
+- 메인 tsconfig에 `tests`를 넣을 수 없다 — `rootDir`가 `src`라 dist 구조가 깨진다
+- 테스트 설정은 `moduleResolution: bundler` + `module: preserve` — vitest와 같은 해석
+  (확장자 없는 상대 경로가 통과해야 한다)
+- 워크스페이스 의존은 `paths`로 소스를 가리킨다 (아래 절과 같은 이유)
+- `types: ["node"]`는 테스트 설정에만 준다 — 소스가 node API를 쓰는 실수는
+  메인 tsconfig가 여전히 잡는다
+
 ## 워크스페이스 의존은 소스로 해석한다
 
 각 패키지의 vitest 설정이 `@crosspane/protocol`·`@crosspane/agent`를 **소스 파일**로

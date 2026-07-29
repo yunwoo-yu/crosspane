@@ -30,8 +30,30 @@ export interface SessionMeta {
  * 리플레이 파일에도 그대로 저장된다. sessionId는 항상 포함(파일 단독 해석 가능).
  */
 export type SessionEvent =
-  | { type: 'console'; sessionId: string; level: LogLevel; text: string; ts: number }
-  | { type: 'pageerror'; sessionId: string; message: string; stack?: string; ts: number }
+  | {
+      type: 'console';
+      sessionId: string;
+      level: LogLevel;
+      text: string;
+      /**
+       * 연속으로 같은 내용이 반복된 횟수 (없으면 1).
+       *
+       * 깨진 웹뷰는 같은 에러를 초당 수천 번 뱉는다 — 합치지 않으면 링버퍼와
+       * 히스토리가 그 한 줄로 가득 차 **원인 이벤트가 밀려나 사라진다**(실측).
+       * ts는 첫 발생 시각을 유지해 타임라인 위치가 흔들리지 않는다.
+       */
+      repeat?: number;
+      ts: number;
+    }
+  | {
+      type: 'pageerror';
+      sessionId: string;
+      message: string;
+      stack?: string;
+      /** 연속 반복 횟수 — console의 repeat와 같은 의미 */
+      repeat?: number;
+      ts: number;
+    }
   | {
       type: 'network';
       sessionId: string;
