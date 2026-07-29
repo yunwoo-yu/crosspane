@@ -62,6 +62,12 @@ symlinks. `crosspane@0.7.0` shipped with `"@crosspane/protocol": "workspace:*"` 
 completely uninstallable; `scripts/check-publishable.mjs` now fails the build if any
 workspace/link/file specifier reaches a publishable package.
 
+The version PR must also refresh `pnpm-lock.yaml`. Changesets rewrites version numbers and
+the dependency ranges between workspace packages, but not the lockfile — so the next
+`pnpm install --frozen-lockfile` in CI fails with `ERR_PNPM_OUTDATED_LOCKFILE`. The root
+`version` script runs `changeset version && pnpm install --lockfile-only`, and the release
+workflow points changesets at it.
+
 ## The agent ships prebuilt single-file bundles
 
 `tsc` output is multi-file ESM, which cannot be loaded with a plain `<script>` tag. The

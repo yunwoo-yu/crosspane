@@ -18,7 +18,8 @@
     "prepare": "husky",
     "smoke": "node scripts/smoke.mjs",
     "release": "pnpm build && pnpm exec changeset publish",
-    "check:publishable": "node scripts/check-publishable.mjs"
+    "check:publishable": "node scripts/check-publishable.mjs",
+    "version": "changeset version && pnpm install --lockfile-only"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",

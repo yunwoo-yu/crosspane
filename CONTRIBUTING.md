@@ -74,6 +74,10 @@ cd packages/<name> && npm publish --access public
 Then add the Trusted Publisher on npmjs.com (package → Settings → Trusted Publisher →
 this repo + `release.yml`). Every release after that is automatic.
 
+The version PR also refreshes `pnpm-lock.yaml` (the root `version` script does this) —
+changesets updates package versions and inter-package ranges but not the lockfile, and CI
+installs with `--frozen-lockfile`.
+
 Publishing runs through `scripts/ci-publish.mjs` (`npm publish` directly, then
 `changeset tag`) — `changeset publish` cannot be used here because it routes through
 `pnpm publish --no-git-checks`, which recent npm versions reject.

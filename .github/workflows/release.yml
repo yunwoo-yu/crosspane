@@ -66,6 +66,9 @@ jobs:
         if: steps.auth.outputs.ready == 'true'
         uses: changesets/action@v1
         with:
+          # 버전 PR에서 lockfile까지 갱신한다 — 안 하면 다음 CI가
+          # ERR_PNPM_OUTDATED_LOCKFILE로 죽는다 (실제 발생)
+          version: pnpm run version
           # changeset publish 미사용 — pnpm publish 경유 시 --git-checks가 최신
           # npm에서 에러가 된다. 사유와 대체 절차는 scripts/ci-publish.mjs 주석 참조
           # (publish 입력은 셸 미해석이므로 단일 커맨드여야 한다)

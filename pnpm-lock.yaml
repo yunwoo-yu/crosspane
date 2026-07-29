@@ -33,7 +33,7 @@ importers:
   packages/agent:
     dependencies:
       '@crosspane/protocol':
-        specifier: ^0.2.0
+        specifier: ^0.3.0
         version: link:../protocol
     devDependencies:
       esbuild:
@@ -52,7 +52,7 @@ importers:
   packages/agent-replay:
     dependencies:
       '@crosspane/agent':
-        specifier: ^0.3.0
+        specifier: ^0.4.0
         version: link:../agent
       rrweb:
         specifier: ^2.1.1
@@ -74,7 +74,7 @@ importers:
   packages/cli:
     dependencies:
       '@crosspane/protocol':
-        specifier: ^0.2.0
+        specifier: ^0.3.0
         version: link:../protocol
       ws:
         specifier: ^8.18.0
@@ -99,7 +99,7 @@ importers:
   packages/dashboard:
     dependencies:
       '@crosspane/protocol':
-        specifier: ^0.2.0
+        specifier: ^0.3.0
         version: link:../protocol
       '@tailwindcss/vite':
         specifier: ^4.3.3
