@@ -60,7 +60,7 @@ jobs:
       # 빌드는 여기서 미리 — publish 입력은 단일 커맨드만 허용된다 (셸 해석 없음)
       - name: Verify and build before publish
         if: steps.auth.outputs.ready == 'true'
-        run: pnpm exec biome ci . && pnpm test && pnpm build
+        run: pnpm exec biome ci . && pnpm check:publishable && pnpm test && pnpm build
 
       - name: Create release PR or publish
         if: steps.auth.outputs.ready == 'true'

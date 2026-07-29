@@ -38,6 +38,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Publishable package check
+        run: pnpm check:publishable
+
       - name: Test
         run: pnpm test
 
