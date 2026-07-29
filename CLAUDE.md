@@ -40,6 +40,7 @@ packages/*/CLAUDE.md          ← 패키지 모듈 맵 (해당 디렉터리 작�
 ├── agent-sdk.md                번들 크기·페이지 무영향·게이팅·링버퍼
 ├── protocol-sync.md            프로토콜 단일 소스·이벤트 추가 절차
 ├── mcp-server.md               crosspane mcp: stdout 전용 채널·툴 추가 절차
+├── dashboard-render-window.md  라이브/리플레이 상한 차이·렌더 상한 (실측 근거)
 └── testing-jsdom.md            jsdom 스텁·훅 계약 테스트 (agent+dashboard 공용)
 docs/decisions.md             ← 구조 결정과 그 근거 (기여자·미래의 나 대상)
 ```

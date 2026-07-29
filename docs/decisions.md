@@ -243,6 +243,23 @@ Circular references get a second pass with a visited set instead of collapsing t
 which is a real false positive — accepted because the alternative was `"[object Object]"` and
 no content at all. `scripts/bench.mjs` reproduces all of these numbers.
 
+## Replay caps what it renders, not what it holds
+
+Live sessions cap the state itself — the batcher keeps at most 500 log entries and 800 network
+rows, which at 4,000 events/second still leaves the dashboard at 60fps with no frame over
+50ms. Capture files are different: someone sent you their whole session, so discarding events
+at parse time would discard the thing you were sent.
+
+So replay keeps every entry in memory and caps only the rendered slice. Rendering a
+100,000-event capture without that cap produced 400,000 DOM nodes, a 170MB heap, and a 669ms
+frozen frame on a single keystroke in the filter box; with it, 2,044 nodes and 17MB. Filter and
+search run across the full set, so any hidden entry is still reachable — verified by searching
+for an entry outside the rendered window and getting it back.
+
+The hidden count is shown rather than silently applied, for the same reason truncated text says
+`(truncated)` and coalesced duplicates say `×N`: a cap the user can't see is a cap that
+misleads them about what happened.
+
 ## What the agent deliberately cannot do
 
 - **Breakpoints.** JavaScript cannot pause itself; this is why weinre and its successors

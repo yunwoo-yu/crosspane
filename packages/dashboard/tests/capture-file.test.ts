@@ -41,3 +41,48 @@ describe('parseCaptureFile', () => {
     expect(() => parseCaptureFile('{"version":1,"session":{"id":"a"}}')).toThrow(CaptureParseError);
   });
 });
+
+describe('큰 캡처 파일 방어', () => {
+  const capture = (events: unknown[]) =>
+    JSON.stringify({
+      version: 1,
+      session: { id: 's-1', label: 'big', userAgent: 'ua', startedAt: 0 },
+      events,
+      exportedAt: 0,
+    });
+
+  it('연속 중복 로그를 합친다 — 구버전 에이전트 파일은 같은 줄 수천 개일 수 있다', () => {
+    const events = [
+      { type: 'pageerror', sessionId: 's-1', message: 'ROOT CAUSE', ts: 1 },
+      ...Array.from({ length: 3_000 }, () => ({
+        type: 'console',
+        sessionId: 's-1',
+        level: 'error',
+        text: 'Failed to fetch',
+        ts: 2,
+      })),
+    ];
+    const loaded = parseCaptureFile(capture(events));
+
+    expect(loaded.logs).toHaveLength(2);
+    expect(loaded.logs[0].text).toBe('ROOT CAUSE');
+    expect(loaded.logs[1].repeat).toBe(3_000);
+  });
+
+  it('화면 이벤트에 상한을 적용한다 (재생 체크포인트에서만 자른다)', () => {
+    // [Meta, FullSnapshot, 증분…] 구조 — 체크포인트가 있으면 그 지점에서 자른다
+    const screen = Array.from({ length: 12_000 }, (_, index) => ({
+      type: 'screen',
+      sessionId: 's-1',
+      format: 'rrweb',
+      data: { type: index % 3_000 === 0 ? 4 : index % 3_000 === 1 ? 2 : 3 },
+      ts: index,
+    }));
+    const loaded = parseCaptureFile(capture(screen));
+
+    expect(loaded.screenEvents.length).toBeLessThan(12_000);
+    // 자른 지점이 재생 가능해야 한다 — Meta 또는 FullSnapshot으로 시작
+    const first = loaded.screenEvents[0] as { type: number };
+    expect([2, 4]).toContain(first.type);
+  });
+});

@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
+import { MAX_NETWORK_ENTRIES } from '../constants';
 import { toDisplayPath } from '../log-utils';
 import { filterNetworkEntries, formatDuration, statusTone } from '../network-utils';
 import type { NetworkEntry, SessionMeta } from '../types';
@@ -23,10 +24,14 @@ export function NetworkPanel({ entries, sessions }: NetworkPanelProps) {
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const rows = useMemo(
+  const matching = useMemo(
     () => filterNetworkEntries(entries, { xhrOnly, errorsOnly, search }),
     [entries, xhrOnly, errorsOnly, search],
   );
+  // 렌더 상한 — 근거는 ConsolePanel의 같은 주석 참조 (캡처 파일에는 상한이 없다)
+  const rows =
+    matching.length > MAX_NETWORK_ENTRIES ? matching.slice(-MAX_NETWORK_ENTRIES) : matching;
+  const hiddenCount = matching.length - rows.length;
   const labelOf = useMemo(() => {
     const map = new Map(sessions.map((session) => [session.id, session.label]));
     return (sessionId: string) => map.get(sessionId) ?? sessionId;
@@ -58,7 +63,12 @@ export function NetworkPanel({ entries, sessions }: NetworkPanelProps) {
         >
           errors
         </Button>
-        <span className="ml-auto text-[11px] text-fg-muted">{rows.length} requests</span>
+        <span className="ml-auto text-[11px] text-fg-muted">
+          {/* 숨긴 건수를 밝힌다 — 조용히 자르면 "이게 전부"로 오도한다 */}
+          {hiddenCount > 0
+            ? `${rows.length} of ${matching.length.toLocaleString()} requests (filter to narrow)`
+            : `${rows.length} requests`}
+        </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
         {rows.length === 0 ? (

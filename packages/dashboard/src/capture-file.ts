@@ -1,5 +1,12 @@
 import { CAPTURE_FILE_VERSION } from '@crosspane/protocol';
-import { logEntryFromEvent, networkEntryFromEvent, screenEventFromEvent } from './event-log';
+import { MAX_SCREEN_EVENTS } from './constants';
+import {
+  logEntryFromEvent,
+  mergeRepeatedLog,
+  networkEntryFromEvent,
+  screenEventFromEvent,
+} from './event-log';
+import { trimScreenEvents } from './screen-events';
 import type { LogEntry, NetworkEntry, SessionCapture, SessionMeta } from './types';
 
 export interface LoadedCapture {
@@ -50,7 +57,18 @@ export function parseCaptureFile(text: string): LoadedCapture {
       continue;
     }
     const logEntry = logEntryFromEvent(event);
-    if (logEntry) logs.push({ ...logEntry, id: id++ });
+    if (!logEntry) continue;
+    // 라이브와 같은 규칙으로 연속 중복을 합친다 — 구버전 에이전트가 만든 파일은
+    // 같은 에러 수천 줄로 채워져 있을 수 있다
+    const merged = mergeRepeatedLog(logs[logs.length - 1], logEntry);
+    if (merged) logs[logs.length - 1] = merged;
+    else logs.push({ ...logEntry, id: id++ });
   }
-  return { session: capture.session, logs, networkEntries, screenEvents };
+  return {
+    session: capture.session,
+    logs,
+    networkEntries,
+    // 화면 이벤트는 상한을 적용한다 — 반드시 재생 체크포인트에서만 자른다
+    screenEvents: trimScreenEvents(screenEvents, MAX_SCREEN_EVENTS),
+  };
 }

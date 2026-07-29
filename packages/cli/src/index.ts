@@ -35,6 +35,16 @@ async function main(): Promise<void> {
   });
 
   const dashboardUrl = `http://localhost:${server.port}`;
+  // 폴백을 조용히 넘기면 안 된다: 앱의 serverUrl은 그대로 기본 포트를 가리키므로
+  // 세션이 다른 허브(또는 아무데도)로 가고, 대시보드는 빈 화면을 보여준다.
+  // 실제로 이 혼란을 겪었다 — 두 허브가 떠 있으면 원인을 찾기가 매우 어렵다
+  if (server.port !== options.port) {
+    console.log(
+      `⚠ port ${options.port} is already in use — this hub is on ${server.port} instead.\n` +
+        `  Point your agent's serverUrl at port ${server.port}, or stop whatever holds ` +
+        `${options.port} and restart.`,
+    );
+  }
   console.log(`crosspane dashboard → ${dashboardUrl}`);
   if (exposed) {
     // 실기기의 에이전트가 접속할 주소를 보여준다 — serverUrl에 넣을 값

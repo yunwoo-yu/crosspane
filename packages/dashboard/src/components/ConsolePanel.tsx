@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MAX_LOGS } from '../constants';
 import { type ConsoleLevelFilter, filterLogs, formatLogTime, isNearBottom } from '../log-utils';
 import type { LogEntry, SessionMeta } from '../types';
 import { Button } from './ui/button';
@@ -27,10 +28,17 @@ export function ConsolePanel({ logs, sessions }: ConsolePanelProps) {
   const [follow, setFollow] = useState(true);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
-  const visible = useMemo(
+  const matching = useMemo(
     () => filterLogs(logs, { sessionId: sessionFilter, level: levelFilter, search }),
     [logs, sessionFilter, levelFilter, search],
   );
+  /**
+   * 렌더는 라이브 상한만큼만 한다. 캡처 파일에는 상한이 없어서(다른 사람이 보낸 파일
+   * 전체를 봐야 한다) 10만 줄을 그대로 그리면 DOM 40만 노드·heap 170MB·669ms 멈춤이
+   * 된다(실측). 데이터는 전부 들고 있으므로 필터·검색으로 어디든 도달할 수 있다.
+   */
+  const visible = matching.length > MAX_LOGS ? matching.slice(-MAX_LOGS) : matching;
+  const hiddenCount = matching.length - visible.length;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies(visible): 새 로그가 렌더된 뒤 바닥으로 스크롤해야 하므로 visible 변경이 트리거
   useEffect(() => {
@@ -103,6 +111,14 @@ export function ConsolePanel({ logs, sessions }: ConsolePanelProps) {
         ref={bodyRef}
         onScroll={(event) => setFollow(isNearBottom(event.currentTarget))}
       >
+        {hiddenCount > 0 && (
+          // 조용히 자르면 "이게 전부"로 오도한다 — 몇 건을 숨겼는지 밝힌다
+          <div className="log-line nav">
+            <span className="log-text">
+              {hiddenCount.toLocaleString()} older entries hidden — filter or search to reach them
+            </span>
+          </div>
+        )}
         {visible.map((log) =>
           log.kind === 'navigation' ? (
             // 페이지 이동/리로드 구분선 — 이후 로그가 어느 화면의 것인지 보여준다
