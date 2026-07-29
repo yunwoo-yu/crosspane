@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const agentBundle = join(here, '../../packages/agent/dist/crosspane-agent.esm.js');
+const replayBundle = join(here, '../../packages/agent-replay/dist/crosspane-agent-replay.esm.js');
 const PORT = Number(process.env.PORT ?? 7999);
 
 const server = http.createServer(async (req, res) => {
@@ -22,6 +23,11 @@ const server = http.createServer(async (req, res) => {
     if (path === '/agent.js') {
       res.writeHead(200, { 'content-type': 'text/javascript' });
       res.end(await readFile(agentBundle));
+      return;
+    }
+    if (path === '/agent-replay.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript' });
+      res.end(await readFile(replayBundle));
       return;
     }
     if (path === '/api/ok') {

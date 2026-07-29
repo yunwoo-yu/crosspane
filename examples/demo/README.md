@@ -12,6 +12,9 @@ node examples/demo/serve.mjs    # terminal 2 — the demo, http://localhost:7999
 Open **http://localhost:7999**, click the buttons, and watch them appear in the
 dashboard at **http://localhost:7788**.
 
+Click **● start screen recording** to capture the DOM, then open the **Screen** tab in the
+dashboard to play it back. (It needs a moment to take the first full snapshot.)
+
 Then try the offline path: click **⤓ export capture file** and drop the downloaded
 `.crosspane.json` onto the dashboard — same view, no live connection.
 

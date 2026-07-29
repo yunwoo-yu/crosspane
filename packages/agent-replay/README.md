@@ -33,6 +33,20 @@ capture file replays the screen alongside the console.
 
 Open the **Screen** tab in the dashboard to play it back.
 
+## Without a bundler
+
+`dist/crosspane-agent-replay.esm.js` (~57 KB gzipped) is a prebuilt single file. It keeps
+`@crosspane/agent` external on purpose — the page must reuse the agent instance it already
+loaded, otherwise a second agent appears and the timeline splits.
+
+```html
+<script type="module">
+  import { initCrosspane } from 'https://unpkg.com/@crosspane/agent/dist/crosspane-agent.esm.js'
+  import { startScreenRecording } from 'https://unpkg.com/@crosspane/agent-replay/dist/crosspane-agent-replay.esm.js'
+  startScreenRecording(initCrosspane({ label: 'kiosk' }))
+</script>
+```
+
 ## Options
 
 ```ts

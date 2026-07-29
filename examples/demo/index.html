@@ -22,10 +22,12 @@
 <button type="button" id="throw" class="danger">throw an uncaught error</button>
 <button type="button" id="reject" class="danger">unhandled promise rejection</button>
 <button type="button" id="navigate">pushState (SPA navigation)</button>
+<button type="button" id="record">● start screen recording</button>
 <button type="button" id="export">⤓ export capture file</button>
 
 <script type="module">
   import { initCrosspane } from './agent.js'
+  import { startScreenRecording } from './agent-replay.js'
 
   // 데모는 항상 켠다 — 실제 앱에서는 dev/QA 빌드로 게이팅할 것 (README 참조)
   const agent = initCrosspane({
@@ -33,6 +35,9 @@
     serverUrl: location.origin.replace(/:\d+$/, ':7788'),
     captureBodies: true,
   })
+
+  // 콘솔에서 직접 만져볼 수 있게 노출 — 데모 전용 (실제 앱에서는 불필요)
+  window.crosspaneAgent = agent
 
   document.getElementById('status').textContent =
     `session ${agent.session.id} · ${agent.session.platform}`
@@ -59,6 +64,18 @@
   })
   on('navigate', () => {
     history.pushState({}, '', `./screen-${Math.floor(Math.random() * 100)}`)
+  })
+  let recording = null
+  on('record', (event) => {
+    const button = event.currentTarget
+    if (recording) {
+      recording.stop()
+      recording = null
+      button.textContent = '● start screen recording'
+      return
+    }
+    recording = startScreenRecording(agent, { checkoutEveryNms: 5000 })
+    button.textContent = '■ stop screen recording'
   })
   on('export', () => agent.exportFile())
 </script>
