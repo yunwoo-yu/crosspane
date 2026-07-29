@@ -217,3 +217,15 @@ body {
   font-size: 11px;
   white-space: pre-wrap;
 }
+
+/* rrweb 재생 컨테이너 — 플레이어는 스케일 transform으로 그리므로 넘치는 부분을
+   가둬야 패널 밖으로 잘려 보이지 않는다 (실측 버그) */
+.crosspane-player {
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+}
+
+.crosspane-player .rr-player {
+  margin: 0 auto;
+}

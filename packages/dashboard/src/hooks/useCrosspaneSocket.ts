@@ -33,25 +33,18 @@ export function useCrosspaneSocket(): CrosspaneConnection {
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState<SessionMetas>({});
   const [sessionStates, setSessionStates] = useState<SessionStates>({});
-  const [screenEvents, setScreenEvents] = useState<Record<string, unknown[]>>({});
 
   const batcher = useEventBatcher();
-  const { appendLog, appendNetwork, clear: clearBatched } = batcher;
+  const { appendLog, appendNetwork, appendScreen, clear: clearBatched } = batcher;
 
   const handleServerEvent = useCallback(
     (event: ServerEvent) => {
       // hello는 접속당 1회의 세션 경계다 — 서버가 접속마다 히스토리를 전량
       // 재생하므로, 이전 분을 비우지 않으면 재접속마다 로그가 중복 누적된다
-      if (event.type === 'hello') {
-        clearBatched();
-        setScreenEvents({});
-      }
+      if (event.type === 'hello') clearBatched();
       const screen = screenEventFromEvent(event);
       if (screen) {
-        setScreenEvents((prev) => ({
-          ...prev,
-          [screen.sessionId]: [...(prev[screen.sessionId] ?? []), screen.data],
-        }));
+        appendScreen(screen.sessionId, screen.data);
         return;
       }
       setSessions((prev) => reduceSessionMetas(prev, event));
@@ -64,7 +57,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
       const logEntry = logEntryFromEvent(event);
       if (logEntry) appendLog(logEntry);
     },
-    [appendLog, appendNetwork, clearBatched],
+    [appendLog, appendNetwork, appendScreen, clearBatched],
   );
 
   useEffect(() => {
@@ -104,7 +97,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
     sessionStates,
     logs: batcher.logs,
     networkEntries: batcher.networkEntries,
-    screenEvents,
+    screenEvents: batcher.screenEvents,
     clearLogs: batcher.clear,
   };
 }

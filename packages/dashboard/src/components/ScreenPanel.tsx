@@ -13,11 +13,25 @@ interface ScreenPanelProps {
 export function ScreenPanel({ events }: ScreenPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 컨테이너 실측 너비 — 플레이어는 생성 시점 크기로 스케일을 고정하므로
+  // 0이나 잘못된 값을 주면 재생 화면이 패널 밖으로 잘린다 (실측 버그)
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => {
+      // 소수점 변동으로 플레이어를 재생성하지 않도록 정수로 스냅
+      setWidth(Math.floor(entry.contentRect.width));
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
     // rrweb 플레이어는 최초 전체 스냅샷 + 이후 diff 구조라 최소 2개가 필요하다
-    if (!container || events.length < 2) return;
+    if (!container || events.length < 2 || width === 0) return;
 
     // rrweb-player의 컴포넌트 타입은 destroy를 노출하지 않는다 — 해제 시 좁힌다
     let player: unknown = null;
@@ -25,16 +39,23 @@ export function ScreenPanel({ events }: ScreenPanelProps) {
 
     void (async () => {
       try {
-        const { default: Player } = await import('rrweb-player');
+        // 플레이어 CSS도 함께 동적 로드 — 없으면 컨트롤이 스타일 없이 쌓이고
+        // 재생 영역 크기가 잡히지 않는다 (실측)
+        const [{ default: Player }] = await Promise.all([
+          import('rrweb-player'),
+          import('rrweb-player/dist/style.css'),
+        ]);
         if (cancelled || !containerRef.current) return;
         containerRef.current.innerHTML = '';
+        // 컨트롤 바(약 80px)를 뺀 높이를 주고, 세로 화면 비율을 넘지 않게 제한한다
+        const height = Math.min(Math.round(width * 1.6), container.clientHeight - 80 || 480);
         player = new Player({
           target: containerRef.current,
           props: {
             events: events as never,
             autoPlay: false,
-            width: containerRef.current.clientWidth || 360,
-            height: Math.round((containerRef.current.clientWidth || 360) * 1.6),
+            width,
+            height: Math.max(height, 240),
           },
         });
       } catch (err) {
@@ -48,7 +69,7 @@ export function ScreenPanel({ events }: ScreenPanelProps) {
       const instance = player as { destroy?: () => void; $destroy?: () => void } | null;
       (instance?.destroy ?? instance?.$destroy)?.call(instance);
     };
-  }, [events]);
+  }, [events, width]);
 
   if (events.length === 0) {
     return (
