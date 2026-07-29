@@ -94,6 +94,14 @@ through a proxy, kiosk images, static pages maintained by another team. `dist/cr
 and `dist/crosspane-agent.global.js` (built by esbuild, ES2019, ~2.5 KB gzipped) exist for
 them, and a budget test fails if the bundle grows past 4 KB gzipped.
 
+## Tests resolve workspace dependencies from source
+
+Each package's vitest config aliases `@crosspane/protocol` (and `@crosspane/agent`) to the
+source files rather than letting them resolve through `node_modules` to `dist`. CI runs
+tests before the build, so resolving to build output makes the test run depend on artifacts
+that may not exist — it broke a release once with `Failed to resolve import`. The same
+reasoning as project references below, applied to the test runner.
+
 ## TypeScript project references
 
 CI runs typecheck before build, so a workspace dependency's `dist` does not exist yet.

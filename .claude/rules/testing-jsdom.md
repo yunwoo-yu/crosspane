@@ -27,6 +27,13 @@ paths:
 1. 원본이 여전히 호출되고 반환값이 그대로인가
 2. `dispose()` 후 전역이 원래 함수로 돌아오는가 (`console.log === originalLog`)
 
+## 워크스페이스 의존은 소스로 해석한다
+
+각 패키지의 vitest 설정이 `@crosspane/protocol`·`@crosspane/agent`를 **소스 파일**로
+alias한다. dist로 해석되게 두면 테스트가 빌드 순서에 묶이고, CI는 test를 build보다
+먼저 돌리므로 "Failed to resolve import"로 죽는다 (실제 릴리스를 한 번 막았다).
+새 패키지를 추가하면 vitest 설정에 같은 alias를 넣을 것.
+
 ## 그 외
 
 - vitest `globals: true`를 끄지 말 것 — testing-library의 auto-cleanup이
