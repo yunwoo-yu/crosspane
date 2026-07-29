@@ -69,6 +69,8 @@ packages/protocol (npm: @crosspane/protocol) — 위 셋이 공유하는 타입 
 - **화면이 없다**: 현재는 텍스트 계측만. DOM 미러링(rrweb)이 로드맵에 있으나
   canvas/video/cross-origin iframe은 그 방식으로도 담기지 않는다
 
+구조 결정의 배경과 폐기된 대안은 `docs/decisions.md`에 따로 기록한다.
+
 ## 이전 아키텍처 (0.6.x)
 
 0.6.x까지 crosspane은 Playwright로 Chromium/WebKit/Firefox를 띄우고 iOS 시뮬레이터·
