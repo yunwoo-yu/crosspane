@@ -14,7 +14,9 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "README.md",
+    "LICENSE"
   ],
   "sideEffects": false,
   "scripts": {
@@ -29,5 +31,17 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "author": "yunwoo-yu",
+  "homepage": "https://github.com/yunwoo-yu/crosspane/tree/main/packages/protocol#readme",
+  "bugs": {
+    "url": "https://github.com/yunwoo-yu/crosspane/issues"
+  },
+  "keywords": [
+    "crosspane",
+    "webview",
+    "debugging",
+    "protocol",
+    "types"
+  ]
 }

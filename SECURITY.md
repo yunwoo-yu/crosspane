@@ -2,8 +2,7 @@
 
 ## Supported versions
 
-Only the latest published version of `crosspane` receives security fixes
-(the project is pre-1.0).
+Only the latest published version receives security fixes (the project is pre-1.0).
 
 ## Reporting a vulnerability
 
@@ -13,17 +12,37 @@ Please **do not open a public issue** for security problems. Instead use
 You can expect an initial response within a week. Once a fix is released the
 report will be credited (unless you prefer otherwise).
 
-## Scope notes
+## Threat model
 
-crosspane is a **local development tool**. Its threat model assumptions:
+crosspane moves debugging data (console output, request metadata, optionally response
+bodies) out of an app and into a local dashboard. The sensitive parts:
 
-- The dashboard server binds to `127.0.0.1` by default and mirrors input into real
-  browser sessions — anything that lets a remote party reach that channel
-  (bind bypass, WebSocket origin-check bypass, shell-bridge abuse) is in scope.
-- Login state saved under `~/.crosspane/state/` contains real cookies — anything
-  that exfiltrates or mishandles it is in scope.
-- Running crosspane against a malicious *target page* should never compromise the
-  host beyond what a regular browser visit could — escapes from the engine
-  sandbox via crosspane's injection/bridge code are in scope.
-- Using `--host 0.0.0.0` intentionally exposes the dashboard to the network;
-  risks inherent to that explicit opt-in are out of scope.
+**`@crosspane/agent` (runs inside your app)**
+- Anything that makes the agent observable to the host page beyond its documented
+  hooks, or that changes page behavior (breaking `fetch` semantics, leaking into
+  `console` output, throwing into app code) is in scope.
+- `enabled: false` must install nothing. A regression where hooks are installed
+  despite being disabled is a security bug, not just a performance one — apps rely
+  on this to keep debugging out of store builds.
+- Response bodies must stay opt-in (`captureBodies`). A change that captures them by
+  default is in scope.
+
+**`crosspane` hub**
+- The hub binds to `127.0.0.1` by default. Anything that exposes it without the
+  explicit `--host` opt-in is in scope.
+- The dashboard WebSocket validates `Origin` to prevent a malicious website from
+  connecting to `ws://localhost:7788/ws` and reading session logs (cross-site
+  WebSocket hijacking). Bypasses are in scope.
+- Session events are relayed, not executed. Anything that turns relayed data into
+  code execution, path traversal (dashboard static serving), or unbounded memory
+  growth is in scope.
+
+**Capture files**
+- `.crosspane.json` contains whatever the agent recorded. Treat these as sensitive
+  artifacts; crosspane does not encrypt or redact them beyond the `captureBodies`
+  default. Guidance issues about this are welcome as normal issues.
+
+**Out of scope**
+- Running the hub with `--host 0.0.0.0` intentionally exposes it to your network.
+- Shipping the agent enabled in a production build is a deployment choice; see
+  "Shipping safely" in the README.

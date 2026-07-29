@@ -179,6 +179,73 @@ describe('startHubServer', () => {
     });
   });
 
+  it('종료된 세션은 retainedSessions 상한까지만 보관한다', async () => {
+    server = await startHubServer({ port: 0, retainedSessions: 1 });
+    // 두 세션을 차례로 등록·종료 → 오래된 쪽이 폐기돼야 한다
+    for (const id of ['s-old', 's-new']) {
+      const agent = await connectAgent(server.port);
+      agent.send(JSON.stringify({ type: 'register', session: meta(id) }));
+      agent.send(JSON.stringify({ type: 'events', events: [consoleEvent(id, `log-${id}`)] }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      agent.close();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await vi.waitFor(async () => {
+      const late = await TestDashboard.connect(server?.port ?? 0);
+      sockets.push(late.ws);
+      const hello = (await late.next()) as { type: string; sessions: SessionMeta[] };
+      expect(hello.sessions.map((s) => s.id)).toEqual(['s-new']);
+    });
+  });
+
+  it('같은 세션 id로 재접속하면 히스토리를 이어간다 (웹뷰 백그라운드 복귀)', async () => {
+    server = await startHubServer({ port: 0 });
+    const first = await connectAgent(server.port);
+    first.send(JSON.stringify({ type: 'register', session: meta('s-1') }));
+    first.send(JSON.stringify({ type: 'events', events: [consoleEvent('s-1', 'before')] }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    first.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const second = await connectAgent(server.port);
+    sockets.push(second);
+    second.send(JSON.stringify({ type: 'register', session: meta('s-1') }));
+    second.send(JSON.stringify({ type: 'events', events: [consoleEvent('s-1', 'after')] }));
+
+    await vi.waitFor(async () => {
+      const late = await TestDashboard.connect(server?.port ?? 0);
+      sockets.push(late.ws);
+      await late.next(); // hello
+      expect(await late.next()).toMatchObject({ text: 'before' });
+      expect(await late.next()).toMatchObject({ text: 'after' });
+    });
+  });
+
+  it('등록 전에 보낸 이벤트는 무시한다', async () => {
+    server = await startHubServer({ port: 0 });
+    const dashboard = await TestDashboard.connect(server.port);
+    sockets.push(dashboard.ws);
+    await dashboard.next(); // hello
+
+    const agent = await connectAgent(server.port);
+    sockets.push(agent);
+    agent.send(JSON.stringify({ type: 'events', events: [consoleEvent('s-x', 'orphan')] }));
+    agent.send(JSON.stringify({ type: 'register', session: meta('s-1') }));
+    // 첫 수신은 orphan이 아니라 session-joined여야 한다
+    expect(await dashboard.next()).toMatchObject({ type: 'session-joined' });
+  });
+
+  it('잘못된 JSON은 서버를 죽이지 않는다', async () => {
+    server = await startHubServer({ port: 0 });
+    const agent = await connectAgent(server.port);
+    sockets.push(agent);
+    agent.send('not json at all');
+    agent.send(JSON.stringify({ type: 'register', session: meta('s-1') }));
+    await vi.waitFor(() => {
+      expect(server?.sessions().map((s) => s.id)).toEqual(['s-1']);
+    });
+  });
+
   it('크로스사이트 Origin의 대시보드 WS 접속을 거부한다', async () => {
     server = await startHubServer({ port: 0 });
     const rejected = new Promise<Error>((resolve) => {
