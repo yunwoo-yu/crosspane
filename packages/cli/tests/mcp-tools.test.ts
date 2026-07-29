@@ -231,3 +231,77 @@ describe('알 수 없는 툴', () => {
     expect(result.text).toContain('Unknown tool');
   });
 });
+
+describe('반복 이벤트를 코딩 에이전트에게도 밝힌다', () => {
+  it('×N과 이어진 기간을 출력에 싣는다 — 대시보드와 같은 사실을 봐야 한다', () => {
+    seed([
+      {
+        type: 'console',
+        sessionId: 's1',
+        level: 'error',
+        text: 'Failed to fetch',
+        repeat: 3_000,
+        repeatUntil: 600_000,
+        ts: 0,
+      },
+    ]);
+    const text = callTool('get_errors', {}, ctx).text;
+    expect(text).toContain('×3000');
+    expect(text).toContain('over 10m');
+    expect(text).toContain('still recurring');
+  });
+
+  it('1초 미만 폭주는 기간을 붙이지 않는다', () => {
+    seed([
+      {
+        type: 'console',
+        sessionId: 's1',
+        level: 'error',
+        text: 'burst',
+        repeat: 50,
+        repeatUntil: 200,
+        ts: 0,
+      },
+    ]);
+    const text = callTool('get_errors', {}, ctx).text;
+    expect(text).toContain('×50');
+    expect(text).not.toContain('over');
+  });
+
+  it('반복이 1이면 표식을 붙이지 않는다', () => {
+    seed([{ type: 'console', sessionId: 's1', level: 'error', text: 'once', ts: 0 }]);
+    expect(callTool('get_errors', {}, ctx).text).not.toContain('×');
+  });
+
+  it('집계는 실제 발생 횟수로 센다 — 1건으로 세면 "에러 1개"로 오도한다', () => {
+    seed([
+      {
+        type: 'console',
+        sessionId: 's1',
+        level: 'error',
+        text: 'spam',
+        repeat: 3_000,
+        ts: 0,
+      },
+      { type: 'pageerror', sessionId: 's1', message: 'boom', repeat: 2, ts: 1 },
+    ]);
+    expect(callTool('list_sessions', {}, ctx).text).toContain('3002 errors');
+  });
+
+  it('예외의 스택은 반복 표식 뒤에 온다 (한 이벤트가 시각적으로 하나)', () => {
+    seed([
+      {
+        type: 'pageerror',
+        sessionId: 's1',
+        message: 'boom',
+        stack: 'at pay.js:1:1',
+        repeat: 5,
+        ts: 0,
+      },
+    ]);
+    const lines = callTool('get_errors', {}, ctx).text.split('\n');
+    const header = lines.findIndex((line) => line.includes('boom'));
+    expect(lines[header]).toContain('×5');
+    expect(lines[header + 1]).toContain('at pay.js:1:1');
+  });
+});

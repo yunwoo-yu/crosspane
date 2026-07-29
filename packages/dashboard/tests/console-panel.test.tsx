@@ -212,3 +212,35 @@ describe('빈 상태', () => {
     expect(container.querySelectorAll('.log-line')).toHaveLength(0);
   });
 });
+
+describe('오토스크롤 effect는 로그가 바뀔 때만 돈다 (회귀)', () => {
+  /**
+   * 렌더 상한을 넣을 때 slice가 매 렌더 새 배열을 만들어 effect가 항상 발동했다.
+   * 사용자가 과거 로그를 보려고 스크롤을 올려도 리렌더마다 바닥으로 끌려간다.
+   */
+  const measureScrollWrites = (logs: LogEntry[]): number => {
+    const { container, rerender } = render(<ConsolePanel logs={logs} sessions={[]} />);
+    const body = container.querySelector('.console-body') as HTMLElement;
+    let writes = 0;
+    Object.defineProperty(body, 'scrollTop', {
+      get: () => 0,
+      set: () => {
+        writes++;
+      },
+      configurable: true,
+    });
+    Object.defineProperty(body, 'scrollHeight', { get: () => 5_000, configurable: true });
+    for (let i = 0; i < 3; i++) rerender(<ConsolePanel logs={logs} sessions={[]} />);
+    return writes;
+  };
+
+  it('상한 초과에서도 같은 props 리렌더는 스크롤을 건드리지 않는다', () => {
+    const many = Array.from({ length: MAX_LOGS + 10 }, (_, i) => log({ text: `l${i}` }));
+    expect(measureScrollWrites(many)).toBe(0);
+  });
+
+  it('상한 이하도 동일하다', () => {
+    const few = Array.from({ length: 10 }, (_, i) => log({ text: `f${i}` }));
+    expect(measureScrollWrites(few)).toBe(0);
+  });
+});

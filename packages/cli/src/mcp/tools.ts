@@ -262,10 +262,12 @@ function formatEvent(event: SessionEvent): string {
   const at = `[${new Date(event.ts).toISOString().slice(11, 23)}]`;
   switch (event.type) {
     case 'console':
-      return `${at} ${event.level.padEnd(7)} ${event.text}`;
+      return `${at} ${event.level.padEnd(7)} ${event.text}${repeatSuffix(event)}`;
     case 'pageerror':
       // 스택은 들여쓰기해 이어붙인다 — 한 이벤트가 여러 줄이어도 시각적으로 하나다
-      return `${at} EXCEPTION ${event.message}${event.stack ? `\n${indent(event.stack)}` : ''}`;
+      return `${at} EXCEPTION ${event.message}${repeatSuffix(event)}${
+        event.stack ? `\n${indent(event.stack)}` : ''
+      }`;
     case 'network': {
       const status = event.status === 0 ? 'FAILED' : String(event.status);
       const reason = event.error ? ` — ${event.error}` : '';
@@ -279,6 +281,27 @@ function formatEvent(event: SessionEvent): string {
     case 'screen':
       return `${at} screen  (${event.format} recording chunk)`;
   }
+}
+
+/**
+ * 반복 횟수와 이어진 기간. **빠뜨리면 안 된다** — 대시보드는 `×3000 10m`을 보여주는데
+ * MCP가 한 줄만 내면 코딩 에이전트는 한 번 일어난 일로 읽는다. 같은 데이터에서
+ * 두 소비자가 다른 결론에 도달하면 "대시보드가 보는 것은 에이전트도 본다"는 전제가 깨진다.
+ */
+function repeatSuffix(event: Extract<SessionEvent, { type: 'console' | 'pageerror' }>): string {
+  const repeat = event.repeat ?? 1;
+  if (repeat <= 1) return '';
+  const span = event.repeatUntil === undefined ? '' : formatSpan(event.repeatUntil - event.ts);
+  return `  (×${repeat}${span ? ` over ${span}, still recurring` : ''})`;
+}
+
+/** 1초 미만은 기간을 붙이지 않는다 — 순간적 폭주에 기간은 의미가 없다 */
+function formatSpan(ms: number): string {
+  if (ms < 1_000) return '';
+  const seconds = Math.round(ms / 1_000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`;
 }
 
 function indent(text: string): string {
@@ -303,13 +326,15 @@ function countEvents(events: SessionEvent[]): {
   const counts = { console: 0, network: 0, errors: 0, navigation: 0 };
   for (const event of events) {
     if (event.type === 'console') {
-      counts.console += 1;
-      if (event.level === 'error') counts.errors += 1;
+      // 합쳐진 이벤트는 실제 발생 횟수로 센다 — 1건으로 세면 "에러 1개"로 오도한다
+      const times = event.repeat ?? 1;
+      counts.console += times;
+      if (event.level === 'error') counts.errors += times;
     } else if (event.type === 'network') {
       counts.network += 1;
       if (isFailedRequest(event)) counts.errors += 1;
     } else if (event.type === 'pageerror') {
-      counts.errors += 1;
+      counts.errors += event.repeat ?? 1;
     } else if (event.type === 'navigation') {
       counts.navigation += 1;
     }

@@ -28,9 +28,12 @@ export function NetworkPanel({ entries, sessions }: NetworkPanelProps) {
     () => filterNetworkEntries(entries, { xhrOnly, errorsOnly, search }),
     [entries, xhrOnly, errorsOnly, search],
   );
-  // 렌더 상한 — 근거는 ConsolePanel의 같은 주석 참조 (캡처 파일에는 상한이 없다)
-  const rows =
-    matching.length > MAX_NETWORK_ENTRIES ? matching.slice(-MAX_NETWORK_ENTRIES) : matching;
+  // 렌더 상한 — 근거는 ConsolePanel의 같은 주석 참조 (캡처 파일에는 상한이 없다).
+  // memo 이유도 같다: 매 렌더 새 배열이면 하위 렌더가 불필요하게 갱신된다
+  const rows = useMemo(
+    () => (matching.length > MAX_NETWORK_ENTRIES ? matching.slice(-MAX_NETWORK_ENTRIES) : matching),
+    [matching],
+  );
   const hiddenCount = matching.length - rows.length;
   const labelOf = useMemo(() => {
     const map = new Map(sessions.map((session) => [session.id, session.label]));

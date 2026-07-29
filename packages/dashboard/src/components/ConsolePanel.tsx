@@ -59,7 +59,13 @@ export function ConsolePanel({ logs, sessions }: ConsolePanelProps) {
    * 전체를 봐야 한다) 10만 줄을 그대로 그리면 DOM 40만 노드·heap 170MB·669ms 멈춤이
    * 된다(실측). 데이터는 전부 들고 있으므로 필터·검색으로 어디든 도달할 수 있다.
    */
-  const visible = matching.length > MAX_LOGS ? matching.slice(-MAX_LOGS) : matching;
+  // **반드시 memo할 것**: slice가 매 렌더 새 배열을 만들면 아래 오토스크롤 effect가
+  // 리렌더마다 발동해 사용자가 스크롤을 올려 둔 것을 계속 바닥으로 끌어내린다(실측:
+  // 같은 props 3회 리렌더에 스크롤 강제 3회)
+  const visible = useMemo(
+    () => (matching.length > MAX_LOGS ? matching.slice(-MAX_LOGS) : matching),
+    [matching],
+  );
   const hiddenCount = matching.length - visible.length;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies(visible): 새 로그가 렌더된 뒤 바닥으로 스크롤해야 하므로 visible 변경이 트리거
