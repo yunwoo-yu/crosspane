@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>crosspane demo</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #14141a; color: #e2e2e5; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { color: #8b8d98; font-size: 13px; margin: 0 0 20px; }
+  button { display: block; width: 100%; margin: 8px 0; padding: 12px; font-size: 14px; border: 1px solid #2a2a33; border-radius: 8px; background: #1c1c24; color: #e2e2e5; cursor: pointer; }
+  button:active { background: #24242e; }
+  .danger { border-color: #e5484d; color: #ff6369; }
+</style>
+<h1>crosspane demo</h1>
+<p id="status">starting…</p>
+
+<button type="button" id="log">console.log an object</button>
+<button type="button" id="warn">console.warn</button>
+<button type="button" id="fetch-ok">fetch → 200</button>
+<button type="button" id="fetch-404">fetch → 404</button>
+<button type="button" id="fetch-fail" class="danger">fetch → network failure</button>
+<button type="button" id="xhr">XHR → 200</button>
+<button type="button" id="throw" class="danger">throw an uncaught error</button>
+<button type="button" id="reject" class="danger">unhandled promise rejection</button>
+<button type="button" id="navigate">pushState (SPA navigation)</button>
+<button type="button" id="export">⤓ export capture file</button>
+
+<script type="module">
+  import { initCrosspane } from '/agent/index.js'
+
+  // 데모는 항상 켠다 — 실제 앱에서는 dev/QA 빌드로 게이팅할 것 (README 참조)
+  const agent = initCrosspane({
+    label: 'crosspane demo page',
+    serverUrl: location.origin.replace(/:\d+$/, ':7788'),
+    captureBodies: true,
+  })
+
+  document.getElementById('status').textContent =
+    `session ${agent.session.id} · ${agent.session.platform}`
+
+  const on = (id, fn) => document.getElementById(id).addEventListener('click', fn)
+
+  on('log', () => console.log('hello from the demo', { items: 3, ok: true }))
+  on('warn', () => console.warn('this is a warning'))
+  on('fetch-ok', () => fetch('./api/ok'))
+  on('fetch-404', () => fetch('./api/missing'))
+  on('fetch-fail', () => fetch('http://127.0.0.1:1/nope').catch(() => {}))
+  on('xhr', () => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('GET', './api/ok')
+    xhr.send()
+  })
+  on('throw', () => {
+    setTimeout(() => {
+      throw new Error('boom — uncaught error from the demo')
+    })
+  })
+  on('reject', () => {
+    Promise.reject(new Error('nobody caught me'))
+  })
+  on('navigate', () => {
+    history.pushState({}, '', `./screen-${Math.floor(Math.random() * 100)}`)
+  })
+  on('export', () => agent.exportFile())
+</script>
