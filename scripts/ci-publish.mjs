@@ -37,14 +37,23 @@ for (const pkg of publishablePackages()) {
     console.log(`${pkg.name}@${pkg.version} is already on npm — skipping`);
     continue;
   }
+  const isFirstPublish = published === '';
   try {
-    console.log(`publishing ${pkg.name}@${pkg.version}…`);
+    console.log(
+      `publishing ${pkg.name}@${pkg.version}${isFirstPublish ? ' (first publish)' : ''}…`,
+    );
     execSync('npm publish', { cwd: pkg.dir, stdio: 'inherit' });
   } catch (err) {
     // 한 패키지의 실패가 나머지 배포를 막지 않게 하되, 종료 코드로는 알린다.
     // 스코프 패키지의 "첫" 배포는 OIDC 신뢰 퍼블리셔를 미리 등록할 수 없어
     // (패키지가 아직 없으므로) 수동 1회 배포가 필요하다 — 그 경우 여기서 걸린다
-    failures.push(`${pkg.name}@${pkg.version}: ${err instanceof Error ? err.message : err}`);
+    failures.push(
+      isFirstPublish
+        ? `${pkg.name}@${pkg.version}: first publish cannot use OIDC — a trusted publisher ` +
+            `can only be registered on a package that already exists. Run ` +
+            `\`cd ${pkg.dir} && npm publish --access public\` once, then register it (CONTRIBUTING.md).`
+        : `${pkg.name}@${pkg.version}: ${err instanceof Error ? err.message : err}`,
+    );
   }
 }
 
