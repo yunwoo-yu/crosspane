@@ -498,3 +498,35 @@ describe('접속 토큰 (authToken)', () => {
     });
   });
 });
+
+describe('허브 히스토리 상한도 버린 수를 밝힌다', () => {
+  let server: HubServer | undefined;
+  const sockets: WebSocket[] = [];
+  afterEach(() => {
+    for (const socket of sockets) socket.terminate();
+    sockets.length = 0;
+    server?.close();
+    server = undefined;
+  });
+
+  it('GET /capture/:id의 droppedEvents에 실린다', async () => {
+    server = await startHubServer({ port: 0, historyLimit: 2 });
+    const agent = await connectAgent(server.port);
+    sockets.push(agent);
+    agent.send(JSON.stringify({ type: 'register', session: meta('s-1') }));
+    agent.send(
+      JSON.stringify({
+        type: 'events',
+        events: Array.from({ length: 9 }, (_, i) => consoleEvent('s-1', `line${i}`)),
+      }),
+    );
+
+    await vi.waitFor(async () => {
+      const capture = (await (
+        await fetch(`http://127.0.0.1:${server?.port}/capture/s-1`)
+      ).json()) as { events: unknown[]; droppedEvents: number };
+      expect(capture.events).toHaveLength(2);
+      expect(capture.droppedEvents).toBe(7);
+    });
+  });
+});

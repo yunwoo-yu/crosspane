@@ -11,6 +11,8 @@ import type { LogEntry, NetworkEntry, SessionCapture, SessionMeta } from './type
 
 export interface LoadedCapture {
   session: SessionMeta;
+  /** 상한으로 버려진 이벤트 수 — 파일이 앞부분이 잘렸음을 사용자에게 알린다 */
+  droppedEvents: number;
   logs: LogEntry[];
   networkEntries: NetworkEntry[];
   /** rrweb 이벤트 원본 — 화면 기록이 있는 캡처만 채워진다 */
@@ -66,6 +68,7 @@ export function parseCaptureFile(text: string): LoadedCapture {
   }
   return {
     session: capture.session,
+    droppedEvents: typeof capture.droppedEvents === 'number' ? capture.droppedEvents : 0,
     logs,
     networkEntries,
     // 화면 이벤트는 상한을 적용한다 — 반드시 재생 체크포인트에서만 자른다

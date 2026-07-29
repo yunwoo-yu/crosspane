@@ -160,6 +160,8 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
         version: CAPTURE_FILE_VERSION,
         session,
         events: buffer.snapshot(),
+        // 링버퍼가 버린 수를 함께 싣는다 — 조용히 앞부분이 잘린 파일은 오도한다
+        droppedEvents: buffer.droppedCount,
         exportedAt: Date.now(),
       };
     },

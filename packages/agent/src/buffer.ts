@@ -31,12 +31,8 @@ export class RingBuffer {
     return [...this.events];
   }
 
-  /** 상한 초과로 버린 이벤트 수 — export 시 "잘렸음"을 알리는 데 쓴다 */
+  /** 상한 초과로 버린 이벤트 수 — 캡처 파일의 `droppedEvents`로 나간다 */
   get droppedCount(): number {
     return this.dropped;
-  }
-
-  get size(): number {
-    return this.events.length;
   }
 }

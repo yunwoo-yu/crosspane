@@ -118,6 +118,8 @@ export function contentDisposition(filename: string): string {
 interface SessionRecord {
   meta: SessionMeta;
   history: SessionEvent[];
+  /** 히스토리 상한으로 버린 이벤트 수 — 캡처 파일이 잘렸음을 밝히는 데 쓴다 */
+  dropped: number;
   live: boolean;
   endedAt?: number;
 }
@@ -171,6 +173,8 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
         version: CAPTURE_FILE_VERSION,
         session: record.meta,
         events: record.history,
+        // 에이전트가 이미 버린 것에 허브가 버린 것을 더한다 — 사용자가 보는 파일 기준
+        droppedEvents: record.dropped,
         exportedAt: Date.now(),
       };
       const filename = `${captureFileStem(record.meta.label)}-${record.meta.id}${CAPTURE_FILE_EXTENSION}`;
@@ -281,7 +285,7 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
           existing.live = true;
           existing.endedAt = undefined;
         } else {
-          records.set(sessionId, { meta: message.session, history: [], live: true });
+          records.set(sessionId, { meta: message.session, history: [], dropped: 0, live: true });
         }
         sendToDashboards({ type: 'session-joined', session: message.session });
         debugLog('agent', `session registered: ${sessionId} (${message.session.label})`);
@@ -293,7 +297,10 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
         for (const event of message.events) {
           if (event.sessionId !== sessionId) continue; // 세션 위조 방지
           record.history.push(event);
-          if (record.history.length > historyLimit) record.history.shift();
+          if (record.history.length > historyLimit) {
+            record.history.shift();
+            record.dropped += 1;
+          }
           sendToDashboards(event);
         }
       }

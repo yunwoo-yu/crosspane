@@ -86,3 +86,26 @@ describe('큰 캡처 파일 방어', () => {
     expect([2, 4]).toContain(first.type);
   });
 });
+
+describe('droppedEvents', () => {
+  const file = (extra: Record<string, unknown>) =>
+    JSON.stringify({
+      version: 1,
+      session: { id: 's-1', label: 'x', userAgent: 'ua', startedAt: 0 },
+      events: [],
+      exportedAt: 0,
+      ...extra,
+    });
+
+  it('파일에 있으면 그대로 읽는다', () => {
+    expect(parseCaptureFile(file({ droppedEvents: 1234 })).droppedEvents).toBe(1234);
+  });
+
+  it('없으면 0 (구버전 에이전트가 만든 파일)', () => {
+    expect(parseCaptureFile(file({})).droppedEvents).toBe(0);
+  });
+
+  it('숫자가 아니면 0으로 취급한다 (손으로 편집된 파일)', () => {
+    expect(parseCaptureFile(file({ droppedEvents: 'lots' })).droppedEvents).toBe(0);
+  });
+});

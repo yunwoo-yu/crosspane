@@ -95,6 +95,15 @@ export default function App() {
         {replay ? (
           <>
             <span className="rounded bg-warn/20 px-2 py-0.5 text-warn text-xs">replay</span>
+            {replay.droppedEvents > 0 && (
+              // 상한으로 앞부분이 잘린 파일임을 밝힌다 — 조용히 두면 전량으로 오해한다
+              <span
+                className="text-fg-muted text-xs"
+                title="The buffer dropped these before the file was written — the session started earlier than the first entry shown"
+              >
+                {replay.droppedEvents.toLocaleString()} earlier events dropped
+              </span>
+            )}
             <Button variant="ghost" size="icon" onClick={() => setReplay(null)}>
               Back to live
             </Button>

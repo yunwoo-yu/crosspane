@@ -107,6 +107,15 @@ export interface SessionCapture {
   version: 1;
   session: SessionMeta;
   events: SessionEvent[];
+  /**
+   * 상한 때문에 **버려진** 이벤트 수 (없거나 0이면 전량).
+   *
+   * 링버퍼·히스토리 상한은 오래된 것부터 버린다. 이걸 싣지 않으면 긴 세션의 캡처가
+   * 앞부분이 잘린 채 완전한 것처럼 보인다 — 이 프로젝트는 다른 모든 상한에서
+   * 잘렸음을 밝히므로(텍스트 `(truncated)`, 중복 `×N`, 렌더 `N older hidden`)
+   * 가장 중요한 이 경로만 조용한 것은 모순이었다.
+   */
+  droppedEvents?: number;
   exportedAt: number;
 }
 

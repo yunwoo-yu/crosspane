@@ -286,3 +286,28 @@ describe('직렬화 예산 (핫패스 비용)', () => {
     expect(text).toContain('with stack');
   });
 });
+
+describe('캡처가 버린 이벤트 수를 밝힌다', () => {
+  let agent: CrosspaneAgent | null = null;
+  afterEach(() => {
+    agent?.dispose();
+    agent = null;
+  });
+
+  it('상한을 넘긴 세션의 캡처에 droppedEvents가 실린다', () => {
+    // 조용히 앞부분이 잘린 파일은 "전량"으로 오해된다 — 이 프로젝트의 다른 모든
+    // 상한(텍스트·중복·렌더)이 잘렸음을 밝히는데 가장 중요한 이 경로만 침묵했다
+    agent = initCrosspane({ bufferSize: 3 });
+    for (let i = 0; i < 10; i++) console.log(`line${i}`);
+
+    const capture = agent.capture();
+    expect(capture.events).toHaveLength(3);
+    expect(capture.droppedEvents).toBeGreaterThan(0);
+  });
+
+  it('상한 안이면 0이다', () => {
+    agent = initCrosspane({ bufferSize: 100 });
+    console.log('x');
+    expect(agent.capture().droppedEvents).toBe(0);
+  });
+});
