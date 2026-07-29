@@ -39,6 +39,27 @@ npx crosspane --host 0.0.0.0
 Drop the exported `.crosspane.json` into the dashboard to replay it — same UI, no
 server connection needed.
 
+## Without a bundler
+
+If you can't run a bundler — injecting into a page through a proxy, a kiosk build, a
+plain static page — use the prebuilt single-file bundles (~2.5 KB gzipped):
+
+```html
+<!-- ES module -->
+<script type="module">
+  import { initCrosspane } from 'https://unpkg.com/@crosspane/agent/dist/crosspane-agent.esm.js'
+  initCrosspane({ label: 'kiosk display' })
+</script>
+
+<!-- or a classic script tag: exposes window.crosspane -->
+<script src="https://unpkg.com/@crosspane/agent/dist/crosspane-agent.global.js"></script>
+<script>
+  crosspane.initCrosspane({ label: 'kiosk display' })
+</script>
+```
+
+Under a strict CSP, self-host the file instead of loading it from a CDN.
+
 ## Shipping safely
 
 This is a debug-build feature. The cleanest approach is to let your bundler drop it

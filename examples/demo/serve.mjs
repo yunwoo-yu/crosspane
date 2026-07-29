@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const agentDist = join(here, '../../packages/agent/dist');
+const agentBundle = join(here, '../../packages/agent/dist/crosspane-agent.esm.js');
 const PORT = Number(process.env.PORT ?? 7999);
 
 const server = http.createServer(async (req, res) => {
@@ -18,15 +18,10 @@ const server = http.createServer(async (req, res) => {
       res.end(await readFile(join(here, 'index.html')));
       return;
     }
-    // 빌드된 에이전트는 다중 파일 ESM이라 디렉터리째 서빙해야 형제 모듈이 해석된다
-    if (path.startsWith('/agent/')) {
-      const file = path.slice('/agent/'.length);
-      if (file.includes('..')) {
-        res.writeHead(400).end();
-        return;
-      }
+    // 단일 파일 번들 — 번들러 없이 <script type="module">로 붙는 실제 사용자 경로
+    if (path === '/agent.js') {
       res.writeHead(200, { 'content-type': 'text/javascript' });
-      res.end(await readFile(join(agentDist, file)));
+      res.end(await readFile(agentBundle));
       return;
     }
     if (path === '/api/ok') {
