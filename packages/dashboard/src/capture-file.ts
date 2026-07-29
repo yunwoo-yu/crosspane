@@ -1,3 +1,4 @@
+import { CAPTURE_FILE_VERSION } from '@crosspane/protocol';
 import { logEntryFromEvent, networkEntryFromEvent, screenEventFromEvent } from './event-log';
 import type { LogEntry, NetworkEntry, SessionCapture, SessionMeta } from './types';
 
@@ -23,8 +24,14 @@ export function parseCaptureFile(text: string): LoadedCapture {
     throw new CaptureParseError('Not a valid JSON file');
   }
   const capture = parsed as Partial<SessionCapture>;
-  if (capture.version !== 1 || !capture.session?.id || !Array.isArray(capture.events)) {
-    throw new CaptureParseError('Not a crosspane capture file (expected version 1)');
+  if (
+    capture.version !== CAPTURE_FILE_VERSION ||
+    !capture.session?.id ||
+    !Array.isArray(capture.events)
+  ) {
+    throw new CaptureParseError(
+      `Not a crosspane capture file (expected version ${CAPTURE_FILE_VERSION})`,
+    );
   }
 
   const logs: LogEntry[] = [];

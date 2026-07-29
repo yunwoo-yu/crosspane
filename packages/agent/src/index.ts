@@ -1,4 +1,10 @@
-import type { SessionCapture, SessionEvent, SessionMeta } from '@crosspane/protocol';
+import {
+  CAPTURE_FILE_EXTENSION,
+  CAPTURE_FILE_VERSION,
+  type SessionCapture,
+  type SessionEvent,
+  type SessionMeta,
+} from '@crosspane/protocol';
 import { RingBuffer } from './buffer.js';
 import { installHooks } from './hooks.js';
 import { LiveTransport } from './transport.js';
@@ -50,7 +56,7 @@ const DISABLED_AGENT: CrosspaneAgent = {
   session: { id: '', label: '', userAgent: '', startedAt: 0 },
   capture() {
     return {
-      version: 1,
+      version: CAPTURE_FILE_VERSION,
       session: this.session,
       events: [],
       exportedAt: Date.now(),
@@ -119,7 +125,7 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
     session,
     capture(): SessionCapture {
       return {
-        version: 1,
+        version: CAPTURE_FILE_VERSION,
         session,
         events: buffer.snapshot(),
         exportedAt: Date.now(),
@@ -131,7 +137,7 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
       });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `${session.label.replace(/[^\w-]+/g, '_')}-${session.id}.crosspane.json`;
+      link.download = `${session.label.replace(/[^\w-]+/g, '_')}-${session.id}${CAPTURE_FILE_EXTENSION}`;
       link.click();
       URL.revokeObjectURL(link.href);
     },

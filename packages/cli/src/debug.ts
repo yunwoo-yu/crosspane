@@ -6,10 +6,6 @@ export function setVerbose(enabled: boolean): void {
   verboseEnabled = enabled;
 }
 
-export function isVerbose(): boolean {
-  return verboseEnabled;
-}
-
 /** verbose 모드에서만 출력. Error는 전체 스택을 보존한다 */
 export function debugLog(scope: string, message: unknown): void {
   if (!verboseEnabled) return;

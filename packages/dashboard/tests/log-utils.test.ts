@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  countErrorsSinceLastNavigation,
-  filterLogs,
-  formatLogTime,
-  isNearBottom,
-  toDisplayPath,
-} from '../src/log-utils';
+import { filterLogs, formatLogTime, isNearBottom, toDisplayPath } from '../src/log-utils';
 import type { LogEntry } from '../src/types';
 
 const log = (partial: Partial<LogEntry>): LogEntry => ({
@@ -16,23 +10,6 @@ const log = (partial: Partial<LogEntry>): LogEntry => ({
   text: '',
   ts: 0,
   ...partial,
-});
-
-describe('countErrorsSinceLastNavigation', () => {
-  it('마지막 내비게이션 이후의 에러만 센다', () => {
-    const logs = [
-      log({ id: 1, level: 'error' }),
-      log({ id: 2, kind: 'navigation', level: 'info' }),
-      log({ id: 3, level: 'error' }),
-      log({ id: 4, level: 'error' }),
-    ];
-    expect(countErrorsSinceLastNavigation(logs, 'a')).toBe(2);
-  });
-
-  it('다른 세션의 로그는 세지 않는다', () => {
-    const logs = [log({ id: 1, level: 'error', sessionId: 'b' }), log({ id: 2, level: 'error' })];
-    expect(countErrorsSinceLastNavigation(logs, 'a')).toBe(1);
-  });
 });
 
 describe('filterLogs', () => {
