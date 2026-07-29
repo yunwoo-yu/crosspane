@@ -22,6 +22,12 @@ export function mergeRepeat(
   } else {
     return null;
   }
-  // ts는 첫 발생 시각을 유지한다 — 타임라인 위치가 흔들리면 원인 추적이 어긋난다
-  return { ...last, repeat: (last.repeat ?? 1) + (next.repeat ?? 1) };
+  // ts는 첫 발생 시각을 유지한다 — 타임라인 위치가 흔들리면 원인 추적이 어긋난다.
+  // 대신 마지막 발생 시각을 남긴다: 없으면 10분간 계속된 에러가 "처음에 몇 번 나고
+  // 멈췄다"로 읽힌다 (합치기가 만드는 정보 손실이라 함께 고쳐야 한다)
+  return {
+    ...last,
+    repeat: (last.repeat ?? 1) + (next.repeat ?? 1),
+    repeatUntil: next.repeatUntil ?? next.ts,
+  };
 }

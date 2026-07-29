@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MAX_LOGS } from '../constants';
-import { type ConsoleLevelFilter, filterLogs, formatLogTime, isNearBottom } from '../log-utils';
+import {
+  type ConsoleLevelFilter,
+  filterLogs,
+  formatLogTime,
+  formatRepeatSpan,
+  isNearBottom,
+} from '../log-utils';
 import type { LogEntry, SessionMeta } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -13,6 +19,22 @@ interface ConsolePanelProps {
 type SessionFilter = string | 'all';
 
 const LEVELS: ConsoleLevelFilter[] = ['all', 'log', 'warning', 'error'];
+
+function RepeatBadge({ repeat, span }: { repeat: number; span: string | null }) {
+  return (
+    <span
+      className="shrink-0 rounded bg-panel px-1 font-semibold text-fg-muted text-xs tabular-nums"
+      title={
+        span
+          ? `${repeat} consecutive occurrences over ${span} — still recurring, not a one-off burst`
+          : `${repeat} consecutive occurrences`
+      }
+    >
+      ×{repeat}
+      {span && <span className="ml-1 font-normal opacity-70">{span}</span>}
+    </span>
+  );
+}
 
 function levelClass(level: string): string {
   if (level === 'error') return 'error';
@@ -131,14 +153,12 @@ export function ConsolePanel({ logs, sessions }: ConsolePanelProps) {
             <div key={log.id} className={`log-line ${levelClass(log.level)}`}>
               <span className="log-time">{formatLogTime(log.ts)}</span>
               <span className="log-kind">{log.kind === 'console' ? log.level : log.kind}</span>
-              {/* 반복 횟수 — 합쳤다는 사실을 밝힌다. 조용히 합치면 몇 번 일어났는지 오도한다 */}
+              {/*
+                반복 횟수와 이어진 기간 — 합쳤다는 사실을 밝힌다.
+                기간이 없으면 10분간 계속된 에러가 "처음에 몇 번 나고 멈췄다"로 읽힌다
+              */}
               {log.repeat !== undefined && log.repeat > 1 && (
-                <span
-                  className="shrink-0 rounded bg-panel px-1 font-semibold text-fg-muted text-xs tabular-nums"
-                  title={`${log.repeat} consecutive occurrences`}
-                >
-                  ×{log.repeat}
-                </span>
+                <RepeatBadge repeat={log.repeat} span={formatRepeatSpan(log.ts, log.repeatUntil)} />
               )}
               <span className="log-text">{log.text}</span>
               {log.detail && <pre className="log-detail">{log.detail}</pre>}

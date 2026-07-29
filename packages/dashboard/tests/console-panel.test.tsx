@@ -69,6 +69,27 @@ describe('ConsolePanel', () => {
       expect(screen.getByText('×3000')).toBeTruthy();
     });
 
+    it('오래 이어진 반복은 기간을 함께 보여준다 — "멈췄다"로 오도하면 안 된다', () => {
+      const t0 = Date.parse('2026-07-30T10:00:00Z');
+      render(
+        <ConsolePanel
+          logs={[log({ text: 'Failed to fetch', repeat: 120, ts: t0, repeatUntil: t0 + 600_000 })]}
+          sessions={[]}
+        />,
+      );
+      expect(screen.getByText('×120')).toBeTruthy();
+      expect(screen.getByText('10m')).toBeTruthy();
+      expect(screen.getByTitle(/still recurring, not a one-off burst/)).toBeTruthy();
+    });
+
+    it('순간적 폭주는 기간을 붙이지 않는다', () => {
+      render(
+        <ConsolePanel logs={[log({ repeat: 50, ts: 1_000, repeatUntil: 1_200 })]} sessions={[]} />,
+      );
+      expect(screen.getByText('×50')).toBeTruthy();
+      expect(screen.getByTitle('50 consecutive occurrences')).toBeTruthy();
+    });
+
     it('1회면 배지를 붙이지 않는다', () => {
       render(<ConsolePanel logs={[log({ repeat: 1 }), log()]} sessions={[]} />);
       expect(screen.queryByText(/^×/)).toBeNull();

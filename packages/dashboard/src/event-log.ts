@@ -69,6 +69,7 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
         level: event.level,
         text: event.text,
         repeat: event.repeat,
+        repeatUntil: event.repeatUntil,
         ts: event.ts,
       };
     case 'pageerror':
@@ -79,6 +80,7 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
         text: event.message,
         detail: event.stack,
         repeat: event.repeat,
+        repeatUntil: event.repeatUntil,
         ts: event.ts,
       };
     case 'navigation':
@@ -138,6 +140,10 @@ export function mergeRepeatedLog(
   if (last.text !== next.text || last.level !== next.level || last.detail !== next.detail) {
     return null;
   }
-  // ts는 첫 발생 시각을 유지한다 (에이전트 쪽과 같은 규칙)
-  return { ...last, repeat: (last.repeat ?? 1) + (next.repeat ?? 1) };
+  // ts는 첫 발생 시각을, repeatUntil은 마지막 발생 시각을 유지한다 (에이전트와 같은 규칙)
+  return {
+    ...last,
+    repeat: (last.repeat ?? 1) + (next.repeat ?? 1),
+    repeatUntil: next.repeatUntil ?? next.ts,
+  };
 }

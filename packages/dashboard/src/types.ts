@@ -28,6 +28,8 @@ export interface LogEntry {
   detail?: string;
   /** 연속 반복 횟수 (없으면 1). 스팸이 표시 상한을 잠식하는 것을 막는다 */
   repeat?: number;
+  /** 마지막 발생 시각 — 반복이 언제까지 이어졌는지 (ts는 첫 발생) */
+  repeatUntil?: number;
   ts: number;
 }
 

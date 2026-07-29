@@ -58,3 +58,19 @@ export function isNearBottom(
 ): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < thresholdPx;
 }
+
+/**
+ * 반복이 이어진 기간을 사람이 읽는 형태로 (1초 미만은 null — 순간적 폭주는 기간이 의미 없다).
+ *
+ * 이게 없으면 10분간 5초마다 반복된 에러가 첫 시각 한 줄로만 보여서
+ * "그때 몇 번 나고 멈췄다"로 읽힌다. 아직 계속되고 있다는 사실이 가장 중요한 단서일 수 있다.
+ */
+export function formatRepeatSpan(firstTs: number, lastTs: number | undefined): string | null {
+  if (lastTs === undefined) return null;
+  const ms = lastTs - firstTs;
+  if (ms < 1_000) return null;
+  const seconds = Math.round(ms / 1_000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`;
+}

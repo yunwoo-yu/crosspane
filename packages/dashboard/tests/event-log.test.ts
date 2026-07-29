@@ -115,9 +115,14 @@ describe('mergeRepeatedLog', () => {
     ...partial,
   });
 
-  it('같은 내용의 연속 로그를 합치고 횟수를 센다', () => {
+  it('같은 내용의 연속 로그를 합치고 첫·마지막 시각을 남긴다', () => {
     const merged = mergeRepeatedLog(entry({}), entry({ ts: 200 }));
-    expect(merged).toMatchObject({ repeat: 2, ts: 100 }); // ts는 첫 발생 유지
+    expect(merged).toMatchObject({ repeat: 2, ts: 100, repeatUntil: 200 });
+  });
+
+  it('이어진 런의 마지막 시각을 계속 갱신한다', () => {
+    const merged = mergeRepeatedLog(entry({ repeat: 5, repeatUntil: 500 }), entry({ ts: 900 }));
+    expect(merged).toMatchObject({ repeat: 6, ts: 100, repeatUntil: 900 });
   });
 
   it('이미 합쳐진 것끼리도 더한다 (배치 경계에서 갈린 런)', () => {

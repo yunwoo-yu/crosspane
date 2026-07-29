@@ -43,6 +43,12 @@ export type SessionEvent =
        * ts는 첫 발생 시각을 유지해 타임라인 위치가 흔들리지 않는다.
        */
       repeat?: number;
+      /**
+       * 마지막 발생 시각 (repeat가 있을 때만). **없으면 안 된다** —
+       * 10분간 5초마다 반복된 에러가 첫 시각 한 줄로만 접히면 "그때 두 번 나고 멈췄다"로
+       * 읽힌다. 지금도 계속되고 있다는 사실이 디버깅에서 가장 중요한 단서일 수 있다.
+       */
+      repeatUntil?: number;
       ts: number;
     }
   | {
@@ -52,6 +58,8 @@ export type SessionEvent =
       stack?: string;
       /** 연속 반복 횟수 — console의 repeat와 같은 의미 */
       repeat?: number;
+      /** 마지막 발생 시각 — console의 repeatUntil과 같은 의미 */
+      repeatUntil?: number;
       ts: number;
     }
   | {

@@ -58,11 +58,30 @@ describe('RingBuffer 연속 중복 합치기', () => {
     expect(buffer.snapshot()).toHaveLength(2);
   });
 
-  it('ts는 첫 발생 시각을 유지한다 — 타임라인 위치가 흔들리면 안 된다', () => {
+  it('ts는 첫 발생, repeatUntil은 마지막 발생 시각을 남긴다', () => {
     const buffer = new RingBuffer(100);
     buffer.push({ type: 'console', sessionId: 's', level: 'log', text: 'x', ts: 1_000 });
     buffer.push({ type: 'console', sessionId: 's', level: 'log', text: 'x', ts: 9_999 });
-    expect(buffer.snapshot()[0]).toMatchObject({ ts: 1_000, repeat: 2 });
+    // ts가 흔들리면 타임라인 위치가 어긋나고, repeatUntil이 없으면 언제까지
+    // 계속됐는지 알 수 없다 (10분간 반복된 에러가 "처음에 몇 번"으로 읽힌다)
+    expect(buffer.snapshot()[0]).toMatchObject({ ts: 1_000, repeat: 2, repeatUntil: 9_999 });
+  });
+
+  it('반복이 이어질 때마다 repeatUntil이 갱신된다', () => {
+    const buffer = new RingBuffer(100);
+    const t0 = Date.parse('2026-07-30T10:00:00Z');
+    // 10분간 5초마다 같은 에러 — 폴링 앱의 전형
+    for (let i = 0; i < 120; i++) {
+      buffer.push({
+        type: 'console',
+        sessionId: 's',
+        level: 'error',
+        text: 'spam',
+        ts: t0 + i * 5_000,
+      });
+    }
+    const [entry] = buffer.snapshot();
+    expect(entry).toMatchObject({ ts: t0, repeat: 120, repeatUntil: t0 + 119 * 5_000 });
   });
 
   it('network·navigation은 합치지 않는다 — 각각이 개별 사실이다', () => {

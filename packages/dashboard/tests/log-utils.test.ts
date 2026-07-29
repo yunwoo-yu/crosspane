@@ -3,6 +3,7 @@ import {
   type ConsoleLevelFilter,
   filterLogs,
   formatLogTime,
+  formatRepeatSpan,
   isNearBottom,
   toDisplayPath,
 } from '../src/log-utils';
@@ -82,5 +83,23 @@ describe('formatLogTime / isNearBottom', () => {
   it('바닥 근처 판정 (오토스크롤 유지 조건)', () => {
     expect(isNearBottom({ scrollTop: 900, scrollHeight: 1000, clientHeight: 100 })).toBe(true);
     expect(isNearBottom({ scrollTop: 100, scrollHeight: 1000, clientHeight: 100 })).toBe(false);
+  });
+});
+
+describe('formatRepeatSpan', () => {
+  it('1초 미만은 기간을 붙이지 않는다 — 순간적 폭주는 기간이 의미 없다', () => {
+    expect(formatRepeatSpan(1_000, 1_500)).toBeNull();
+    expect(formatRepeatSpan(1_000, 1_000)).toBeNull();
+  });
+
+  it('마지막 시각이 없으면 null (구버전 에이전트가 만든 이벤트)', () => {
+    expect(formatRepeatSpan(1_000, undefined)).toBeNull();
+  });
+
+  it('초·분·시간 단위로 읽기 쉽게 만든다', () => {
+    expect(formatRepeatSpan(0, 5_000)).toBe('5s');
+    expect(formatRepeatSpan(0, 90_000)).toBe('2m');
+    expect(formatRepeatSpan(0, 600_000)).toBe('10m');
+    expect(formatRepeatSpan(0, 7_200_000)).toBe('2h');
   });
 });
