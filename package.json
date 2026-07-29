@@ -17,7 +17,8 @@
     "format": "biome format --write .",
     "prepare": "husky",
     "smoke": "node scripts/smoke.mjs",
-    "release": "pnpm build && pnpm exec changeset publish"
+    "release": "pnpm build && pnpm exec changeset publish",
+    "check:publishable": "node scripts/check-publishable.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",

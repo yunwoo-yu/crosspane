@@ -35,7 +35,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@crosspane/protocol": "workspace:*"
+    "@crosspane/protocol": "^0.2.0"
   },
   "devDependencies": {
     "jsdom": "^26.0.0",
