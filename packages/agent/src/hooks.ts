@@ -235,14 +235,17 @@ function hookNavigation({ sessionId, emit }: HookOptions): () => void {
   const emitNavigation = (): void => {
     emit({ type: 'navigation', sessionId, url: location.href, ts: Date.now() });
   };
-  const originalPush = history.pushState.bind(history);
-  const originalReplace = history.replaceState.bind(history);
+  // bind한 함수를 저장하면 dispose가 원본이 아니라 래퍼를 되돌려, init→dispose를
+  // 반복할수록 bind 층이 영구히 쌓인다 (HMR·테스트에서 실제로 발생). 원본을 그대로
+  // 들고 호출 시점에 call로 this를 준다
+  const originalPush = history.pushState;
+  const originalReplace = history.replaceState;
   history.pushState = (...args) => {
-    originalPush(...args);
+    originalPush.call(history, ...args);
     emitNavigation();
   };
   history.replaceState = (...args) => {
-    originalReplace(...args);
+    originalReplace.call(history, ...args);
     emitNavigation();
   };
   window.addEventListener('popstate', emitNavigation);

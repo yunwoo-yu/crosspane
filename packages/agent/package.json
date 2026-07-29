@@ -32,6 +32,7 @@
   "scripts": {
     "build": "tsc -b && node scripts/bundle.mjs",
     "typecheck": "tsc -b",
+    "coverage": "vitest run --coverage",
     "test": "vitest run"
   },
   "dependencies": {

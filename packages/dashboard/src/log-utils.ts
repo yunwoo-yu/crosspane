@@ -13,14 +13,26 @@ export function toDisplayPath(url: string): string {
 
 export type ConsoleLevelFilter = 'all' | 'log' | 'warning' | 'error';
 
-/** 콘솔 레벨/검색 필터 — 내비게이션 구분선은 맥락 유지를 위해 항상 남긴다 */
-export function filterLogs(
-  logs: LogEntry[],
-  level: ConsoleLevelFilter,
-  search: string,
-): LogEntry[] {
-  const query = search.trim().toLowerCase();
+export interface ConsoleFilter {
+  level: ConsoleLevelFilter;
+  search: string;
+  /** 세션 id, 또는 'all' */
+  sessionId: string | 'all';
+}
+
+/**
+ * 콘솔 필터 — 세 축(세션·레벨·검색)을 한곳에서 적용한다.
+ * 컴포넌트에 한 축만 인라인하면 그 축만 테스트 밖으로 빠진다
+ * (`filterNetworkEntries`와 같은 옵션 객체 모양을 유지할 것).
+ *
+ * 내비게이션 구분선은 맥락 유지를 위해 레벨·검색에서 항상 살아남는다 —
+ * 단, 다른 세션의 것은 남기지 않는다(화면이 섞인다).
+ */
+export function filterLogs(logs: LogEntry[], filter: ConsoleFilter): LogEntry[] {
+  const { level, sessionId } = filter;
+  const query = filter.search.trim().toLowerCase();
   return logs.filter((log) => {
+    if (sessionId !== 'all' && log.sessionId !== sessionId) return false;
     if (log.kind === 'navigation') return true;
     if (level === 'error' && log.level !== 'error') return false;
     if (level === 'warning' && log.level !== 'warning' && log.level !== 'error') return false;

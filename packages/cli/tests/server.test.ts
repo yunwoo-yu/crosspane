@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import type { ServerEvent, SessionEvent, SessionMeta } from '@crosspane/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import { type HubServer, isAllowedWsOrigin, startHubServer } from '../src/server';
+import {
+  captureFileStem,
+  contentDisposition,
+  type HubServer,
+  isAllowedWsOrigin,
+  startHubServer,
+} from '../src/server';
 
 const meta = (id: string, label = 'test session'): SessionMeta => ({
   id,
@@ -246,6 +252,35 @@ describe('startHubServer', () => {
     });
   });
 
+  it('상한을 넘는 에이전트 메시지는 연결을 끊는다 (무인증 채널의 메모리 고갈 방지)', async () => {
+    server = await startHubServer({ port: 0 });
+    const agent = await connectAgent(server.port);
+    sockets.push(agent);
+    agent.send(JSON.stringify({ type: 'register', session: meta('s-1') }));
+    await vi.waitFor(() => {
+      expect(server?.sessions().map((s) => s.id)).toEqual(['s-1']);
+    });
+
+    const closed = new Promise<void>((resolve) => agent.once('close', () => resolve()));
+    // /agent는 Origin 검증이 없는 채널이라(실기기 페이지의 Origin은 임의) 크기가
+    // 유일한 방어선이다. 상한은 4MB — 넘기면 파싱하지 않고 즉시 끊어야 한다
+    agent.send('x'.repeat(5 * 1024 * 1024));
+    await closed;
+
+    // 허브는 살아 있고 세션 히스토리도 오염되지 않는다
+    const survivor = await connectAgent(server.port);
+    sockets.push(survivor);
+    survivor.send(JSON.stringify({ type: 'register', session: meta('s-2') }));
+    await vi.waitFor(() => {
+      expect(
+        server
+          ?.sessions()
+          .map((s) => s.id)
+          .sort(),
+      ).toEqual(['s-1', 's-2']);
+    });
+  });
+
   it('GET /capture/:id — 라이브 세션을 캡처 파일로 내려준다', async () => {
     server = await startHubServer({ port: 0 });
     const agent = await connectAgent(server.port);
@@ -320,5 +355,41 @@ describe('isAllowedWsOrigin', () => {
     expect(isAllowedWsOrigin('http://evil.example', 'localhost:7788')).toBe(false);
     expect(isAllowedWsOrigin('http://192.168.0.5:7788', '192.168.0.5:7788')).toBe(true);
     expect(isAllowedWsOrigin('not a url', 'localhost:7788')).toBe(false);
+  });
+});
+
+describe('contentDisposition', () => {
+  it('한국어 파일명을 ASCII 폴백 + UTF-8 형태로 함께 싣는다', () => {
+    // Node의 헤더는 non-ASCII를 거부한다 — 그대로 넣으면 응답을 쓰며 던진다
+    const header = contentDisposition('결제_웹뷰-s-1.crosspane.json');
+    expect(header).toContain(
+      `filename*=UTF-8''${encodeURIComponent('결제_웹뷰-s-1.crosspane.json')}`,
+    );
+    expect(/filename="[\x20-\x7E]+"/.test(header)).toBe(true);
+  });
+
+  it('따옴표·역슬래시를 무력화한다 (헤더 인젝션 방어)', () => {
+    expect(contentDisposition('a"b\\c.json')).toContain('filename="a_b_c.json"');
+  });
+});
+
+describe('captureFileStem', () => {
+  it('한국어 라벨을 보존한다 — `\\w` 정제는 통째로 `_`로 만든다', () => {
+    expect(captureFileStem('결제 웹뷰')).toBe('결제_웹뷰');
+    expect(captureFileStem('결제 웹뷰 · QA build')).toBe('결제_웹뷰_QA_build');
+  });
+
+  it('경로 구분자와 상위 참조를 제거한다', () => {
+    expect(captureFileStem('../../etc/passwd')).toBe('etc_passwd');
+    expect(captureFileStem('a/b\\c')).toBe('a_b_c');
+  });
+
+  it('남는 문자가 없으면 기본 이름을 쓴다', () => {
+    expect(captureFileStem('///')).toBe('session');
+    expect(captureFileStem('')).toBe('session');
+  });
+
+  it('과도하게 긴 라벨을 자른다 (파일명 상한 방어)', () => {
+    expect(captureFileStem('x'.repeat(200))).toHaveLength(60);
   });
 });

@@ -85,6 +85,20 @@ const DISABLED_AGENT: CrosspaneAgent = {
   dispose() {},
 };
 
+/**
+ * 라벨 → 파일명 어간. `\w`로 정제하면 한국어 라벨('결제 웹뷰')이 통째로 `_`가 되어
+ * 파일명이 무의미해진다 — 이 툴의 사용자층에 직접 영향이 있으므로 스크립트 무관하게
+ * 문자·숫자를 남긴다. (허브의 `GET /capture/:id`도 같은 규칙을 쓴다 — 두 경로가
+ * 같은 이름을 만들어야 한다)
+ */
+function captureFileStem(label: string): string {
+  const cleaned = label
+    .replace(/[^\p{L}\p{N}_-]+/gu, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+  return cleaned === '' ? 'session' : cleaned;
+}
+
 function detectPlatform(userAgent: string): string {
   if (/; wv\)/.test(userAgent)) return 'android-webview';
   if (/iPhone|iPad/.test(userAgent) && !/Safari\//.test(userAgent)) return 'ios-webview';
@@ -155,7 +169,7 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
       });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `${session.label.replace(/[^\w-]+/g, '_')}-${session.id}${CAPTURE_FILE_EXTENSION}`;
+      link.download = `${captureFileStem(session.label)}-${session.id}${CAPTURE_FILE_EXTENSION}`;
       link.click();
       URL.revokeObjectURL(link.href);
     },

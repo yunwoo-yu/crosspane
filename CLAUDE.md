@@ -12,6 +12,7 @@
 pnpm build              # protocol → agent → agent-replay → dashboard → cli
                         # (cli가 dashboard dist를 dist/public에 번들)
 pnpm test               # 전 패키지 vitest
+pnpm coverage           # vitest --coverage (임계값 래칫 — vitest.shared.ts 참조)
 pnpm typecheck
 pnpm check:publishable  # 배포본 메타데이터 검사 (workspace: 잔존·README/LICENSE 누락)
 pnpm clean              # dist + tsbuildinfo 삭제 (dist만 지우면 tsc -b가 건너뛴다)
@@ -41,6 +42,7 @@ packages/*/CLAUDE.md          ← 패키지 모듈 맵 (해당 디렉터리 작�
 ├── mcp-server.md               crosspane mcp: stdout 전용 채널·툴 추가 절차
 └── testing-jsdom.md            jsdom 스텁·훅 계약 테스트 (agent+dashboard 공용)
 docs/decisions.md             ← 구조 결정과 그 근거 (기여자·미래의 나 대상)
+docs/try-it.md                ← 손으로 직접 확인하는 절차 (실기기 포함)
 ```
 
 새 불변식이 생기면(특히 실측으로 알아낸 함정) 해당 스코프의 rules 파일에 추가할 것.
@@ -49,8 +51,10 @@ docs/decisions.md             ← 구조 결정과 그 근거 (기여자·미래
 ## 공통 규칙 (항상 적용)
 
 - 검증 순서: `biome ci .` → `check:publishable` → `typecheck` → `test` → `build`
-  → 동작이 바뀌면 `smoke`. push 전 `biome ci`는 필수 — `check --write`가 통과해도
-  `ci`(=CI와 동일 판정)는 실패할 수 있다 (suppression 유효성, 일부 a11y 룰)
+  → 동작이 바뀌면 `smoke`. 커버리지 임계값은 CI의 ubuntu/Node22 레그에서만 걸린다
+  (`pnpm coverage`로 로컬 재현) — 임계값은 래칫이니 내리려면 커밋 메시지에 사유를 남길 것
+- push 전 `biome ci`는 필수 — `check --write`가 통과해도 `ci`(=CI와 동일 판정)는
+  실패할 수 있다 (suppression 유효성, 일부 a11y 룰)
 - 커밋: conventional commits. pre-commit(husky)이 biome를 강제, CI(3-OS × Node 20/22
   + smoke)가 최종 게이트
 - **에이전트 패키지는 기준이 다르다** — 사용자 앱 번들에 들어가므로 의존성 0,

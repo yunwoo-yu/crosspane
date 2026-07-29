@@ -62,6 +62,29 @@ export function isAllowedWsOrigin(
   }
 }
 
+/**
+ * 라벨 → 파일명 어간. `\w`로 정제하면 한국어 라벨('결제 웹뷰')이 통째로 `_`가 된다.
+ * 에이전트의 `exportFile()`과 **같은 규칙을 유지할 것** — 라이브 저장과 에이전트
+ * export가 같은 이름을 만들어야 한다 (프로토콜은 런타임 코드를 담지 않으므로 각자 보유)
+ */
+export function captureFileStem(label: string): string {
+  const cleaned = label
+    .replace(/[^\p{L}\p{N}_-]+/gu, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+  return cleaned === '' ? 'session' : cleaned;
+}
+
+/**
+ * RFC 6266의 content-disposition. **Node의 HTTP 헤더는 non-ASCII를 거부한다**
+ * (`TypeError: Invalid character in header content`) — 한국어 라벨을 그대로 넣으면
+ * 응답을 쓰는 순간 서버가 던진다. ASCII 폴백과 UTF-8 인코딩 형태를 함께 보낸다.
+ */
+export function contentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7E]+/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 interface SessionRecord {
   meta: SessionMeta;
   history: SessionEvent[];
@@ -92,10 +115,10 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
         events: record.history,
         exportedAt: Date.now(),
       };
-      const filename = `${record.meta.label.replace(/[^\w-]+/g, '_')}-${record.meta.id}${CAPTURE_FILE_EXTENSION}`;
+      const filename = `${captureFileStem(record.meta.label)}-${record.meta.id}${CAPTURE_FILE_EXTENSION}`;
       res.writeHead(200, {
         'content-type': 'application/json',
-        'content-disposition': `attachment; filename="${filename}"`,
+        'content-disposition': contentDisposition(filename),
       });
       res.end(JSON.stringify(capture));
       return;

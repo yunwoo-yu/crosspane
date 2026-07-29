@@ -41,13 +41,21 @@ jobs:
       - name: Publishable package check
         run: pnpm check:publishable
 
+      # 커버리지 임계값은 회귀 방지 래칫이다 (vitest.shared.ts). 대표 레그에서만 재고
+      # 나머지 레그는 테스트만 돌린다 — 6개 레그에서 다 재는 것은 낭비다
       - name: Test
+        if: matrix.os != 'ubuntu-latest' || matrix.node != 22
         run: pnpm test
+
+      - name: Test with coverage thresholds
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: pnpm coverage
 
       - name: Build
         run: pnpm build
 
-  # 유닛테스트가 못 잡는 회귀(엔진 기동/프레임 스트림/입력 미러링)를 실기동으로 검증
+  # 유닛테스트가 못 잡는 회귀를 실기동으로 검증 — 허브 기동, 에이전트 왕복,
+  # 히스토리 재생. 대시보드 정적 서빙까지 포함해 배포본 형태로 확인한다
   smoke:
     runs-on: ubuntu-latest
     steps:

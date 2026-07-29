@@ -27,11 +27,10 @@ export function ConsolePanel({ logs, sessions }: ConsolePanelProps) {
   const [follow, setFollow] = useState(true);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
-  const visible = useMemo(() => {
-    const bySession =
-      sessionFilter === 'all' ? logs : logs.filter((log) => log.sessionId === sessionFilter);
-    return filterLogs(bySession, levelFilter, search);
-  }, [logs, sessionFilter, levelFilter, search]);
+  const visible = useMemo(
+    () => filterLogs(logs, { sessionId: sessionFilter, level: levelFilter, search }),
+    [logs, sessionFilter, levelFilter, search],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies(visible): 새 로그가 렌더된 뒤 바닥으로 스크롤해야 하므로 visible 변경이 트리거
   useEffect(() => {
