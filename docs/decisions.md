@@ -215,6 +215,34 @@ already have the inspector available. That may still be worth it for a unified s
 but it should be entered deliberately as a convenience feature, not as a capability — and not
 before the in-page agent's own gaps are closed.
 
+## Console serialization: native first, measured
+
+The console hook serializes arguments on the page's own critical path, so the cost is the
+adoption barrier. Every choice in `serialize.ts` came from measurement, and two of them are
+counter-intuitive enough to be worth recording so they aren't re-litigated.
+
+**A hand-written bounded serializer was tried and rejected.** The theory was sound: a manual
+walk can stop the moment it reaches the text budget, whereas `JSON.stringify` with a budget
+replacer prunes the *output* but keeps *traversing*. In practice the native C++
+implementation won by 3× on everything typical (0.4µs vs 1.0µs on a small object, 18µs vs
+54µs on a 100-item response) and only won on inputs that had to be truncated. Native is the
+default; don't try to beat it.
+
+**Trimming large arrays is where the real win is.** An array's `length` is O(1), so detecting
+a large one is free, and serializing only the head collapses the cost: 497µs → 64µs for
+10,000 items, 6,074µs → 24µs for 100,000. Logging an entire API response is a common habit,
+so this is the case that actually shows up.
+
+**Wide plain objects have a floor we cannot cross.** Logging an object with 50,000 keys costs
+~7ms no matter what: `Object.keys` alone is 4.6ms, and `JSON.stringify` performs the same
+enumeration internally. There is no O(1) key count for a plain object, so nothing can detect
+the size cheaply either. This is documented rather than optimized.
+
+Circular references get a second pass with a visited set instead of collapsing to
+`String(value)`. The retry marks legitimately-shared sibling references as `[Circular]` too,
+which is a real false positive — accepted because the alternative was `"[object Object]"` and
+no content at all. `scripts/bench.mjs` reproduces all of these numbers.
+
 ## What the agent deliberately cannot do
 
 - **Breakpoints.** JavaScript cannot pause itself; this is why weinre and its successors

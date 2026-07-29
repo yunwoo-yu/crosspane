@@ -1,4 +1,5 @@
 import type { SessionEvent } from '@crosspane/protocol';
+import { serializeArgs } from './serialize.js';
 
 export interface HookOptions {
   sessionId: string;
@@ -24,58 +25,6 @@ export function installHooks(options: HookOptions): (() => void)[] {
 /** 상한을 넘으면 잘라내고 잘렸음을 알린다 — 조용히 버리면 디버깅을 오도한다 */
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}… (truncated, ${text.length} chars)`;
-}
-
-/**
- * 예산 안에서만 직렬화한다.
- *
- * `JSON.stringify(arg)`를 먼저 다 만든 뒤 자르면, 거대한 객체를 로그하는 페이지가
- * 버려질 문자열을 전부 만드는 비용을 문다 — 계측이 페이지를 느리게 만들면 안 된다.
- * replacer가 누적 크기를 세다가 예산을 넘기면 이후 값을 생략해, 결과는 잘린 JSON이
- * 되고 거대한 문자열이 애초에 만들어지지 않는다.
- *
- * 잘림 여부를 함께 돌려주는 이유: 조용히 버리면 디버깅을 오도한다.
- */
-function serializeArg(arg: unknown, budget: number): { text: string; truncated: boolean } {
-  if (typeof arg === 'string') {
-    return arg.length <= budget
-      ? { text: arg, truncated: false }
-      : { text: arg.slice(0, budget), truncated: true };
-  }
-  if (arg instanceof Error) {
-    const stack = arg.stack ?? arg.message;
-    return stack.length <= budget
-      ? { text: stack, truncated: false }
-      : { text: stack.slice(0, budget), truncated: true };
-  }
-
-  let used = 0;
-  try {
-    const json = JSON.stringify(arg, (_key, value) => {
-      if (used > budget) return undefined; // 예산 초과 — 이후 값은 싣지 않는다
-      used += typeof value === 'string' ? value.length + 2 : 8; // 구분자 포함 근사
-      return value;
-    });
-    return { text: json ?? String(arg), truncated: used > budget };
-  } catch {
-    return { text: String(arg), truncated: false }; // 순환 참조, toJSON 예외 등
-  }
-}
-
-/** 콘솔 인자들을 하나의 텍스트로 — 잘렸으면 끝에 한 번만 알린다 */
-function serializeArgs(args: unknown[], budget: number): string {
-  let truncated = false;
-  const parts = args.map((arg) => {
-    const result = serializeArg(arg, budget);
-    truncated = truncated || result.truncated;
-    return result.text;
-  });
-  let text = parts.join(' ');
-  if (text.length > budget) {
-    text = text.slice(0, budget);
-    truncated = true;
-  }
-  return truncated ? `${text}… (truncated)` : text;
 }
 
 /** 후킹 대상 console 메서드 — LogLevel(=string 포함)로 인덱싱하면 타입이 풀린다 */
