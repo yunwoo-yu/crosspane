@@ -86,6 +86,15 @@ the dependency ranges between workspace packages, but not the lockfile — so th
 `version` script runs `changeset version && pnpm install --lockfile-only`, and the release
 workflow points changesets at it.
 
+## The hub serves capture files, the dashboard does not build them
+
+Saving a live session goes through `GET /capture/:id` on the hub rather than serializing
+what the dashboard holds. The hub keeps the original `SessionEvent` history; the dashboard
+holds display-shaped entries that have been batched, capped and split across panels.
+Reconstructing a capture from those would be lossy and would duplicate the mapping logic in
+reverse. This way live-save and agent-export produce the same file format, and a saved file
+replays through the exact code path a file from a tester does.
+
 ## The agent ships prebuilt single-file bundles
 
 `tsc` output is multi-file ESM, which cannot be loaded with a plain `<script>` tag. The

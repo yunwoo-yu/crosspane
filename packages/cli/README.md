@@ -16,10 +16,9 @@ empty. crosspane gives those screens a console, a network log and a shareable ca
 > **⚠️ Beta** — APIs and CLI flags may change between minor versions until 1.0.
 > Bug reports and feedback are very welcome — please [open an issue](https://github.com/yunwoo-yu/crosspane/issues).
 
-![The crosspane dashboard replaying a recorded webview session](https://raw.githubusercontent.com/yunwoo-yu/crosspane/main/docs/images/dashboard-screen-replay.png)
+![Console and network events from a webview arriving in the crosspane dashboard in real time](https://raw.githubusercontent.com/yunwoo-yu/crosspane/main/docs/images/demo.gif)
 
-*Replaying a session captured from a page with no devtools access — console, network and
-screen, from one agent.*
+*A page with no devtools access, streaming its console and network activity to the dashboard.*
 
 ## How it works
 
@@ -86,6 +85,8 @@ requests and navigations show up in the dashboard — or in the exported file.
 - **Replay** — drop a `.crosspane.json` into the dashboard; identical UI, no server needed
 - **Screen recording** (opt-in) — add `@crosspane/agent-replay` to record the DOM and play
   it back in the Screen tab, in the same timeline as the logs
+
+![Replaying a recorded session in the Screen tab](https://raw.githubusercontent.com/yunwoo-yu/crosspane/main/docs/images/dashboard-screen-replay.png)
 
 ## Why not just use remote debugging?
 

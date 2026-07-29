@@ -6,7 +6,9 @@
 
 - `index.ts` — 엔트리: 옵션 파싱 → 허브 기동 → LAN 주소 안내 → 종료 처리
 - `args.ts` — 플래그 파싱 + HELP_TEXT + cliVersion
-- `server.ts` — `/agent` 수신(등록·이벤트), `/ws` 중계, 세션 레지스트리·히스토리
+- `server.ts` — `/agent` 수신(등록·이벤트), `/ws` 중계, 세션 레지스트리·히스토리,
+  `GET /capture/:id`(라이브 세션 → 캡처 파일. 허브가 원본 이벤트를 갖고 있으므로
+  대시보드가 표시용 엔트리를 역변환하는 것보다 정확하다)
 - `static.ts` — 대시보드 정적 서빙 (경로 탈출 방어, SPA 폴백)
 - `protocol.ts` — `@crosspane/protocol` 재수출 (소비자 import 경로 유지용)
 

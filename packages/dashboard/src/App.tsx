@@ -82,6 +82,8 @@ export default function App() {
   );
 
   const hasSessions = view.sessions.length > 0;
+  // 저장 대상: 선택된 세션, 없으면 유일한 세션일 때만 (여러 개면 무엇을 저장할지 모호하다)
+  const savableSessionId = selectedId ?? (view.sessions.length === 1 ? view.sessions[0].id : null);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: 드롭 영역은 파일 입력 버튼으로도 동일 기능 제공
@@ -116,6 +118,16 @@ export default function App() {
           <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()}>
             Open capture…
           </Button>
+          {!replay && savableSessionId && (
+            // 허브가 원본 이벤트로 파일을 만든다 — 표시용 엔트리를 역변환하지 않는다
+            <a
+              href={`/capture/${savableSessionId}`}
+              download
+              className="rounded px-2 py-1 text-fg-muted text-xs hover:bg-panel hover:text-fg"
+            >
+              ⤓ Save session
+            </a>
+          )}
           {!replay && (
             <Button variant="ghost" size="icon" onClick={clearLogs}>
               Clear

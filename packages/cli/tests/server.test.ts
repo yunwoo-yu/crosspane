@@ -246,6 +246,36 @@ describe('startHubServer', () => {
     });
   });
 
+  it('GET /capture/:id — 라이브 세션을 캡처 파일로 내려준다', async () => {
+    server = await startHubServer({ port: 0 });
+    const agent = await connectAgent(server.port);
+    sockets.push(agent);
+    agent.send(JSON.stringify({ type: 'register', session: meta('s-1', '결제 웹뷰') }));
+    agent.send(JSON.stringify({ type: 'events', events: [consoleEvent('s-1', 'saved')] }));
+
+    await vi.waitFor(async () => {
+      const response = await fetch(`http://127.0.0.1:${server?.port}/capture/s-1`);
+      expect(response.status).toBe(200);
+      // 다운로드로 처리돼야 브라우저가 파일로 저장한다
+      expect(response.headers.get('content-disposition')).toContain('.crosspane.json');
+      const capture = (await response.json()) as {
+        version: number;
+        session: { id: string };
+        events: { type: string }[];
+      };
+      expect(capture.version).toBe(1);
+      expect(capture.session.id).toBe('s-1');
+      // 대시보드 표시용 엔트리가 아니라 원본 이벤트가 그대로 들어간다
+      expect(capture.events.some((e) => e.type === 'console')).toBe(true);
+    });
+  });
+
+  it('GET /capture/:id — 모르는 세션은 404', async () => {
+    server = await startHubServer({ port: 0 });
+    const response = await fetch(`http://127.0.0.1:${server.port}/capture/nope`);
+    expect(response.status).toBe(404);
+  });
+
   it('크로스사이트 Origin의 대시보드 WS 접속을 거부한다', async () => {
     server = await startHubServer({ port: 0 });
     const rejected = new Promise<Error>((resolve) => {

@@ -36,7 +36,8 @@ your app (dev/QA build)                 your machine
 
 Two ways to get the data out, because networks aren't always available:
 
-- **Live** — the agent streams to the hub over your LAN, you watch in real time
+- **Live** — the agent streams to the hub over your LAN, you watch in real time, and can
+  save any session to a file from the dashboard
 - **Offline** — the agent keeps the last N events in a ring buffer; export one JSON file,
   send it to a developer, replay it in the same dashboard
 
@@ -82,7 +83,8 @@ requests and navigations show up in the dashboard — or in the exported file.
   offline, the thing that's invisible in a webview). Optional response body previews
 - **Navigation timeline** — SPA route changes included, so logs are grouped by screen
 - **Session list** — several devices at once, each labeled, live/ended state, error badges
-- **Replay** — drop a `.crosspane.json` into the dashboard; identical UI, no server needed
+- **Save and replay** — save what you're watching live to a `.crosspane.json`, or drop a file
+  someone sent you back into the dashboard; identical UI either way
 - **Screen recording** (opt-in) — add `@crosspane/agent-replay` to record the DOM and play
   it back in the Screen tab, in the same timeline as the logs
 

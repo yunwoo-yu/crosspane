@@ -1,6 +1,14 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { AgentMessage, ServerEvent, SessionEvent, SessionMeta } from '@crosspane/protocol';
+import {
+  type AgentMessage,
+  CAPTURE_FILE_EXTENSION,
+  CAPTURE_FILE_VERSION,
+  type ServerEvent,
+  type SessionCapture,
+  type SessionEvent,
+  type SessionMeta,
+} from '@crosspane/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
 import { debugLog } from './debug.js';
 import { resolveDashboardDir, serveDashboardFile } from './static.js';
@@ -67,6 +75,31 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
   const retainedSessions = options.retainedSessions ?? DEFAULT_RETAINED_SESSIONS;
 
   const httpServer = http.createServer((req, res) => {
+    const pathname = (req.url ?? '').split('?')[0];
+    // 라이브로 보고 있는 세션을 파일로 저장한다. 허브가 원본 이벤트를 갖고 있으므로
+    // 대시보드가 표시용 엔트리를 역변환하는 것보다 정확하다(배칭·상한 손실 없음)
+    const captureMatch = /^\/capture\/([\w-]+)$/.exec(pathname);
+    if (captureMatch) {
+      const record = records.get(captureMatch[1]);
+      if (!record) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unknown session' }));
+        return;
+      }
+      const capture: SessionCapture = {
+        version: CAPTURE_FILE_VERSION,
+        session: record.meta,
+        events: record.history,
+        exportedAt: Date.now(),
+      };
+      const filename = `${record.meta.label.replace(/[^\w-]+/g, '_')}-${record.meta.id}${CAPTURE_FILE_EXTENSION}`;
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-disposition': `attachment; filename="${filename}"`,
+      });
+      res.end(JSON.stringify(capture));
+      return;
+    }
     void serveDashboardFile(dashboardDir, req, res);
   });
 
