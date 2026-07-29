@@ -39,10 +39,11 @@
     "@crosspane/protocol": "^0.3.0"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
+    "esbuild": "^0.28.1",
     "jsdom": "^26.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10",
-    "esbuild": "^0.28.1"
+    "vitest": "^4.1.10"
   },
   "repository": {
     "type": "git",

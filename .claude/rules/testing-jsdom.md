@@ -42,6 +42,9 @@ paths:
 - 워크스페이스 의존은 `paths`로 소스를 가리킨다 (아래 절과 같은 이유)
 - `types: ["node"]`는 테스트 설정에만 준다 — 소스가 node API를 쓰는 실수는
   메인 tsconfig가 여전히 잡는다
+- **`types: ["node"]`를 쓰는 패키지는 `@types/node`를 자기 devDependencies에 가져야 한다.**
+  로컬은 상위 디렉터리로 해석돼 통과하지만 CI의 클린 설치는 `TS2688`로 죽는다(실측).
+  `pnpm typecheck`가 로컬에서 통과했다고 안심하지 말 것
 
 ## 워크스페이스 의존은 소스로 해석한다
 

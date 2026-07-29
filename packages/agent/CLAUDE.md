@@ -14,6 +14,13 @@
 - `clipboard.ts` — 캡처 내보내기 폴백. 비보안 컨텍스트(`http://<사내 IP>`)에는
   `navigator.clipboard`가 없어 `execCommand`가 주 경로다 (rules 참조)
 
+## 의존성
+
+런타임 의존성은 0이다(`.claude/rules/agent-sdk.md`). `@types/node`는 **테스트 타입체크
+전용 devDependency**다 — `tsconfig.test.json`이 `types: ["node"]`를 요구하고, 없으면
+CI의 클린 설치에서 `TS2688`로 죽는다(로컬은 상위 디렉터리로 해석돼 통과한다).
+소스는 메인 tsconfig가 node 타입 없이 검사하므로 SDK가 node API를 쓰는 실수는 여전히 잡힌다.
+
 ## 성능
 
 `node scripts/bench.mjs` (빌드 후) — 직렬화 핫패스 비용을 재현한다. 핫패스를 건드리면
