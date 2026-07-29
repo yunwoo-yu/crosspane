@@ -177,11 +177,14 @@ function write(output: Writable, response: unknown): void {
   output.write(`${JSON.stringify(response)}\n`);
 }
 
-/** http(s):// 허브 주소 → 대시보드 WS 엔드포인트 */
+/**
+ * http(s):// 허브 주소 → 대시보드 WS 엔드포인트.
+ * 쿼리(접속 토큰)는 그대로 옮긴다 — 노출된 허브는 토큰 없이 붙을 수 없다.
+ */
 export function toWebSocketUrl(hubUrl: string): string {
   const url = new URL(hubUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.pathname = '/ws';
-  url.search = '';
+  url.hash = '';
   return url.toString();
 }

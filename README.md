@@ -48,6 +48,7 @@ Two ways to get the data out, because networks aren't always available:
 ```bash
 npx crosspane                  # dashboard on http://localhost:7788
 npx crosspane --host 0.0.0.0   # also accept live sessions from devices on your network
+                               # (prints an access token — session logs are not public)
 ```
 
 **2. Add the agent to your app** (dev/QA builds only — see [Shipping safely](#shipping-safely))
@@ -124,6 +125,8 @@ initCrosspane({ enabled: () => user.isInternal })
 ```
 
 - Response bodies are **not** captured unless you pass `captureBodies: true`
+- Exposing the hub with `--host` requires an access token, so session logs aren't readable
+  by anyone else on the network — see [SECURITY.md](https://github.com/yunwoo-yu/crosspane/blob/main/SECURITY.md)
 - `enabled: false` installs no hooks at all — `console`/`fetch` stay untouched
 - The agent has no dependencies and adds a few KB gzipped
 
@@ -135,7 +138,10 @@ crosspane [options]
 --port <n>     dashboard port (default: 7788; the default port falls back +1 when taken,
                an explicit port does not)
 --host <addr>  bind address (default: 127.0.0.1 — local only. Use 0.0.0.0 to receive
-               live agent sessions from phones/devices on your network)
+               live agent sessions from phones/devices on your network. Exposing the
+               hub generates a one-time access token, printed with the URLs; put it in
+               the agent's serverUrl)
+--no-auth      disable that token — only on a network you fully trust
 --no-open      don't open the dashboard automatically
 --verbose      diagnostic logging — attach to bug reports
 -v, --version  print the version

@@ -2,6 +2,26 @@ import type { AgentMessage, SessionEvent, SessionMeta } from '@crosspane/protoco
 import { mergeRepeat } from './repeat.js';
 
 /**
+ * `serverUrl` → `/agent` WS 주소. serverUrl의 쿼리는 그대로 옮긴다 —
+ * 허브를 네트워크에 노출하면 토큰을 요구하고, 사용자는 그 토큰이 붙은 주소를
+ * serverUrl에 그대로 붙여넣는다(`http://ip:7788/?t=…`).
+ *
+ * URL 파싱에 실패하면 예전처럼 단순 치환으로 떨어진다 — 잘못된 주소로 페이지가
+ * 죽는 일은 없어야 한다(호출부가 try/catch로 감싸고 조용히 재시도한다).
+ */
+function agentUrl(serverUrl: string): string {
+  try {
+    const url = new URL(serverUrl);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/agent';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return `${serverUrl.replace(/^http/, 'ws')}/agent`;
+  }
+}
+
+/**
  * 라이브 모드 전송기 — 같은 네트워크의 crosspane 허브로 이벤트를 배칭 전송한다.
  * 원칙: 전송 실패가 페이지에 어떤 영향도 주면 안 된다 (조용한 재접속, 무한 버퍼 금지).
  */
@@ -22,7 +42,7 @@ export class LiveTransport {
   connect(): void {
     if (this.disposed) return;
     try {
-      this.ws = new WebSocket(`${this.serverUrl.replace(/^http/, 'ws')}/agent`);
+      this.ws = new WebSocket(agentUrl(this.serverUrl));
     } catch {
       this.scheduleReconnect();
       return;

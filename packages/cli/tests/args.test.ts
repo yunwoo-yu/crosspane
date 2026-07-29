@@ -9,6 +9,7 @@ describe('parseCliArguments', () => {
       host: '127.0.0.1', // 세션 데이터 채널이므로 기본 비노출
       openBrowser: true,
       verbose: false,
+      noAuth: false, // 노출 시에만 토큰이 붙고, 그걸 끄는 건 명시적 옵트아웃이다
     });
   });
 
@@ -38,10 +39,19 @@ describe('parseMcpArguments', () => {
     expect(parseMcpArguments([])).toEqual({ hubUrl: 'http://127.0.0.1:7788', verbose: false });
   });
 
-  it('--hub는 origin으로 정규화한다 (경로·쿼리는 버린다)', () => {
-    expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/x?y=1']).hubUrl).toBe(
+  it('--hub는 origin으로 정규화하되 쿼리는 남긴다 (접속 토큰)', () => {
+    // 경로는 버린다 — 허브 엔드포인트는 우리가 정한다
+    expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/x']).hubUrl).toBe(
       'http://10.0.0.5:9000',
     );
+    // 쿼리는 남긴다 — 노출된 허브는 토큰 없이 붙을 수 없다(버리면 401로 조용히 실패)
+    expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/?t=abc']).hubUrl).toBe(
+      'http://10.0.0.5:9000?t=abc',
+    );
+  });
+
+  it('--no-auth는 mcp 서브커맨드의 옵션이 아니다', () => {
+    expect(() => parseMcpArguments(['--no-auth'])).toThrow(/Unknown option/);
   });
 
   it('--hub에 포트만 줘도 받는다', () => {

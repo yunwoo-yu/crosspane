@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { lanAddresses } from './addresses.js';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
 import { setVerbose } from './debug.js';
@@ -27,14 +28,22 @@ async function main(): Promise<void> {
   setVerbose(options.verbose || process.env.CROSSPANE_VERBOSE === '1');
 
   const exposed = options.host !== '127.0.0.1' && options.host !== 'localhost';
+  /**
+   * 네트워크에 노출할 때만 토큰을 요구한다. 루프백은 OS가 이미 막아 주므로 토큰이
+   * 마찰만 되고, 노출된 허브는 토큰이 없으면 같은 Wi-Fi의 누구나 세션 로그를 읽는다.
+   * `--no-auth`는 사내 테스트 자동화용 탈출구다(경고를 함께 찍는다).
+   */
+  const authToken = exposed && !options.noAuth ? randomBytes(8).toString('hex') : undefined;
   const server = await startHubServer({
     port: options.port,
     host: options.host,
+    authToken,
     // 명시된 포트는 존중하고, 기본 포트는 사용 중이면 +1씩 폴백
     portAttempts: options.portExplicit ? 1 : 10,
   });
 
-  const dashboardUrl = `http://localhost:${server.port}`;
+  const tokenQuery = authToken ? `/?t=${authToken}` : '';
+  const dashboardUrl = `http://localhost:${server.port}${tokenQuery}`;
   // 폴백을 조용히 넘기면 안 된다: 앱의 serverUrl은 그대로 기본 포트를 가리키므로
   // 세션이 다른 허브(또는 아무데도)로 가고, 대시보드는 빈 화면을 보여준다.
   // 실제로 이 혼란을 겪었다 — 두 허브가 떠 있으면 원인을 찾기가 매우 어렵다
@@ -50,9 +59,15 @@ async function main(): Promise<void> {
     // 실기기의 에이전트가 접속할 주소를 보여준다 — serverUrl에 넣을 값
     for (const address of lanAddresses()) {
       console.log(
-        `  live agents → http://${address}:${server.port}  (serverUrl for @crosspane/agent)`,
+        `  live agents → http://${address}:${server.port}${tokenQuery}  (serverUrl for @crosspane/agent)`,
       );
     }
+    console.log(
+      authToken
+        ? '  the token in those URLs is required — anyone on this network could otherwise read\n' +
+            '  your session logs and inject fake sessions. It changes every restart.'
+        : '  ⚠ --no-auth: anyone on this network can read your session logs and inject sessions.',
+    );
   } else {
     console.log('  local only — pass --host 0.0.0.0 to receive live agent sessions from devices');
   }

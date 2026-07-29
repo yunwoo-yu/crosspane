@@ -428,3 +428,73 @@ describe('GET /hub-info', () => {
     }
   });
 });
+
+describe('접속 토큰 (authToken)', () => {
+  let server: HubServer | undefined;
+  const sockets: WebSocket[] = [];
+  const TOKEN = 'deadbeefcafe1234';
+
+  afterEach(() => {
+    for (const socket of sockets) socket.terminate();
+    sockets.length = 0;
+    server?.close();
+    server = undefined;
+  });
+
+  const ws = (path: string): Promise<'open' | 'rejected'> =>
+    new Promise((resolve) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${server?.port}${path}`);
+      sockets.push(socket);
+      socket.once('open', () => resolve('open'));
+      socket.once('error', () => resolve('rejected'));
+    });
+
+  it('토큰이 없으면 예전처럼 모두 통과한다 (로컬 전용 기본값)', async () => {
+    server = await startHubServer({ port: 0 });
+    expect(await ws('/ws')).toBe('open');
+    expect(await ws('/agent')).toBe('open');
+    expect((await fetch(`http://127.0.0.1:${server.port}/hub-info`)).status).toBe(200);
+  });
+
+  describe('토큰이 설정되면', () => {
+    it('토큰 없는 WS 접속을 거부한다 — 세션 로그를 읽는 경로다', async () => {
+      server = await startHubServer({ port: 0, authToken: TOKEN });
+      expect(await ws('/ws')).toBe('rejected');
+      expect(await ws(`/ws?t=${TOKEN}`)).toBe('open');
+    });
+
+    it('토큰 없는 에이전트 등록을 거부한다 — 가짜 세션 주입을 막는다', async () => {
+      server = await startHubServer({ port: 0, authToken: TOKEN });
+      expect(await ws('/agent')).toBe('rejected');
+      expect(await ws('/agent?t=wrong')).toBe('rejected');
+      expect(await ws(`/agent?t=${TOKEN}`)).toBe('open');
+    });
+
+    it('/capture/:id와 /hub-info를 401로 막는다', async () => {
+      server = await startHubServer({ port: 0, authToken: TOKEN });
+      const base = `http://127.0.0.1:${server.port}`;
+      expect((await fetch(`${base}/hub-info`)).status).toBe(401);
+      expect((await fetch(`${base}/capture/s-1`)).status).toBe(401);
+      expect((await fetch(`${base}/hub-info?t=${TOKEN}`)).status).toBe(200);
+    });
+
+    it('대시보드 셸(정적 파일)은 막지 않는다 — 토큰을 넣을 화면을 열 수 있어야 한다', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'crosspane-auth-'));
+      writeFileSync(join(dir, 'index.html'), '<html>shell</html>');
+      vi.stubEnv('CROSSPANE_DASHBOARD_DIR', dir);
+      server = await startHubServer({ port: 0, authToken: TOKEN });
+
+      const response = await fetch(`http://127.0.0.1:${server.port}/`);
+      expect(response.status).toBe(200);
+      vi.unstubAllEnvs();
+    });
+
+    it('serverUrls에 토큰을 담아 준다 — 사용자가 스니펫을 그대로 붙여넣는다', async () => {
+      server = await startHubServer({ port: 0, authToken: TOKEN });
+      const info = (await (
+        await fetch(`http://127.0.0.1:${server.port}/hub-info?t=${TOKEN}`)
+      ).json()) as HubInfo;
+      for (const url of info.serverUrls) expect(url).toContain(`t=${TOKEN}`);
+    });
+  });
+});

@@ -208,4 +208,29 @@ describe('LiveTransport', () => {
       expect(repeats).toEqual([3, 2]);
     });
   });
+
+  describe('접속 토큰', () => {
+    it('serverUrl의 쿼리를 /agent 로 옮긴다 — 노출된 허브는 토큰을 요구한다', () => {
+      transport = new LiveTransport('http://192.168.0.10:7788/?t=abc123', session);
+      transport.connect();
+      expect(FakeSocket.instances[0].url).toBe('ws://192.168.0.10:7788/agent?t=abc123');
+    });
+
+    it('토큰이 없으면 예전과 같은 주소를 쓴다', () => {
+      transport = new LiveTransport('http://192.168.0.10:7788', session);
+      transport.connect();
+      expect(FakeSocket.instances[0].url).toBe('ws://192.168.0.10:7788/agent');
+    });
+
+    it('https는 wss로 바꾼다', () => {
+      transport = new LiveTransport('https://hub.test/?t=x', session);
+      transport.connect();
+      expect(FakeSocket.instances[0].url).toBe('wss://hub.test/agent?t=x');
+    });
+
+    it('파싱 불가한 serverUrl에도 페이지가 죽지 않는다', () => {
+      transport = new LiveTransport('not a url', session);
+      expect(() => transport?.connect()).not.toThrow();
+    });
+  });
 });

@@ -27,8 +27,13 @@ Options:
   --port <n>           Dashboard port (default: 7788; the default port falls back +1
                        when taken — an explicitly given port does not)
   --host <addr>        Bind address (default: 127.0.0.1 — local only. Use 0.0.0.0 to
-                       receive live agent sessions from phones/devices on your network)
+                       receive live agent sessions from phones/devices on your network.
+                       Exposing the hub generates a one-time access token, printed with
+                       the URLs below; put it in the agent's serverUrl)
   --no-open            Don't open the dashboard in your browser automatically
+  --no-auth            Disable the access token that --host adds. Only do this on a
+                       network you fully trust: without it, anyone who can reach the
+                       hub can read every session's logs and inject fake sessions
   --verbose            Diagnostic logging — include this output when filing a bug report
   -h, --help           Show this help
   -v, --version        Print the crosspane version
@@ -43,7 +48,9 @@ MCP mode (crosspane mcp):
   Register it with your agent, e.g. in .mcp.json:
     { "mcpServers": { "crosspane": { "command": "crosspane", "args": ["mcp"] } } }
 
-  --hub <url>          Hub to attach to (default: http://127.0.0.1:7788)
+  --hub <url>          Hub to attach to (default: http://127.0.0.1:7788). If the hub was
+                       started with --host it requires its access token — pass the full
+                       URL including it: --hub 'http://127.0.0.1:7788/?t=<token>'
 `;
 
 export interface CliOptions {
@@ -56,6 +63,8 @@ export interface CliOptions {
   openBrowser: boolean;
   /** 진단 로깅 (--verbose 또는 CROSSPANE_VERBOSE=1) */
   verbose: boolean;
+  /** 노출된 허브의 접속 토큰을 끈다 (사내 자동화용 탈출구) */
+  noAuth: boolean;
 }
 
 const DEFAULT_PORT = 7788;
@@ -76,6 +85,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let host = DEFAULT_HOST;
   let openBrowser = true;
   let verbose = false;
+  let noAuth = false;
 
   while (args.length > 0) {
     const flag = args.shift();
@@ -86,6 +96,10 @@ export function parseCliArguments(argv: string[]): CliOptions {
     }
     if (flag === '--verbose') {
       verbose = true;
+      continue;
+    }
+    if (flag === '--no-auth') {
+      noAuth = true;
       continue;
     }
     // 값을 받는 플래그인지 먼저 판정 — 그래야 오타 플래그가
@@ -103,7 +117,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     }
   }
 
-  return { port, portExplicit, host, openBrowser, verbose };
+  return { port, portExplicit, host, openBrowser, verbose, noAuth };
 }
 
 export interface McpCliOptions {
@@ -133,7 +147,10 @@ export function parseMcpArguments(argv: string[]): McpCliOptions {
     // 포트만 준 경우를 받아준다 — `--hub 7788`이 자연스러운 오타 이상의 기대치다
     const candidate = /^\d+$/.test(value) ? `http://127.0.0.1:${value}` : value;
     try {
-      hubUrl = new URL(candidate).origin;
+      const url = new URL(candidate);
+      // 쿼리(접속 토큰)를 버리지 않는다 — 노출된 허브는 토큰 없이 붙을 수 없다.
+      // origin만 남기던 예전 구현으로 되돌리면 MCP가 401로 조용히 실패한다
+      hubUrl = `${url.origin}${url.search}`;
     } catch {
       throw new Error(`Invalid value for --hub: "${value}"`);
     }

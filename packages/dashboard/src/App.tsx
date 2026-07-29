@@ -8,6 +8,7 @@ import { SessionList } from './components/SessionList';
 import { Button } from './components/ui/button';
 import { ToastStack, useToasts } from './components/ui/toast';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
+import { withHubToken } from './hub-token';
 import type { LogEntry, NetworkEntry, SessionMeta } from './types';
 
 export default function App() {
@@ -122,7 +123,7 @@ export default function App() {
           {!replay && savableSessionId && (
             // 허브가 원본 이벤트로 파일을 만든다 — 표시용 엔트리를 역변환하지 않는다
             <a
-              href={`/capture/${savableSessionId}`}
+              href={withHubToken(`/capture/${savableSessionId}`)}
               download
               className="rounded px-2 py-1 text-fg-muted text-xs hover:bg-panel hover:text-fg"
             >

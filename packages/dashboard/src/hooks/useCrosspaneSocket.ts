@@ -9,6 +9,7 @@ import {
   type SessionStates,
   screenEventFromEvent,
 } from '../event-log';
+import { withHubToken } from '../hub-token';
 import type { ServerEvent } from '../types';
 import { useEventBatcher } from './useEventBatcher';
 
@@ -66,7 +67,7 @@ export function useCrosspaneSocket(): CrosspaneConnection {
 
     const connect = (): void => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const socket = new WebSocket(`${proto}://${location.host}/ws`);
+      const socket = new WebSocket(withHubToken(`${proto}://${location.host}/ws`));
       socketRef.current = socket;
       socket.onopen = () => setConnected(true);
       // 허브 재시작 등으로 끊기면 자동 재접속한다.

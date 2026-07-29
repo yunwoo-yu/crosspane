@@ -44,6 +44,15 @@ export interface HubServerOptions {
    * --host로 명시적으로 노출해야 한다 — 세션 데이터가 흐르는 채널이므로 기본 비노출.
    */
   host?: string;
+  /**
+   * 접속 토큰. 설정하면 `/ws`·`/agent`·`/capture/:id`·`/hub-info` 전부가 `?t=<토큰>`을
+   * 요구한다. **네트워크에 노출할 때는 반드시 켤 것** — 없으면 같은 Wi-Fi의 누구나
+   * 세션 로그 전체를 읽고 가짜 세션을 주입할 수 있다(실측).
+   *
+   * 쿼리로 받는 이유: 브라우저 WebSocket은 헤더를 붙일 수 없다. 그 대가로 토큰이
+   * 프록시 로그에 남을 수 있으므로 세션 수명 동안만 유효한 임시값으로 쓴다.
+   */
+  authToken?: string;
   /** 세션당 히스토리 상한 — 늦게 연 대시보드에 재전송할 이벤트 수 */
   historyLimit?: number;
   /** 종료된 세션을 히스토리째 유지할 최대 개수 (오래된 것부터 폐기) */
@@ -54,6 +63,13 @@ const DEFAULT_HISTORY_LIMIT = 2_000;
 const DEFAULT_RETAINED_SESSIONS = 10;
 // 에이전트 배치 메시지 상한 — 무인증 엔드포인트의 메모리 고갈 방지
 const MAX_AGENT_MESSAGE_BYTES = 4 * 1024 * 1024;
+
+/** 요청의 `?t=` 토큰이 맞는지. 토큰이 설정되지 않았으면 항상 통과(로컬 전용 기본값) */
+export function isAuthorized(url: string | undefined, expected: string | undefined): boolean {
+  if (expected === undefined) return true;
+  const query = (url ?? '').split('?')[1] ?? '';
+  return new URLSearchParams(query).get('t') === expected;
+}
 
 /**
  * 대시보드 WS Origin 검증 — 크로스사이트 WebSocket 하이재킹으로 세션 로그가
@@ -112,18 +128,30 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
   const historyLimit = options.historyLimit ?? DEFAULT_HISTORY_LIMIT;
   const retainedSessions = options.retainedSessions ?? DEFAULT_RETAINED_SESSIONS;
 
+  const authToken = options.authToken;
+
   const httpServer = http.createServer((req, res) => {
     const pathname = (req.url ?? '').split('?')[0];
+    // 정적 파일(대시보드 셸)은 토큰 없이 서빙한다 — 토큰을 넣을 화면 자체를 못 열면
+    // 안내가 불가능하다. 세션 데이터가 흐르는 경로만 막는다
+    const guarded = pathname === '/hub-info' || pathname.startsWith('/capture/');
+    if (guarded && !isAuthorized(req.url, authToken)) {
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'missing or invalid token (?t=…)' }));
+      return;
+    }
     // 대시보드가 "에이전트를 여기로 붙여라"를 화면에 띄우기 위한 정보
     if (pathname === '/hub-info') {
       const port = (httpServer.address() as AddressInfo | null)?.port ?? options.port;
       const exposed = host !== '127.0.0.1' && host !== 'localhost';
+      // 토큰이 있으면 주소에 담아 준다 — 사용자가 스니펫을 그대로 붙여넣을 수 있어야 한다
+      const query = authToken ? `/?t=${authToken}` : '';
       const info: HubInfo = {
         port,
         exposed,
         serverUrls: exposed
-          ? lanAddresses().map((address) => `http://${address}:${port}`)
-          : [`http://localhost:${port}`],
+          ? lanAddresses().map((address) => `http://${address}:${port}${query}`)
+          : [`http://localhost:${port}${query}`],
       };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(info));
@@ -167,6 +195,13 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
 
   httpServer.on('upgrade', (req, socket, head) => {
     const pathname = (req.url ?? '').split('?')[0];
+    if (pathname === '/ws' || pathname === '/agent') {
+      if (!isAuthorized(req.url, authToken)) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+    }
     if (pathname === '/ws') {
       if (!isAllowedWsOrigin(req.headers.origin, req.headers.host)) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');

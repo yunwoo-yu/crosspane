@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { withHubToken } from '../hub-token';
 import { Button } from './ui/button';
 
 interface HubInfo {
@@ -20,7 +21,7 @@ export function ConnectHint() {
 
   useEffect(() => {
     let active = true;
-    fetch('/hub-info')
+    fetch(withHubToken('/hub-info'))
       .then((response) => (response.ok ? response.json() : null))
       .then((value: HubInfo | null) => {
         if (active) setInfo(value);
