@@ -61,6 +61,19 @@ Releases are automated with [changesets](https://github.com/changesets/changeset
    versions and updates each package's `CHANGELOG.md`
 3. Merging that PR publishes to npm (Trusted Publishing/OIDC) and pushes git tags
 
+### First publish of a new package
+
+npm Trusted Publishing (OIDC) can only be configured on a package that already exists,
+so the **first** version of any new package has to be published by hand:
+
+```bash
+pnpm build
+cd packages/<name> && npm publish --access public
+```
+
+Then add the Trusted Publisher on npmjs.com (package → Settings → Trusted Publisher →
+this repo + `release.yml`). Every release after that is automatic.
+
 Publishing runs through `scripts/ci-publish.mjs` (`npm publish` directly, then
 `changeset tag`) — `changeset publish` cannot be used here because it routes through
 `pnpm publish --no-git-checks`, which recent npm versions reject.
