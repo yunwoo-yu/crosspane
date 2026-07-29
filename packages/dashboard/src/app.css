@@ -79,39 +79,15 @@ body {
 
 /* ── 하단 패널 ────────────────────────────────────── */
 
+/* 세션 패널 — pane 그리드가 사라진 뒤로 이 패널이 본문이다.
+   남은 높이를 전부 차지해야 로그가 화면을 채운다 (flex: 0 0 auto면 아래쪽만 쓴다) */
 .console {
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border);
   background: var(--panel);
   min-height: 0;
-  flex: 0 0 auto;
-}
-
-/* 리사이즈 핸들 — 가운데 그립, hover 시 액센트 */
-.resize-handle {
-  height: 8px;
-  flex: 0 0 auto;
-  cursor: row-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.15s;
-}
-.resize-handle::before {
-  content: "";
-  width: 40px;
-  height: 3px;
-  border-radius: 3px;
-  background: var(--border);
-  transition:
-    background-color 0.15s,
-    width 0.15s;
-}
-.resize-handle:hover::before,
-.resize-handle:active::before {
-  background: var(--accent);
-  width: 56px;
+  flex: 1 1 auto;
 }
 
 .console-head {

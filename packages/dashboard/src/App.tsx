@@ -7,7 +7,6 @@ import { SessionList } from './components/SessionList';
 import { Button } from './components/ui/button';
 import { ToastStack, useToasts } from './components/ui/toast';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
-import { usePanelHeight } from './hooks/usePanelHeight';
 import type { LogEntry, NetworkEntry, SessionMeta } from './types';
 
 export default function App() {
@@ -18,7 +17,6 @@ export default function App() {
   /** 리플레이 모드: 파일을 열면 라이브 스트림 대신 이 캡처를 본다 */
   const [replay, setReplay] = useState<LoadedCapture | null>(null);
   const { toasts, showToast } = useToasts();
-  const { panelHeight, startPanelResize } = usePanelHeight();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadCaptureFile = useCallback(
@@ -145,14 +143,7 @@ export default function App() {
         </main>
       )}
 
-      <section className="console" style={{ flexBasis: hasSessions ? undefined : panelHeight }}>
-        {hasSessions && (
-          <div
-            className="resize-handle"
-            onPointerDown={startPanelResize}
-            title="Drag to resize panel"
-          />
-        )}
+      <section className="console">
         <div className="flex items-center gap-1.5 border-line border-b px-4 py-2">
           <Button
             variant={bottomTab === 'console' ? 'active' : 'ghost'}
