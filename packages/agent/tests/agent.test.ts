@@ -109,6 +109,35 @@ describe('initCrosspane', () => {
     expect(capture.events[0]).toMatchObject({ type: 'navigation' });
   });
 
+  it('copyCapture()는 캡처 JSON을 그대로 클립보드에 싣는다', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    agent = initCrosspane({ label: 'QA 빌드' });
+    console.log('hello');
+
+    expect(await agent.copyCapture()).toBe(true);
+    // 붙여 넣은 텍스트가 대시보드가 읽는 캡처 파일과 같은 모양이어야 한다
+    const pasted = JSON.parse(writeText.mock.calls[0][0]);
+    expect(pasted.version).toBe(1);
+    expect(pasted.session.label).toBe('QA 빌드');
+    expect(pasted.events.some((e: { text?: string }) => e.text === 'hello')).toBe(true);
+
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  it('게이팅된 에이전트의 copyCapture는 false — 껐는데 성공한 척하지 않는다', async () => {
+    agent = initCrosspane({ enabled: false });
+    expect(await agent.copyCapture()).toBe(false);
+  });
+
   it('unhandledrejection을 pageerror로 기록한다', async () => {
     agent = initCrosspane();
     // jsdom에는 PromiseRejectionEvent 생성자가 없다 — reason만 실어 보낸다

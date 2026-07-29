@@ -9,6 +9,8 @@
 - `hooks.ts` — console/error·rejection/fetch/XHR/navigation 훅. 각 훅은 해제 함수를 반환
 - `buffer.ts` — 크래시 내성 링버퍼 (상한 초과 시 오래된 것부터, 드롭 수 유지)
 - `transport.ts` — 라이브 WS (배칭 300ms, 지수 백오프 재접속, 큐 상한)
+- `clipboard.ts` — 캡처 내보내기 폴백. 비보안 컨텍스트(`http://<사내 IP>`)에는
+  `navigator.clipboard`가 없어 `execCommand`가 주 경로다 (rules 참조)
 
 ## 테스트
 

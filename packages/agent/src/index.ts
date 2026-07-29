@@ -6,6 +6,7 @@ import {
   type SessionMeta,
 } from '@crosspane/protocol';
 import { RingBuffer } from './buffer.js';
+import { copyText } from './clipboard.js';
 import { installHooks } from './hooks.js';
 import { LiveTransport } from './transport.js';
 
@@ -39,8 +40,22 @@ export interface CrosspaneAgent {
   readonly session: SessionMeta;
   /** 링버퍼 스냅샷을 리플레이 파일 객체로 (대시보드에 드롭하면 재생) */
   capture(): SessionCapture;
-  /** capture()를 .crosspane.json 파일로 다운로드 (웹뷰에서는 공유 시트 연동 등 앱 측 처리) */
+  /**
+   * capture()를 .crosspane.json 파일로 다운로드.
+   *
+   * 앱이 다운로드를 구현하지 않은 웹뷰에서는 조용히 실패한다(성공 여부를 알 방법이
+   * 없다). 그런 환경에서는 `copyCapture()`를 쓰거나, `capture()`를 네이티브
+   * 브리지로 넘길 것 — README의 "Getting captures off a locked device" 참조.
+   */
   exportFile(): void;
+  /**
+   * capture()를 JSON 텍스트로 클립보드에 넣는다. QA가 채팅으로 붙여 넣는 경로 —
+   * 다운로드가 막힌 기기에서 로그를 꺼낼 수 있는 유일한 무설정 수단이다.
+   *
+   * 성공 여부를 돌려준다. 조용히 실패하면 QA가 버그 대신 툴을 의심하게 되므로
+   * 호출부에서 반드시 결과를 사용자에게 보일 것.
+   */
+  copyCapture(): Promise<boolean>;
   /**
    * 플러그인이 세션 타임라인에 이벤트를 싣는 확장 지점.
    * 링버퍼와 라이브 전송을 코어와 공유하므로 연결·세션이 하나로 유지된다
@@ -63,6 +78,9 @@ const DISABLED_AGENT: CrosspaneAgent = {
     };
   },
   exportFile() {},
+  copyCapture() {
+    return Promise.resolve(false);
+  },
   emit() {},
   dispose() {},
 };
@@ -140,6 +158,9 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
       link.download = `${session.label.replace(/[^\w-]+/g, '_')}-${session.id}${CAPTURE_FILE_EXTENSION}`;
       link.click();
       URL.revokeObjectURL(link.href);
+    },
+    copyCapture(): Promise<boolean> {
+      return copyText(JSON.stringify(this.capture(), null, 2));
     },
     emit,
     dispose(): void {

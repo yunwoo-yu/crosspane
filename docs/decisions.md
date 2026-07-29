@@ -178,6 +178,43 @@ Two constraints follow from that split:
 The dashboard loads the player through a dynamic import. rrweb's player is hundreds of
 kilobytes; sessions without a recording should not pay for it.
 
+## Captures leave the device by clipboard, not only by download
+
+Offline capture is the primary path on a locked build, so the capture has to be able to leave
+the device — and the original single exit, a blob download, is the least reliable option
+available. A webview honours `a[download].click()` only if the host app implements downloads;
+in-app browsers generally block it; and JavaScript cannot detect the failure, so the tester
+taps a button, nothing happens, and the bug goes unreported.
+
+`copyCapture()` exists because it is the only route that needs no cooperation from the host
+app. It also has to be written the unfashionable way: an in-house build served from
+`http://<lan-ip>` is not a secure context, so `navigator.clipboard` and `navigator.share` are
+`undefined` there — measured, not assumed. `execCommand('copy')` is therefore the main path in
+the target environment rather than a legacy fallback, which is why the deprecated call stays.
+
+It returns a boolean for the same reason the text limit leaves a marker in the string: an
+export that fails silently teaches the tester to distrust the tool instead of reporting the
+bug. Callers are expected to surface the result.
+
+The native-bridge route (`postMessage` to RN / WKWebView / a JavascriptInterface) is more
+reliable still, but it needs app code, so it is documented rather than built — `capture()`
+already returns a plain JSON-serializable object, and the SDK guessing at which bridge a host
+provides would be both fragile and larger.
+
+## Attaching to Android WebView over CDP is not obviously worth building
+
+It sits in the backlog, and it deserves the same scrutiny that removed the 0.6.x engine
+mirroring. CDP attach requires `setWebContentsDebuggingEnabled(true)` — which is exactly the
+condition under which `chrome://inspect` already gives the developer the real DevTools, with
+breakpoints and DOM inspection that crosspane will never have. The environments this project
+exists for are the ones where that flag is off or a protection layer kills the debugger, and
+CDP attach cannot reach those by construction.
+
+So the honest scope is narrow: a convenience wrapper around `adb forward` for developers who
+already have the inspector available. That may still be worth it for a unified session list,
+but it should be entered deliberately as a convenience feature, not as a capability — and not
+before the in-page agent's own gaps are closed.
+
 ## What the agent deliberately cannot do
 
 - **Breakpoints.** JavaScript cannot pause itself; this is why weinre and its successors

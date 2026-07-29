@@ -28,6 +28,8 @@ const agent = initCrosspane({
 
 // Offline mode: wire this to a debug gesture or hidden QA menu
 agent.exportFile() // downloads <label>.crosspane.json
+await agent.copyCapture() // or put it on the clipboard — see the crosspane README,
+                          // "Getting captures off a locked device"
 ```
 
 Then run the hub and open the dashboard:
@@ -98,7 +100,8 @@ initCrosspane(options?: {
 | Method | Description |
 |---|---|
 | `agent.capture()` | Returns a `SessionCapture` object (the ring buffer contents) |
-| `agent.exportFile()` | Downloads it as `.crosspane.json` |
+| `agent.exportFile()` | Downloads it as `.crosspane.json`. Silently does nothing in webviews whose host app doesn't implement downloads |
+| `agent.copyCapture()` | Puts the capture JSON on the clipboard; resolves to `false` if it couldn't. Works on non-secure origins (`http://<lan-ip>`), where `navigator.clipboard` is undefined. Needs a user gesture |
 | `agent.dispose()` | Restores `console`/`fetch`/XHR, closes the live connection |
 | `agent.session` | Session metadata (id, label, userAgent, platform) |
 | `agent.enabled` | `false` when gated off |

@@ -65,11 +65,13 @@ const agent = initCrosspane({
   serverUrl: 'http://192.168.0.10:7788',
 })
 
-// Offline mode: wire this to a debug gesture / hidden QA menu
+// Offline mode: wire this to a debug gesture / hidden QA menu.
+// In a webview, prefer copyCapture() — downloads often don't work there
+// (see "Getting captures off a locked device")
 agent.exportFile()   // downloads <label>.crosspane.json
 ```
 
-No bundler? Load the single-file build (~2.5 KB gzipped) with a plain script tag —
+No bundler? Load the single-file build (~3 KB gzipped) with a plain script tag —
 see the [agent README](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent#without-a-bundler).
 
 **3. Reproduce the bug.** Console logs, uncaught errors, unhandled rejections, failed
@@ -178,7 +180,42 @@ const agent = initCrosspane({
 
 agent.capture()      // → SessionCapture object (send it wherever you like)
 agent.exportFile()   // → downloads .crosspane.json
+agent.copyCapture()  // → Promise<boolean>, puts the JSON on the clipboard
 agent.dispose()      // → restores console/fetch/XHR, closes the live connection
+```
+
+## Getting captures off a locked device
+
+Offline capture is the main path on a security-locked build, so the capture has to be able
+to leave the device. **Do not assume the download works** — `exportFile()` creates a blob
+and clicks a link, which a webview only honours if the host app implements downloads
+(`setDownloadListener` on Android, `WKDownloadDelegate` on iOS); in-app browsers usually
+block it outright, and there is no way to detect the failure from JavaScript.
+
+Worse, the modern escape hatches are unavailable exactly where you need them. An in-house
+build served from `http://<lan-ip>` is **not a secure context**, so `navigator.clipboard`
+and `navigator.share` are not merely restricted — they are `undefined` (measured, not
+assumed). Pick a route that survives that:
+
+| Route | Works without app changes | Notes |
+|---|---|---|
+| `agent.copyCapture()` | ✓ | Falls back to `execCommand('copy')` on non-secure origins. Needs a user gesture — call it from a tap, not on a timer. Returns `false` if it couldn't copy: **show that to the tester**, or they'll blame the tool instead of reporting the bug |
+| Native bridge | ✗ (a few lines of app code) | The most reliable route for RN / native webviews — see below |
+| `agent.exportFile()` | ✗ | Fine in a desktop browser or a webview whose host implements downloads |
+| Live mode (`serverUrl`) | ✓ | Best when the device can reach your machine; the hub also saves sessions itself |
+
+For a native webview, hand the object to the app and let it write a file or open a share
+sheet — it is a plain JSON-serializable value:
+
+```ts
+// React Native WebView
+window.ReactNativeWebView?.postMessage(JSON.stringify(agent.capture()))
+
+// iOS WKWebView (app registers a "crosspane" script message handler)
+window.webkit?.messageHandlers?.crosspane?.postMessage(agent.capture())
+
+// Android (app calls addJavascriptInterface(obj, "CrosspaneNative"))
+window.CrosspaneNative?.save(JSON.stringify(agent.capture()))
 ```
 
 ## Platform support

@@ -24,6 +24,8 @@
 <button type="button" id="navigate">pushState (SPA navigation)</button>
 <button type="button" id="record">● start screen recording</button>
 <button type="button" id="export">⤓ export capture file</button>
+<button type="button" id="copy">⧉ copy capture to clipboard</button>
+<p id="copy-result" aria-live="polite"></p>
 
 <script type="module">
   import { initCrosspane } from './agent.js'
@@ -78,4 +80,14 @@
     button.textContent = '■ stop screen recording'
   })
   on('export', () => agent.exportFile())
+  // 다운로드가 막힌 웹뷰에서의 탈출구. 결과를 반드시 화면에 보인다 —
+  // 조용히 실패하면 QA가 버그 대신 툴을 의심한다
+  on('copy', async () => {
+    const result = document.getElementById('copy-result')
+    const events = agent.capture().events.length
+    const copied = await agent.copyCapture()
+    result.textContent = copied
+      ? `copied ${events} events to the clipboard — paste it into a chat or a file`
+      : 'clipboard unavailable in this browser — use the download button instead'
+  })
 </script>
