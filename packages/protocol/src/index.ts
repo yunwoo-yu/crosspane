@@ -104,7 +104,46 @@ export type SessionEvent =
    * 고른다. format을 열어둔 이유: rrweb 외의 방식(canvas 스트림 등)이 같은 슬롯을
    * 쓸 수 있어야 하고, 코어 프로토콜이 특정 라이브러리에 묶이면 안 되기 때문.
    */
-  | { type: 'screen'; sessionId: string; format: string; data: unknown; ts: number };
+  | { type: 'screen'; sessionId: string; format: string; data: unknown; ts: number }
+  /**
+   * 사용자가 한 일 — 클릭·입력·키·스크롤·제출.
+   *
+   * 왜 필요한가: 로그와 요청만 있으면 "무엇 때문에" 그렇게 됐는지가 빠진다. 웹뷰에는
+   * 개발자도구가 없어서 재현 절차를 물어볼 수도 없다. 상호작용이 타임라인에 있으면
+   * "결제 버튼을 눌렀더니 이 요청이 실패했다"가 한 화면에서 읽힌다.
+   *
+   * **입력 값은 담지 않는다.** 비밀번호·카드번호가 로그로 새는 것은 이 툴이 절대
+   * 만들면 안 되는 사고다. 어느 요소에 입력이 있었는지와 길이만 담는다
+   */
+  | {
+      type: 'interaction';
+      sessionId: string;
+      /** click · input · change · submit · keydown · scroll */
+      kind: string;
+      /** 대상 요소를 사람이 알아볼 수 있게 (태그 + id/클래스 + 보이는 텍스트) */
+      target: string;
+      /** keydown일 때 키 이름. 값이 아니라 키다 (`Enter`, `Escape`) */
+      key?: string;
+      /** input일 때 **값이 아니라 길이** — 무엇을 쳤는지는 담지 않는다 */
+      valueLength?: number;
+      ts: number;
+    }
+  /**
+   * 렌더링·응답성 지표 — 렌더링 디버깅에 필요한 것.
+   *
+   * `LCP` `CLS` `INP` `FCP` `TTFB`는 Web Vitals, `longtask`는 메인 스레드를 막은 작업이다.
+   * 웹뷰에서 "왜 이렇게 느리지"는 개발자도구 없이는 손도 못 대던 질문이다
+   */
+  | {
+      type: 'vital';
+      sessionId: string;
+      /** LCP · CLS · INP · FCP · TTFB · longtask */
+      name: string;
+      value: number;
+      /** 지표가 가리키는 요소나 원인 — 있으면 */
+      detail?: string;
+      ts: number;
+    };
 
 /** 에이전트 → 서버 (WS /agent). 등록 후에는 이벤트를 배열로 배칭해 보낸다 */
 export type AgentMessage =

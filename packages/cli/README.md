@@ -241,6 +241,13 @@ the cost of carrying it in your env var.
   `sendBeacon`, `EventSource` **and requests that fired before the agent loaded** are recovered
   from resource timing. Requests hidden by a filter are always counted on screen, so an empty
   list never means "we didn't record it"
+- **Timeline** — logs, requests, clicks and performance in **one stream**, filterable by kind.
+  devtools splits these across tabs, so you rebuild the causality in your head; here you read
+  `click button#pay` → `POST 500 /api/pay` → `payment failed` in three consecutive lines
+- **User interactions** — clicks, form submits, control keys and typing **length**. What you
+  typed is never captured, so a password can't leak into a log
+- **Rendering and responsiveness** — LCP, CLS, INP, FCP, TTFB and long tasks, so "why is this
+  slow" is answerable in a webview that has no devtools
 - **Navigation timeline** — SPA route changes included, so logs are grouped by screen
 - **Session list** — several devices at once, each labeled, live/ended state, error badges
 - **Save and replay** — save what you're watching live to a `.crosspane.json`, or drop a file

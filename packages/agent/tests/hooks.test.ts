@@ -316,3 +316,126 @@ describe('리소스 타이밍 보강', () => {
     }).not.toThrow();
   });
 });
+
+/**
+ * 상호작용 기록 — "무엇을 눌렀더니"가 없으면 로그는 원인 없는 결과의 나열이다.
+ *
+ * 가장 중요한 계약은 **사용자가 친 값을 담지 않는 것**이다. 이게 깨지면 이 툴은
+ * 비밀번호 유출 경로가 된다 (`.claude/rules/agent-sdk.md`).
+ */
+describe('상호작용', () => {
+  function interactions(instance: CrosspaneAgent) {
+    return instance.capture().events.filter((event) => event.type === 'interaction');
+  }
+
+  it('클릭 대상을 사람이 알아볼 수 있게 적는다', () => {
+    agent = initCrosspane({ label: 'probe' });
+    const button = document.createElement('button');
+    button.id = 'pay';
+    button.className = 'primary large';
+    button.textContent = '결제하기';
+    document.body.append(button);
+
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    const [event] = interactions(agent);
+    expect(event.kind).toBe('click');
+    expect(event.target).toBe('button#pay.primary.large "결제하기"');
+    button.remove();
+  });
+
+  it('입력 값은 담지 않고 길이만 담는다 — 비밀번호가 새면 안 된다', () => {
+    agent = initCrosspane({ label: 'probe' });
+    const input = document.createElement('input');
+    input.type = 'password';
+    document.body.append(input);
+    input.value = 'hunter2-secret';
+
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+    const [event] = interactions(agent);
+    expect(event.valueLength).toBe('hunter2-secret'.length);
+    expect(JSON.stringify(agent.capture())).not.toContain('hunter2-secret');
+    input.remove();
+  });
+
+  it('문자 키는 담지 않는다 — 이어 붙이면 타이핑한 내용이 복원된다', () => {
+    agent = initCrosspane({ label: 'probe' });
+    for (const key of ['h', 'i', 'Enter']) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    }
+
+    const keys = interactions(agent).map((event) => event.key);
+    expect(keys).toEqual(['Enter']);
+  });
+
+  it('dispose가 리스너를 떼어낸다', () => {
+    agent = initCrosspane({ label: 'probe' });
+    const instance = agent;
+    instance.dispose();
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(interactions(instance)).toHaveLength(0);
+    agent = null;
+  });
+});
+
+/** 렌더링·응답성 지표 — 웹뷰에서 "왜 느리지"에 손댈 수 있게 하는 부분 */
+describe('성능 지표', () => {
+  function vitals(instance: CrosspaneAgent) {
+    return instance.capture().events.filter((event) => event.type === 'vital');
+  }
+
+  /**
+   * 엔트리 모양이 지표마다 다르다 (layout-shift의 value/hadRecentInput, event의 duration…).
+   * `Partial<PerformanceEntry>`로 좁히면 그 필드들이 타입에 없다 — 스텁은 넓게 받는다.
+   */
+  function stubVitalObserver(byType: Record<string, Record<string, unknown>[]>) {
+    class StubObserver {
+      constructor(private readonly callback: (list: { getEntries: () => unknown[] }) => void) {}
+      observe({ type }: { type: string }) {
+        const entries = byType[type];
+        // 브라우저가 모르는 타입은 실제로 던진다 — 그 경로도 여기서 재현한다
+        if (entries === undefined) throw new TypeError(`unknown type ${type}`);
+        this.callback({ getEntries: () => entries });
+      }
+      disconnect() {}
+    }
+    vi.stubGlobal('PerformanceObserver', StubObserver);
+  }
+
+  it('LCP·CLS·longtask를 기록하고 나쁜 값만 눈에 띄게 한다', () => {
+    stubVitalObserver({
+      'largest-contentful-paint': [{ startTime: 3200 }],
+      'layout-shift': [{ value: 0.25, hadRecentInput: false }],
+      longtask: [{ duration: 120 }],
+    });
+    agent = initCrosspane({ label: 'probe' });
+
+    const seen = vitals(agent).map((event) => `${event.name} ${event.value}`);
+    expect(seen).toContain('LCP 3200');
+    expect(seen).toContain('CLS 0.25');
+    expect(seen).toContain('longtask 120');
+  });
+
+  it('사용자 입력 직후의 레이아웃 이동은 세지 않는다 — CLS의 정의가 그렇다', () => {
+    stubVitalObserver({ 'layout-shift': [{ value: 0.5, hadRecentInput: true }] });
+    agent = initCrosspane({ label: 'probe' });
+
+    expect(vitals(agent)).toHaveLength(0);
+  });
+
+  it('빠른 상호작용은 보내지 않는다 — 전부 보내면 회선을 잠식한다', () => {
+    stubVitalObserver({ event: [{ duration: 40, name: 'click' }] });
+    agent = initCrosspane({ label: 'probe' });
+
+    expect(vitals(agent)).toHaveLength(0);
+  });
+
+  it('PerformanceObserver가 없으면 조용히 건너뛴다', () => {
+    vi.stubGlobal('PerformanceObserver', undefined);
+    expect(() => {
+      agent = initCrosspane({ label: 'probe' });
+    }).not.toThrow();
+  });
+});

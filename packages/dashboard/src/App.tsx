@@ -6,6 +6,7 @@ import { LocaleToggle } from './components/LocaleToggle';
 import { NetworkPanel } from './components/NetworkPanel';
 import { ScreenPanel } from './components/ScreenPanel';
 import { SessionList } from './components/SessionList';
+import { TimelinePanel } from './components/TimelinePanel';
 import { Button } from './components/ui/button';
 import { ToastStack, useToasts } from './components/ui/toast';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
@@ -26,7 +27,13 @@ export default function App() {
     clearLogs,
   } = useCrosspaneSocket();
   const { t } = useLocale();
-  const [bottomTab, setBottomTab] = useState<'console' | 'network' | 'screen'>('console');
+  /**
+   * 기본이 타임라인인 이유: 대부분의 디버깅은 "무슨 일이 있었나"에서 시작한다.
+   * 콘솔·네트워크 탭은 그 다음에 깊이 파는 곳이다.
+   */
+  const [bottomTab, setBottomTab] = useState<'timeline' | 'console' | 'network' | 'screen'>(
+    'timeline',
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 리플레이 모드: 파일을 열면 라이브 스트림 대신 이 캡처를 본다 */
   const [replay, setReplay] = useState<LoadedCapture | null>(null);
@@ -195,17 +202,27 @@ export default function App() {
         <section className="console">
           <div className="flex items-center gap-1.5 border-line border-b px-4 py-2">
             <Button
+              variant={bottomTab === 'timeline' ? 'active' : 'ghost'}
+              size="icon"
+              className="px-2.5"
+              onClick={() => setBottomTab('timeline')}
+            >
+              {t.tabTimeline}
+              {/* 에러 배지는 여기에만 둔다 — 기본으로 열리는 탭이고, 두 곳에 같은 숫자가
+                  뜨면 서로 다른 것을 세는 줄 알게 된다 */}
+              {errorLogCount > 0 && (
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 font-semibold text-[10px] text-white leading-none">
+                  {errorLogCount}
+                </span>
+              )}
+            </Button>
+            <Button
               variant={bottomTab === 'console' ? 'active' : 'ghost'}
               size="icon"
               className="px-2.5"
               onClick={() => setBottomTab('console')}
             >
               {t.tabConsole}
-              {errorLogCount > 0 && (
-                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 font-semibold text-[10px] text-white leading-none">
-                  {errorLogCount}
-                </span>
-              )}
             </Button>
             <Button
               variant={bottomTab === 'network' ? 'active' : 'ghost'}
@@ -225,6 +242,9 @@ export default function App() {
               )}
             </Button>
           </div>
+          {bottomTab === 'timeline' && (
+            <TimelinePanel logs={visibleLogs} network={visibleNetwork} />
+          )}
           {bottomTab === 'console' && <ConsolePanel logs={visibleLogs} />}
           {bottomTab === 'network' && (
             <NetworkPanel entries={visibleNetwork} sessions={view.sessions} />
