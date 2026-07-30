@@ -94,13 +94,13 @@ initCrosspane({
 ```
 
 ```
-NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com/?k=<key>
+NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com
 ```
 
 That one value works from localhost, from a phone, from a deployed `http://` or `https://` page,
 and over cellular. You do not need different values per environment — the same one is fine
-everywhere, because the key in it is **write-only** (it can send sessions to your hub, never read
-one) and `enabled: isDebugActivated` decides which devices actually stream: a device opts in by
+everywhere, because sending sessions needs no credential while **reading** them needs a token that stays on
+your machine, and `enabled: isDebugActivated` decides which devices actually stream: a device opts in by
 opening the page once with `?__crosspane=on`, and nothing at all is installed for anyone else.
 
 Set the hub up once:
@@ -114,10 +114,14 @@ cloudflared tunnel run --url http://localhost:7788 crosspane
 crosspane --public-url https://crosspane.example.com   # once — remembered from here on
 ```
 
-After that, day to day, it's `crosspane` plus the tunnel. The address and the key are stored in
-`~/.crosspane/config.json`, so the value in your app stays valid across restarts and there is
-nothing to copy again. (The read token the dashboard uses still rotates every restart — that one
-*is* sensitive, and it never belongs in an app.)
+After that, day to day, it's `crosspane` plus the tunnel. The address is stored in
+`~/.crosspane/config.json`, so the value in your app is just the address — nothing appended, and
+nothing to update later. (The read token the dashboard uses rotates every restart. That one *is*
+sensitive and never belongs in an app, which is exactly why it isn't in the address.)
+
+Anyone who knows the address can send junk sessions to your hub — they cannot read yours. If that
+matters for a hub that's long-lived and shared, `--ingest-key <key>` requires a `?k=` from senders
+too, at the cost of carrying it in your app's env var.
 
 Two things worth knowing rather than configuring:
 
@@ -195,9 +199,9 @@ if (process.env.NODE_ENV !== 'production') {
 
 - `enabled: false` installs **no hooks at all** — `console`/`fetch`/XHR stay untouched, so a
   visitor who hasn't opted in is unaffected
-- The address in your build carries a **write-only** key: it can send sessions to your hub but
-  never read one, which is why it is safe in a page whose source anyone can read. The read token
-  stays on your machine — see [SECURITY.md](https://github.com/yunwoo-yu/crosspane/blob/main/SECURITY.md)
+- The address in your build is just an address: sending sessions needs no credential, and
+  **reading** them needs a token that stays on your machine. That's why it's safe in a page whose
+  source anyone can read — see [SECURITY.md](https://github.com/yunwoo-yu/crosspane/blob/main/SECURITY.md)
 - Response bodies are **not** captured unless you pass `captureBodies: true`
 - The agent has no dependencies and adds a few KB gzipped
 

@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
-import { configPath, loadConfig, loadOrCreateIngestKey, saveConfigValue } from './config.js';
+import { loadConfig, saveConfigValue } from './config.js';
 import { setVerbose } from './debug.js';
 import { clearEnvFile, writeEnvFile } from './env-file.js';
 import { startMcpServer } from './mcp/index.js';
@@ -67,22 +67,11 @@ async function main(): Promise<void> {
   const authToken =
     reachableFromOutside && !options.noAuth ? randomBytes(8).toString('hex') : undefined;
   /**
-   * 쓰기 전용 인제스트 키 — 에이전트 주소에 담기는 것은 이것뿐이다.
-   *
-   * 읽기 토큰을 에이전트에 주지 않는 이유: 배포된 페이지에 에이전트를 넣으면 그 주소가
-   * 클라이언트로 들어가 **페이지 소스에 노출된다**(운영 사이트에 붙여 실측했다).
-   * 읽기 토큰이 거기 있으면 누구나 세션 로그를 읽는다. 인제스트 키는 공개돼도 되고,
-   * 최악이 남이 우리 허브에 쓰레기 세션을 넣는 것이다 — 그래서 프로덕션에 넣을 수 있다.
+   * 인제스트 키는 **옵트인이다.** 자동 생성하지 않는다 — 생성하면 앱 env에 `?k=…`를 붙여
+   * 관리해야 하고, 그 값이 지키는 것은 "주소를 추측 못 하게" 뿐인데 그건 호스트명이 이미
+   * 한다(`server.ts`의 `isIngestAuthorized` 주석). 읽기는 토큰 필수로 남는다.
    */
-  /**
-   * 인제스트 키는 **한 번 만들어 저장한다** — 매번 새로 만들면 배포된 앱의 주소가 상해서
-   * 허브 재시작마다 재배포해야 한다(`config.ts`). 명시한 값이 항상 이긴다(팀 허브·CI).
-   */
-  const storedKey =
-    reachableFromOutside && !options.noAuth && options.ingestKey === undefined
-      ? loadOrCreateIngestKey()
-      : undefined;
-  const ingestKey = options.ingestKey ?? storedKey?.key;
+  const ingestKey = options.ingestKey ?? loadConfig().ingestKey;
   const tls = readTlsFiles(options.tlsCert, options.tlsKey);
   const server = await startHubServer({
     port: options.port,
@@ -128,26 +117,20 @@ async function main(): Promise<void> {
       console.log(`  live agents → ${address}  (serverUrl for @crosspane/agent)`);
     }
     console.log(
-      ingestKey
-        ? '  the ?k= key in that URL is write-only: it can send sessions to this hub but not\n' +
-            '  read any. That is why it is safe in a deployed page, where the address is visible\n' +
-            '  to every visitor. Reading needs the ?t= token above — keep that one off your pages,\n' +
-            '  and note it changes every restart while the ?k= key stays the same.'
-        : '  ⚠ --no-auth: anyone who can reach this hub can read your session logs and inject sessions.',
+      options.noAuth
+        ? '  ⚠ --no-auth: anyone who can reach this hub can read your session logs.'
+        : '  that address is all your app needs — no key to carry. Reading sessions needs the\n' +
+            '  ?t= token in the dashboard URL above, which stays on this machine; sending them\n' +
+            '  does not, so the address is safe in a page whose source anyone can read.\n' +
+            (ingestKey === undefined
+              ? '  Anyone who knows the address can also send junk sessions here (not read yours).\n' +
+                '  Close that with --ingest-key if this hub is long-lived and shared.'
+              : '  --ingest-key is set, so senders must include ?k= too.'),
     );
   } else {
     console.log('  local only — pass --host 0.0.0.0 to receive live agent sessions from devices');
   }
-  if (storedKey?.created === true) {
-    console.log(
-      storedKey.ephemeral
-        ? `  ⚠ could not save the ingest key to ${configPath()} — it will differ next restart,\n` +
-            "    so an address baked into a deployed app won't keep working. Fix the path, or\n" +
-            '    pass --ingest-key / CROSSPANE_INGEST_KEY yourself.'
-        : `  generated an ingest key and saved it to ${configPath()} — it is reused from now on,\n` +
-            '    so an address you put in a deployed app keeps working across restarts.',
-    );
-  }
+
   if (publicUrl !== undefined) {
     console.log(
       `  advertising ${publicUrl}${publicUrlIsNew ? ' (remembered — no flag needed next time)' : ''} — make sure it actually forwards to this hub,\n` +

@@ -46,10 +46,11 @@ Options:
                        --write-env and the dashboard both use it. **Given once, remembered** —
                        later runs need no flag. Pass an empty string to forget it.
                        Also reads $CROSSPANE_PUBLIC_URL
-  --ingest-key <key>   Use this write-only key instead of the saved one. You normally do
-                       not need it: the hub generates a key on first run and reuses it from
-                       ~/.crosspane/config.json, so an address in a deployed app keeps
-                       working. Pass it for a shared team hub or CI.
+  --ingest-key <key>   Require senders to include ?k=<key> as well. Off by default so the
+                       address is all your app needs; the cost of turning it on is carrying
+                       the key in your app's env var. Worth it for a hub that is long-lived
+                       and shared, where junk sessions from strangers would be a nuisance.
+                       Reading sessions always needs the ?t= token, key or no key.
                        Defaults to $CROSSPANE_INGEST_KEY
   --no-open            Don't open the dashboard in your browser automatically
   --no-auth            Disable the access token that --host adds. Only do this on a
@@ -70,9 +71,10 @@ One setup for every environment:
     })
 
   One address, reachable from everywhere, and nothing varies between localhost, a phone, a
-  deployed page and production. The same value is fine in every environment: the ?k= key in it
-  is write-only (it can send sessions here, never read one), and enabled: isDebugActivated means
-  nothing is installed until a device opens the page once with ?__crosspane=on.
+  deployed page and production. The same value is fine in every environment: sending sessions needs no
+  credential, while reading them needs a token that stays on this machine. enabled:
+  isDebugActivated means nothing is installed until a device opens the page once with
+  ?__crosspane=on.
 
   Get an address like that once — a named cloudflared tunnel on a domain you own is free:
        cloudflared tunnel login
@@ -81,8 +83,8 @@ One setup for every environment:
        cloudflared tunnel run --url http://localhost:7788 crosspane
        crosspane --public-url https://crosspane.example.com     # once; remembered
 
-  From then on: crosspane. The address and key live in ~/.crosspane/config.json, so what you
-  put in your app stays valid. Pasting it into your deployment config once is the only manual
+  From then on: crosspane. The address lives in ~/.crosspane/config.json, so what you put in
+  your app is just that address and it stays valid. Pasting it into your deployment config once is the only manual
   step, and it cannot be avoided: a deployed app learns the address from its own build or server
   config, and a link must not carry it (a crafted link would redirect someone else's logs).
 

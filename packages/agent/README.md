@@ -120,12 +120,12 @@ initCrosspane({
 ```
 
 ```
-NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com/?k=<key>
+NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com
 ```
 
-The same value is fine in every environment, production included. The key in it is **write-only**
-— it can send sessions to the hub but never read one — so a page source anyone can read gives
-nothing away, and `enabled: isDebugActivated` means **no hooks are installed at all** until a
+The same value is fine in every environment, production included. Sending sessions needs no credential;
+**reading** them needs a token that never leaves your machine. So a page source anyone can read
+gives nothing away, and `enabled: isDebugActivated` means **no hooks are installed at all** until a
 device opts in by opening the page once with `?__crosspane=on` (`?__crosspane=off` clears it).
 
 Run `crosspane --help` for how to get an address like that; a named `cloudflared` tunnel on a
