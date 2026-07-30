@@ -1,5 +1,7 @@
 # crosspane
 
+<a href="https://github.com/yunwoo-yu/crosspane/blob/main/README.ko.md">한국어</a>
+
 <p>
   <a href="https://www.npmjs.com/package/crosspane"><img alt="npm version" src="https://img.shields.io/npm/v/crosspane.svg?color=cb3837"></a>
   <a href="https://github.com/yunwoo-yu/crosspane/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yunwoo-yu/crosspane/actions/workflows/ci.yml/badge.svg"></a>
@@ -48,6 +50,17 @@ Two ways to get the data out, because networks aren't always available:
 ```bash
 npx crosspane                  # dashboard on http://localhost:7788
 ```
+
+It tells you where to look and, once a page connects, what it is streaming:
+
+```
+crosspane dashboard → http://localhost:7788
+● session · checkout webview  https://staging.example.com/pay
+```
+
+So you know the page found the hub without opening the dashboard — the thing you most want
+to know when nothing shows up. The dashboard itself is in English or Korean, following your
+browser and switchable in the header.
 
 **2. Add the agent to your app** (dev/QA builds only — see [Shipping safely](#shipping-safely))
 
@@ -99,7 +112,20 @@ environment including production. Sending sessions needs no credential; **readin
 token that never leaves your machine, which is why a page source anyone can read gives nothing
 away.
 
-For a hub reachable from anywhere, one command does it:
+**For a deployed page — a staging URL on your phone — one flag:**
+
+```bash
+crosspane --lan-tls
+```
+
+The hub serves `https://<your-lan-ip-with-dashes>.local-ip.sh:7788` with a certificate devices
+already trust, so an `https://` page on the same Wi-Fi can reach your laptop. Put that address
+in the env var above. **No tunnel, no account, nothing installed on the device** — measured on a
+real Android phone against a deployed site, with no permission prompt shown. Read the trade-offs
+under *"If you can't route logs through a tunnel"* below before you rely on it.
+
+For a hub reachable from **anywhere** — a teammate's network, CI, a device that isn't on your
+Wi-Fi — use a tunnel instead:
 
 ```bash
 crosspane --tunnel --write-env
@@ -173,15 +199,12 @@ is `prompt` in an ordinary browser, like camera or microphone. Measured with tha
 nothing else changed: `https://example.com` → `wss://<lan-ip>.local-ip.sh/agent` delivered a session
 and a console event to the hub, over a genuine Let's Encrypt certificate.
 
-`--lan-tls` is that path, in one flag:
+`--lan-tls` is that path, in one flag — it implies `--host 0.0.0.0`, since reaching the hub from
+another device is the whole point:
 
 ```bash
-crosspane --host 0.0.0.0 --lan-tls
+crosspane --lan-tls
 ```
-
-The hub then serves `https://<your-lan-ip-with-dashes>.local-ip.sh:7788` with a certificate devices
-already trust, and a deployed page on the same Wi-Fi can reach it. No tunnel, no account, nothing to
-install. Put that address in your env var like any other.
 
 Know what you're getting before you rely on it:
 
@@ -223,6 +246,8 @@ the cost of carrying it in your env var.
   it back in the Screen tab, in the same timeline as the logs
 - **MCP server** — `crosspane mcp` lets a coding agent read the sessions itself, so you can
   ask "why did the payment webview fail?" instead of copying logs out of the dashboard
+- **English and Korean** — the dashboard follows your browser's language and switches in the
+  header; the choice sticks
 
 ![Replaying a recorded session in the Screen tab](https://raw.githubusercontent.com/yunwoo-yu/crosspane/main/docs/images/dashboard-screen-replay.png)
 
@@ -271,23 +296,42 @@ crosspane [options]
 --port <n>     dashboard port (default: 7788; the default port falls back +1 when taken,
                an explicit port does not)
 --host <addr>  bind address (default: 127.0.0.1 — local only. Use 0.0.0.0 to receive
-               live agent sessions from phones/devices on your network. Exposing the
-               hub generates a one-time access token, printed with the URLs. Use
-               --write-env and you never have to copy it)
---no-auth      disable that token — only on a network you fully trust
---write-env [file]
-               write this hub's address and token into an env file (default .env.local)
-               so the agent needs no arguments; removed again when the hub stops
+               live agent sessions from phones/devices on your network)
+--lan-tls      serve the hub over https/wss on your LAN with a certificate devices
+               already trust, so a deployed https:// page can reach it from the same
+               Wi-Fi. Implies --host 0.0.0.0
+--tunnel       start a tunnel with an installed cloudflared or ngrok and advertise its
+               address. Session logs transit that provider; nothing is downloaded for you
+--hostname <name>
+               a permanent address instead of a throwaway one — with --tunnel, crosspane
+               creates and routes a named Cloudflare tunnel (idempotent)
 --tls-cert <file> / --tls-key <file>
-               serve the hub over https/wss — required to debug an https:// page
+               serve over https/wss with your own certificate
 --public-url <url>
-               advertise this address instead of the LAN one, for a tunnel or a
-               reverse proxy in front of the hub
+               advertise this address instead of the LAN one, for a tunnel or a reverse
+               proxy in front of the hub. Given once, remembered
+--write-env [file]
+               write this hub's address into an env file (default .env.local) so the
+               agent needs no arguments; removed again when the hub stops
+--ingest-key <key>
+               require senders to include ?k=<key> too. Off by default, so the address
+               is all your app needs
+--no-auth      disable the read token that exposing the hub adds — only on a network you
+               fully trust
 --no-open      don't open the dashboard automatically
 --verbose      diagnostic logging — attach to bug reports
 -v, --version  print the version
 -h, --help     show help
 ```
+
+Exposing the hub generates two credentials, and the difference matters: a **write-only ingest
+key** (`?k=`) is safe in a deployed page whose source anyone can read, while the **read token**
+(`?t=`) belongs only in your dashboard URL. crosspane never puts the read token in an address
+meant for your app.
+
+While the hub runs it prints each session as it joins and leaves, with the page's URL — so you
+can tell "my app can't reach the hub" from "my app isn't running that code" without opening
+anything.
 
 ## Ask a coding agent instead (MCP)
 
