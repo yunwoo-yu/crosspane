@@ -9,11 +9,20 @@
  * **바이너리를 내려받지 않는다.** 설치된 것만 쓴다 — 디버깅 도구가 임의의 실행 파일을
  * 받아 실행하는 것은 그 자체로 신뢰 문제다. 없으면 설치 방법을 알려주고 멈춘다.
  *
- * 퀵 터널은 실행마다 주소가 바뀐다. `--write-env`와 함께 쓰면 그 값이 앱의 env 파일에
- * 자동으로 들어가므로 문제가 되지 않는다. 배포된 앱처럼 주소를 사람이 붙여넣는 경우에는
- * 고정 주소(named 터널)를 쓰고 `--public-url`로 알려 주는 편이 맞다.
+ * 퀵 터널은 실행마다 주소가 바뀐다. `--write-env`와 함께 쓰면 값이 앱의 env 파일에 자동으로
+ * 들어가므로 문제가 없지만, **배포된 앱은 주소가 배포 설정에 들어가므로 고정이어야 한다.**
+ * 그래서 `--hostname`으로 named 터널을 지원한다 (`startNamedTunnel`).
+ *
+ * 고정 주소를 얻는 데 1회 계정 로그인이 필요한 것은 우회할 수 없다 — 공개 호스트명은
+ * 어딘가의 계정에 묶여 있다. 실측한 것들: ngrok 무료는 커스텀 서브도메인을 거부한다
+ * ("Only paid plans may create endpoints with custom subdomains"), Tailscale Funnel은
+ * 도메인 없이 고정 `*.ts.net`을 주지만 tailnet에서 Funnel을 켜야 한다.
+ * 다만 **로그인 이후는 전부 비대화형이라 자동화된다** — 그게 아래가 하는 일이다.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { debugLog } from './debug.js';
 
 /** 터널이 주소를 알려 줄 때까지 기다리는 상한 — 넘으면 원인을 밝히고 멈춘다 */
@@ -62,7 +71,49 @@ export function extractTunnelUrl(line: string): string | undefined {
 export interface Tunnel {
   url: string;
   provider: string;
+  /** 재시작해도 같은 주소인지 — 배포된 앱에 쓸 수 있는지를 결정한다 */
+  stable: boolean;
   stop(): void;
+}
+
+/** cloudflared 로그인 자격 파일 — 없으면 named 터널을 만들 수 없다 */
+export const CLOUDFLARED_CERT = '.cloudflared/cert.pem';
+
+/**
+ * named 터널 준비 명령들 (실행 순서대로). 마지막이 장기 실행이다.
+ *
+ * 매번 돌려도 되도록 만들었다 — 이미 있으면 cloudflared가 "already exists"로 끝내고,
+ * 그건 `isBenignSetupError`가 성공으로 본다. 그래서 이 함수의 결과가 **매일 쓰는 명령**이
+ * 될 수 있다: 사용자는 터널이 처음인지 아닌지 신경 쓰지 않는다.
+ */
+export function namedTunnelSteps(
+  name: string,
+  hostname: string,
+  port: number,
+): { setup: string[][]; run: string[] } {
+  return {
+    setup: [
+      ['tunnel', 'create', name],
+      ['tunnel', 'route', 'dns', '--overwrite-dns', name, hostname],
+    ],
+    run: ['tunnel', 'run', '--url', `http://127.0.0.1:${port}`, name],
+  };
+}
+
+/**
+ * 이미 준비된 상태를 나타내는 실패인지 — 그렇다면 성공으로 본다.
+ *
+ * cloudflared는 "이미 존재한다"를 0이 아닌 종료 코드로 알린다. 그걸 실패로 다루면
+ * 두 번째 실행부터 못 뜨고, 사용자는 첫 실행인지 기억해야 한다.
+ */
+export function isBenignSetupError(output: string): boolean {
+  return /already exists|already configured|record with that host already/i.test(output);
+}
+
+/** 호스트명에서 터널 이름을 만든다 — 사람이 이름을 정하게 만들 이유가 없다 */
+export function tunnelNameFor(hostname: string): string {
+  const cleaned = hostname.replace(/[^a-zA-Z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  return `crosspane-${cleaned}`.slice(0, 60);
 }
 
 /** 사용 가능한 첫 제공자 (없으면 undefined) */
@@ -93,7 +144,7 @@ export function startTunnel(provider: TunnelProvider, port: number): Promise<Tun
         reject(error ?? new Error(`${provider.label} did not report a URL`));
         return;
       }
-      resolve({ url, provider: provider.label, stop: () => child.kill('SIGTERM') });
+      resolve({ url, provider: provider.label, stable: false, stop: () => child.kill('SIGTERM') });
     };
 
     const timer = setTimeout(
@@ -127,4 +178,71 @@ export function startTunnel(provider: TunnelProvider, port: number): Promise<Tun
       ),
     );
   });
+}
+
+export interface NamedTunnelOptions {
+  hostname: string;
+  port: number;
+  /** cloudflared 실행 경로 (기본 'cloudflared') — 테스트에서 대역으로 바꾼다 */
+  command?: string;
+  /** 로그인 자격이 있는지. 기본은 `~/.cloudflared/cert.pem` 존재 여부 */
+  loggedIn?: () => boolean;
+}
+
+/**
+ * 고정 주소 named 터널 — 준비(create·route)까지 우리가 하고, 그 다음 run을 띄운다.
+ *
+ * `--hostname`을 주면 배포된 앱 케이스가 로컬 케이스만큼 단순해진다: 매일 `crosspane`
+ * 한 줄이고, 앱의 배포 설정에는 그 호스트명이 영구히 그대로 있다.
+ *
+ * 로그인만 사람 몫이다(브라우저 OAuth). 그것 없이 진행하면 create가 알 수 없는 오류로
+ * 죽으므로, 먼저 확인해서 정확한 조치를 알려 준다.
+ */
+export async function startNamedTunnel(options: NamedTunnelOptions): Promise<Tunnel> {
+  const command = options.command ?? 'cloudflared';
+  const loggedIn = options.loggedIn ?? (() => existsSync(join(homedir(), CLOUDFLARED_CERT)));
+  if (!loggedIn()) {
+    throw new Error(
+      'cloudflared is not logged in — run `cloudflared tunnel login` once (it opens a browser),\n' +
+        '  then this becomes a single command. A Cloudflare-managed domain is required.',
+    );
+  }
+
+  const name = tunnelNameFor(options.hostname);
+  const { setup, run } = namedTunnelSteps(name, options.hostname, options.port);
+  for (const args of setup) {
+    const result = spawnSync(command, args, { encoding: 'utf-8' });
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    debugLog('tunnel', `${command} ${args.join(' ')} → ${result.status ?? 'error'}`);
+    // 이미 준비된 상태는 성공이다 — 아니면 두 번째 실행부터 못 뜬다
+    if (result.status !== 0 && !isBenignSetupError(output)) {
+      throw new Error(
+        `\`${command} ${args.join(' ')}\` failed: ${output.trim() || 'unknown error'}`,
+      );
+    }
+  }
+
+  const child = spawn(command, run, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const url = `https://${options.hostname}`;
+  // 주소는 우리가 정했으므로 출력에서 찾을 필요가 없다. 다만 즉시 죽는 경우는 알려야 한다
+  await new Promise<void>((resolve, reject) => {
+    const settle = setTimeout(resolve, 2_000);
+    child.on('error', (err) => {
+      clearTimeout(settle);
+      reject(new Error(`could not run ${command}: ${err.message}`));
+    });
+    child.on('exit', (code) => {
+      clearTimeout(settle);
+      reject(new Error(`${command} tunnel run exited (code ${code ?? 'unknown'})`));
+    });
+    child.stdout?.on('data', (chunk: Buffer) => debugLog('tunnel', chunk.toString()));
+    child.stderr?.on('data', (chunk: Buffer) => debugLog('tunnel', chunk.toString()));
+  });
+
+  return {
+    url,
+    provider: `Cloudflare named tunnel (${name})`,
+    stable: true,
+    stop: () => child.kill('SIGTERM'),
+  };
 }
