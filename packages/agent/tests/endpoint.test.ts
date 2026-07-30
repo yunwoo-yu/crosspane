@@ -3,9 +3,10 @@ import {
   ACTIVATION_STORAGE_KEY,
   DEFAULT_HUB_PORT,
   envServerUrl,
-  isLiveActivated,
+  isDebugActivated,
   isLoopbackHost,
   isRealPage,
+  resolveActivation,
   resolveLiveEndpoint,
 } from '../src/endpoint.js';
 
@@ -128,39 +129,66 @@ describe('resolveLiveEndpoint', () => {
   });
 });
 
-describe('isLiveActivated', () => {
-  it('루프백은 링크 없이 항상 켜져 있다', () => {
-    expect(isLiveActivated('', 'localhost')).toBe(true);
+describe('resolveActivation', () => {
+  it('루프백은 링크 없이 켜져 있다 — 무설정 로컬 개발이 여기 서 있다', () => {
+    expect(resolveActivation('', 'localhost')).toBe(true);
+  });
+
+  it('루프백에서도 파라미터를 저장한다 (실사용 프로젝트에서 발견한 버그)', () => {
+    // 예전에는 루프백에서 즉시 true를 돌려주고 파라미터를 읽지도 저장하지도 않았다.
+    // 그래서 `enabled`를 저장값으로 게이팅하는 앱은 링크로 켠 뒤 페이지를 옮기는 순간 꺼졌다
+    expect(resolveActivation('?__crosspane=on', 'localhost')).toBe(true);
+    expect(localStorage.getItem(ACTIVATION_STORAGE_KEY)).toBe('on');
+  });
+
+  it('루프백에서도 off가 먹는다 — 명시한 것을 조용히 무시하지 않는다', () => {
+    expect(resolveActivation('?__crosspane=off', 'localhost')).toBe(false);
+    expect(localStorage.getItem(ACTIVATION_STORAGE_KEY)).toBe('off');
+    // 저장된 off 상태가 루프백 기본값보다 우선한다
+    expect(resolveActivation('', 'localhost')).toBe(false);
+  });
+
+  it('루프백에서 off면 자동 연결도 끊긴다 — 판정과 전송이 어긋나면 안 된다', () => {
+    const activated = resolveActivation('?__crosspane=off', 'localhost');
+    expect(resolveLiveEndpoint({ hostname: 'localhost', activated })).toBeUndefined();
+    expect(
+      resolveLiveEndpoint({ env: 'http://localhost:7789', hostname: 'localhost', activated }),
+    ).toBeUndefined();
+  });
+
+  it('저장된 활성화는 배포 호스트에서 루프백 판정 없이도 유지된다', () => {
+    resolveActivation('?__crosspane=on', 'staging.example.com');
+    expect(resolveActivation('', 'staging.example.com')).toBe(true);
   });
 
   it('배포 페이지는 기본이 꺼짐이다', () => {
-    expect(isLiveActivated('', 'staging.example.com')).toBe(false);
+    expect(resolveActivation('', 'staging.example.com')).toBe(false);
   });
 
   it('활성화 링크로 켜고, 그 상태가 다음 페이지로 이어진다', () => {
-    expect(isLiveActivated('?__crosspane=on', 'staging.example.com')).toBe(true);
+    expect(resolveActivation('?__crosspane=on', 'staging.example.com')).toBe(true);
     // QA가 페이지를 옮겨다녀도 유지되어야 한다 (링크는 한 번만 받는다)
-    expect(isLiveActivated('', 'staging.example.com')).toBe(true);
+    expect(resolveActivation('', 'staging.example.com')).toBe(true);
   });
 
-  it('off로 끄면 저장된 상태까지 지운다', () => {
-    isLiveActivated('?__crosspane=on', 'staging.example.com');
-    expect(isLiveActivated('?__crosspane=off', 'staging.example.com')).toBe(false);
-    expect(localStorage.getItem(ACTIVATION_STORAGE_KEY)).toBe(null);
-    expect(isLiveActivated('', 'staging.example.com')).toBe(false);
+  it('off는 껐다는 사실까지 저장한다 — 지우기만 하면 기본값이 되살아난다', () => {
+    resolveActivation('?__crosspane=on', 'staging.example.com');
+    expect(resolveActivation('?__crosspane=off', 'staging.example.com')).toBe(false);
+    expect(localStorage.getItem(ACTIVATION_STORAGE_KEY)).toBe('off');
+    expect(resolveActivation('', 'staging.example.com')).toBe(false);
   });
 
   it('값 없는 ?__crosspane도 켜는 것으로 본다 — 손으로 타이핑하는 링크다', () => {
-    expect(isLiveActivated('?__crosspane', 'staging.example.com')).toBe(true);
+    expect(resolveActivation('?__crosspane', 'staging.example.com')).toBe(true);
   });
 
   it('다른 쿼리에 섞여 있어도 찾아낸다', () => {
-    expect(isLiveActivated('?utm=x&__crosspane=on&page=2', 'staging.example.com')).toBe(true);
+    expect(resolveActivation('?utm=x&__crosspane=on&page=2', 'staging.example.com')).toBe(true);
   });
 
   it('허브 주소를 링크로 받지 않는다 — 로그 탈취 통로가 되기 때문이다', () => {
     // 목적지처럼 보이는 값은 활성화로도 인정하지 않는다
-    expect(isLiveActivated('?__crosspane=https://attacker.example', 'staging.example.com')).toBe(
+    expect(resolveActivation('?__crosspane=https://attacker.example', 'staging.example.com')).toBe(
       false,
     );
     // resolveLiveEndpoint는 env/explicit만 보므로 이 값이 목적지가 될 경로가 없다
@@ -178,13 +206,25 @@ describe('isLiveActivated', () => {
       },
     });
     try {
-      expect(() => isLiveActivated('', 'staging.example.com')).not.toThrow();
-      expect(isLiveActivated('', 'staging.example.com')).toBe(false);
+      expect(() => resolveActivation('', 'staging.example.com')).not.toThrow();
+      expect(resolveActivation('', 'staging.example.com')).toBe(false);
       // 링크로 켠 이번 로드의 판정은 저장 실패와 무관하게 유지된다
-      expect(isLiveActivated('?__crosspane=on', 'staging.example.com')).toBe(true);
+      expect(resolveActivation('?__crosspane=on', 'staging.example.com')).toBe(true);
     } finally {
       if (original) Object.defineProperty(window, 'localStorage', original);
     }
+  });
+});
+
+describe('isDebugActivated', () => {
+  it('현재 페이지 기준으로 판정한다 — 앱이 enabled에 그대로 넘기는 함수다', () => {
+    // jsdom의 location은 localhost다 → 표시가 없으면 켜진 것으로 본다
+    expect(isDebugActivated()).toBe(true);
+  });
+
+  it('저장된 off를 존중한다 — enabled 게이팅이 즉시 반영되어야 한다', () => {
+    resolveActivation('?__crosspane=off', 'localhost');
+    expect(isDebugActivated()).toBe(false);
   });
 });
 

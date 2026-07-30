@@ -146,15 +146,24 @@ an in-app browser reached from a chat message or QR code, or a phone browser. Om
 `serverUrl` where you can't add the parameter means nothing streams, with no way to see why
 from inside the webview; `agent.live` is the only signal.
 
-To keep one shared build from streaming everyone's session, gate on the account the app already
-knows — no address bar involved, and `enabled: false` installs no hooks at all:
+To keep one shared build from streaming everyone's session, gate `enabled` — with `false` the
+agent installs **no hooks at all**, so other people's app is untouched:
 
 ```ts
-initCrosspane({
-  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,
-  enabled: () => user.isQA,
-})
+import { initCrosspane, isDebugActivated } from '@crosspane/agent'
+
+// only devices that opened ?__crosspane=on — nothing is installed for anyone else
+initCrosspane({ serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL, enabled: isDebugActivated })
+
+// or gate on the account the app already knows (works with no address bar)
+initCrosspane({ serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL, enabled: () => user.isQA })
+
+// or both
+initCrosspane({ serverUrl, enabled: () => isDebugActivated() && user.isQA })
 ```
+
+`isDebugActivated()` is the same check the agent uses internally, exported so you don't
+reimplement the parameter/storage handling in every app.
 
 A hub on your own laptop plus a phone is the one case a static value can't cover — the LAN
 address and token change every restart. `crosspane --host 0.0.0.0 --write-env` writes them
