@@ -1,6 +1,6 @@
 {
   "name": "@crosspane/protocol",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Wire protocol types shared by the crosspane hub, dashboard and agent SDK",
   "license": "MIT",
   "type": "module",
