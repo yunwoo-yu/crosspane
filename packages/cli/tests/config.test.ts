@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -19,11 +19,6 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.CROSSPANE_CONFIG_DIR;
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // 권한 테스트가 남긴 상태 — 정리만 하면 된다
-  }
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -63,11 +58,19 @@ describe('publicUrl 저장', () => {
   });
 
   it('저장 못 해도 던지지 않고 false를 준다 — 허브 기동을 막지 않는다', () => {
-    chmodSync(dir, 0o500);
+    // 파일 자리를 디렉터리로 막는다. chmod로 쓰기를 막는 방식은 Windows에서 통하지 않아
+    // 그 레그만 실패했다(실측) — OS 무관한 방법을 쓴다
+    mkdirSync(configPath(), { recursive: true });
     expect(saveConfigValue('publicUrl', 'https://x.example')).toBe(false);
   });
 
   it('설정 파일이 없으면 빈 객체다', () => {
+    expect(loadConfig()).toEqual({});
+  });
+
+  it('경로에 읽을 수 없는 것이 있어도 던지지 않는다 — 허브가 죽으면 안 된다', () => {
+    mkdirSync(configPath(), { recursive: true }); // 파일 자리에 디렉터리
+    expect(() => loadConfig()).not.toThrow();
     expect(loadConfig()).toEqual({});
   });
 });
@@ -105,7 +108,8 @@ describe('loadOrCreateIngestKey', () => {
   });
 
   it('저장 못 하면 ephemeral로 알린다 — 조용히 바뀌면 배포된 앱이 이유 없이 끊긴다', () => {
-    chmodSync(dir, 0o500); // 읽기·실행만 — 쓰기 불가
+    // 설정 파일 자리를 디렉터리로 막아 쓰기를 실패시킨다 (chmod는 Windows에서 무효 — 실측)
+    mkdirSync(configPath(), { recursive: true });
     const result = loadOrCreateIngestKey();
     expect(result.key).toMatch(/^[0-9a-f]{16}$/); // 허브는 계속 뜬다
     expect(result.ephemeral).toBe(true);

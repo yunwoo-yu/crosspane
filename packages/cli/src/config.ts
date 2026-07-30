@@ -104,11 +104,11 @@ export interface IngestKeyResult {
  * (조용히 바뀌면 배포된 앱이 이유 없이 끊긴 것처럼 보인다).
  */
 export function loadOrCreateIngestKey(): IngestKeyResult {
+  // 읽기 실패도 "저장된 키 없음"으로 본다. 경로에 디렉터리가 있거나 권한이 없으면
+  // readFileSync가 던지는데, 그것으로 허브가 죽으면 안 된다(테스트에서 실제로 잡혔다)
+  const stored = loadConfig().ingestKey;
+  if (stored !== undefined) return { key: stored, created: false, ephemeral: false };
   const path = configPath();
-  if (existsSync(path)) {
-    const stored = parseConfig(readFileSync(path, 'utf-8')).ingestKey;
-    if (stored !== undefined) return { key: stored, created: false, ephemeral: false };
-  }
 
   const key = randomBytes(8).toString('hex');
   try {
