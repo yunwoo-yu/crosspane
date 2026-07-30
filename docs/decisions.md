@@ -330,8 +330,28 @@ Measured in a real browser, from `https://example.com`:
 That table decides the design. There is no in-page workaround (`img`, `iframe` and `fetch`
 are all subject to the same rule), and `localhost` gets no carve-out — which was worth
 checking, because a carve-out would have made `adb reverse` a complete answer on Android.
-So the requirement is exactly: reachable over `wss://`, with a certificate the device
-already trusts.
+
+**A second measurement narrows it further, and rules out a whole family of ideas.** A page
+served from the public internet cannot reach a private address *at all* — not a certificate
+problem, and not mixed content:
+
+| from `https://example.com` | result |
+| --- | --- |
+| `wss://` to a LAN address with a valid Let's Encrypt certificate | request never leaves the browser; the server logs nothing |
+| `wss://` to a public endpoint | opens |
+| the same LAN address, from a page on that LAN | opens |
+
+The certificate was real: `*.local-ip.sh` is a Let's Encrypt wildcard whose private key is
+published precisely so anyone can serve TLS on a private IP, and `openssl verify` passed
+against the system store. It made no difference. Browsers block public→private before the
+network layer.
+
+So "get a publicly trusted certificate for your LAN IP" — an appealing idea, since it needs
+no install and no account — cannot work for a deployed page, and neither can putting `wss://`
+into the build. **For a deployed page the receiver must be public.** The only shapes are a
+tunnel, a hub you deployed, or your own server holding the logs; there is no fourth.
+`--tls-cert` therefore serves a hub the page can actually reach: the same internal network,
+or a public address.
 
 crosspane therefore does not try to supply a certificate. It accepts one (`--tls-cert` /
 `--tls-key`, which switches the hub to https/wss) and it can advertise an address other
