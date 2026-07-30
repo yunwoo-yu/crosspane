@@ -1,5 +1,12 @@
 # @crosspane/agent
 
+## 0.6.3
+
+### Patch Changes
+
+- Updated dependencies [462e3cf]
+  - @crosspane/protocol@0.5.0
+
 ## 0.6.2
 
 ### Patch Changes
