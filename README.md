@@ -129,6 +129,19 @@ staging URL from streaming every visitor's session. It only works where you cont
 If you omit `serverUrl` where you can't add the parameter, nothing streams and there is no way
 to see why from inside the webview. Check `agent.live` if you're unsure which state you're in.
 
+**One shared build, one tester?** An address in the env var means every install streams to your
+hub. Gate it on your own account instead — the app already knows who is logged in, and this
+needs no address bar:
+
+```ts
+initCrosspane({
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,
+  enabled: () => user.isQA,          // or user.email === 'you@example.com'
+})
+```
+
+`enabled: false` installs no hooks at all, so everyone else's app is untouched.
+
 The link only ever carries "on": the destination comes from the build, never from the URL, so a
 link can't redirect anyone's logs somewhere else.
 
