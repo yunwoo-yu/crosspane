@@ -1,8 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { NetworkPanel } from '../src/components/NetworkPanel';
 import { MAX_NETWORK_ENTRIES } from '../src/constants';
 import type { NetworkEntry, SessionMeta } from '../src/types';
+import { fireEvent, render, screen } from './render';
 
 /**
  * 필터 로직 자체는 `network-utils`에서 검증한다. 여기서는 배선과 표시 계약:

@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react';
 import { MAX_NETWORK_ENTRIES } from '../constants';
+import { useLocale } from '../hooks/useLocale';
 import { toDisplayPath } from '../log-utils';
 import { filterNetworkEntries, formatDuration, statusTone } from '../network-utils';
 import type { NetworkEntry, SessionMeta } from '../types';
@@ -19,6 +20,7 @@ const TONE_CLASS = {
 
 /** 세션의 네트워크 타임라인 — 실패(status 0)와 4xx/5xx를 눈에 띄게 */
 export function NetworkPanel({ entries, sessions }: NetworkPanelProps) {
+  const { t } = useLocale();
   const [xhrOnly, setXhrOnly] = useState(true);
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [search, setSearch] = useState('');
@@ -42,40 +44,38 @@ export function NetworkPanel({ entries, sessions }: NetworkPanelProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-line border-b px-4 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-line border-b px-4 py-2">
         <Input
-          className="max-w-56"
+          className="min-w-0 flex-1 sm:max-w-64"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Filter URLs"
-          aria-label="search requests"
+          placeholder={t.filterUrls}
+          aria-label={t.searchRequests}
         />
         <Button
           variant={xhrOnly ? 'active' : 'ghost'}
           size="icon"
           onClick={() => setXhrOnly((v) => !v)}
-          title="Hide static assets — show XHR/fetch only"
+          title={t.hideStaticAssets}
         >
-          XHR/fetch
+          {t.xhrFetchOnly}
         </Button>
         <Button
           variant={errorsOnly ? 'active' : 'ghost'}
           size="icon"
           onClick={() => setErrorsOnly((v) => !v)}
-          title="Only failed requests (network error, 4xx, 5xx)"
+          title={t.onlyFailed}
         >
-          errors
+          {t.errorsOnly}
         </Button>
         <span className="ml-auto text-[11px] text-fg-muted">
           {/* 숨긴 건수를 밝힌다 — 조용히 자르면 "이게 전부"로 오도한다 */}
-          {hiddenCount > 0
-            ? `${rows.length} of ${matching.length.toLocaleString()} requests (filter to narrow)`
-            : `${rows.length} requests`}
+          {t.requestCount(rows.length, hiddenCount > 0 ? matching.length.toLocaleString() : null)}
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto font-mono text-xs">
         {rows.length === 0 ? (
-          <div className="px-4 py-6 text-fg-muted">No requests yet — interact with the page</div>
+          <div className="px-4 py-6 text-fg-muted">{t.noRequests}</div>
         ) : (
           <table className="w-full border-collapse">
             <tbody>

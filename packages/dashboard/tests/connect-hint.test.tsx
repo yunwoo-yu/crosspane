@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConnectHint } from '../src/components/ConnectHint';
+import { render, screen, waitFor } from './render';
 
 /**
  * 이 컴포넌트는 온보딩의 마지막 한 걸음이다 — serverUrl을 잘못 적으면 세션이 아무데도

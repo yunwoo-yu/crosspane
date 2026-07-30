@@ -122,6 +122,29 @@ describe('startHubServer', () => {
     });
   });
 
+  it('세션이 붙고 끊길 때 알린다 — 대시보드를 열지 않아도 알 수 있어야 한다', async () => {
+    const events: string[] = [];
+    server = await startHubServer({
+      port: 0,
+      onSessionChange: ({ kind, session }) =>
+        events.push(`${kind}:${session.label}:${session.url}`),
+    });
+    const agent = await connectAgent(server.port);
+    sockets.push(agent);
+    agent.send(
+      JSON.stringify({
+        type: 'register',
+        session: { ...meta('s-1', '결제 웹뷰'), url: 'https://shop.test/checkout' },
+      }),
+    );
+    await waitFor(() => events.length === 1, 'joined');
+    expect(events[0]).toBe('joined:결제 웹뷰:https://shop.test/checkout');
+
+    agent.close();
+    await waitFor(() => events.length === 2, 'left');
+    expect(events[1]).toContain('left:결제 웹뷰');
+  });
+
   it('재생이 끝나면 history-complete를 보낸다 — 접속당 한 번', async () => {
     server = await startHubServer({ port: 0 });
     const agent = await connectAgent(server.port);
@@ -386,6 +409,17 @@ describe('startHubServer', () => {
 });
 
 describe('agentUrls', () => {
+  it('--lan-tls면 인증서가 덮는 이름으로 안내한다 — LAN IP는 이름이 안 맞아 조용히 실패한다', () => {
+    expect(
+      agentUrls({
+        port: 7788,
+        exposed: true,
+        scheme: 'https',
+        tlsHostname: '10-0-0-2.local-ip.sh',
+      }),
+    ).toEqual(['https://10-0-0-2.local-ip.sh:7788']);
+  });
+
   it('노출되지 않았으면 localhost만 안내한다', () => {
     expect(agentUrls({ port: 7788, exposed: false, scheme: 'http' })).toEqual([
       'http://localhost:7788',

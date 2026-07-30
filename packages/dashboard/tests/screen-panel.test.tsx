@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ScreenPanel } from '../src/components/ScreenPanel';
+import { render, screen } from './render';
 
 /**
  * 플레이어 자체는 jsdom에서 동작하지 않는다 (동적 import + 실제 렌더링).
