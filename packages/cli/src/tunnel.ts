@@ -187,6 +187,11 @@ export interface NamedTunnelOptions {
   command?: string;
   /** 로그인 자격이 있는지. 기본은 `~/.cloudflared/cert.pem` 존재 여부 */
   loggedIn?: () => boolean;
+  /**
+   * 인자 변형 (테스트 전용). 대역 실행 파일에 스크립트 경로를 앞에 붙이기 위해 존재한다 —
+   * 셸 스크립트를 대역으로 쓰면 Windows에서 실행되지 않는다(실측).
+   */
+  wrapArgs?: (args: string[]) => string[];
 }
 
 /**
@@ -209,9 +214,10 @@ export async function startNamedTunnel(options: NamedTunnelOptions): Promise<Tun
   }
 
   const name = tunnelNameFor(options.hostname);
+  const wrap = options.wrapArgs ?? ((args: string[]) => args);
   const { setup, run } = namedTunnelSteps(name, options.hostname, options.port);
   for (const args of setup) {
-    const result = spawnSync(command, args, { encoding: 'utf-8' });
+    const result = spawnSync(command, wrap(args), { encoding: 'utf-8' });
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
     debugLog('tunnel', `${command} ${args.join(' ')} → ${result.status ?? 'error'}`);
     // 이미 준비된 상태는 성공이다 — 아니면 두 번째 실행부터 못 뜬다
@@ -222,7 +228,7 @@ export async function startNamedTunnel(options: NamedTunnelOptions): Promise<Tun
     }
   }
 
-  const child = spawn(command, run, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(command, wrap(run), { stdio: ['ignore', 'pipe', 'pipe'] });
   const url = `https://${options.hostname}`;
   // 주소는 우리가 정했으므로 출력에서 찾을 필요가 없다. 다만 즉시 죽는 경우는 알려야 한다
   await new Promise<void>((resolve, reject) => {
