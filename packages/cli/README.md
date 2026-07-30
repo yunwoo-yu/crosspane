@@ -81,15 +81,12 @@ requests and navigations show up in the dashboard — or in the exported file.
 
 The only thing that differs between localhost, a phone on your Wi-Fi, a deployed staging URL and
 production is **how the page reaches your hub**. Give it one address that works from all of them
-and there is nothing else to vary:
+and there is nothing else to vary.
 
 ```ts
-import { initCrosspane, isDebugActivated } from '@crosspane/agent'
-
 initCrosspane({
   label: 'checkout webview',
   serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,  // Vite: import.meta.env.VITE_CROSSPANE_URL
-  enabled: isDebugActivated,
 })
 ```
 
@@ -97,13 +94,24 @@ initCrosspane({
 NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com
 ```
 
-That one value works from localhost, from a phone, from a deployed `http://` or `https://` page,
-and over cellular. You do not need different values per environment — the same one is fine
-everywhere, because sending sessions needs no credential while **reading** them needs a token that stays on
-your machine, and `enabled: isDebugActivated` decides which devices actually stream: a device opts in by
-opening the page once with `?__crosspane=on`, and nothing at all is installed for anyone else.
+Just the address, like any other base URL — nothing appended, and the same value is fine in every
+environment including production. Sending sessions needs no credential; **reading** them needs a
+token that never leaves your machine, which is why a page source anyone can read gives nothing
+away.
 
-Set the hub up once:
+For a hub reachable from anywhere, one command does it:
+
+```bash
+crosspane --tunnel --write-env
+```
+
+That starts a tunnel with your installed `cloudflared` or `ngrok`, advertises its address, and
+writes it into `.env.local` for you — so during local and on-device development there is nothing
+to copy at all. Stop the hub and the tunnel and the env entry go with it. Session logs transit the
+tunnel provider, which is why it's an explicit flag; crosspane never downloads a binary for you.
+
+For a **deployed** app the address goes into your deployment config, so you want one that doesn't
+change. A named `cloudflared` tunnel on a domain you already own is free and permanent:
 
 ```bash
 cloudflared tunnel login
@@ -111,43 +119,57 @@ cloudflared tunnel create crosspane
 cloudflared tunnel route dns crosspane crosspane.example.com
 cloudflared tunnel run --url http://localhost:7788 crosspane
 
-crosspane --public-url https://crosspane.example.com   # once — remembered from here on
+crosspane --public-url https://crosspane.example.com    # once — remembered from here on
 ```
 
-After that, day to day, it's `crosspane` plus the tunnel. The address is stored in
-`~/.crosspane/config.json`, so the value in your app is just the address — nothing appended, and
-nothing to update later. (The read token the dashboard uses rotates every restart. That one *is*
-sensitive and never belongs in an app, which is exactly why it isn't in the address.)
+After that it's `crosspane`, and the address you pasted once stays valid.
 
-Anyone who knows the address can send junk sessions to your hub — they cannot read yours. If that
-matters for a hub that's long-lived and shared, `--ingest-key <key>` requires a `?k=` from senders
-too, at the cost of carrying it in your app's env var.
+### Who actually streams
 
-Two things worth knowing rather than configuring:
+By default every install with that address streams. That's what you want in a dev or QA build. If
+the same build reaches people you don't want sending you logs, gate it on something your app
+already knows — with `enabled: false` the agent installs **no hooks at all**:
 
-- **On `localhost` you can skip all of it.** With no `serverUrl` and no env var, the agent finds a
-  hub on `http://localhost:7788` by itself — handy before you have a tunnel.
-- **In a webview the app opens itself there is no address bar**, so `?__crosspane=on` can't be
-  typed. Gate on something the app already knows instead: `enabled: () => user.isQA`.
+```ts
+initCrosspane({ serverUrl: HUB, enabled: () => user.isQA })
+```
+
+A feature flag, an internal-account check, a toggle in a hidden debug menu — anything. This is the
+right gate for **a webview the app opens itself**, which is most of what this tool is for: there's
+no address bar in one, so nothing URL-based can work there.
+
+If the page has no user model at all (a static site, a kiosk), `isDebugActivated` gates on a link
+instead — open the page once with `?__crosspane=on` and that device streams until
+`?__crosspane=off`:
+
+```ts
+import { initCrosspane, isDebugActivated } from '@crosspane/agent'
+initCrosspane({ serverUrl: HUB, enabled: isDebugActivated })
+```
+
+`agent.live` tells you which state you ended up in.
 
 <details>
-<summary>If you can't run a tunnel</summary>
+<summary>If you can't route logs through a tunnel</summary>
 
-A tunnel is one command but it does route session logs through a third party, which some teams
-can't accept. Any of these replaces it, and the app-side code above does not change — only the
-address it points at:
+A tunnel is one flag but it does send session logs through a third party, which some teams can't
+accept. Any of these replaces it, and the app-side code above does not change — only the address:
 
 | | how | trade-off |
 |---|---|---|
 | **A team hub** | run the hub on real infrastructure with a normal certificate | nothing transits anyone else; needs somewhere to run it |
 | **Your own certificate** | `crosspane --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem` | nothing leaves your network; needs a corporate CA already on your devices, or a public certificate for a name resolving to your LAN IP |
 | **Reverse proxy on your origin** | `crosspane --public-url https://staging.example.com/__crosspane`, and point that path at the hub | same origin, no third party; needs one route in your app server, forwarding the WebSocket upgrade |
-| **Plain HTTP on your LAN** | `crosspane --host 0.0.0.0 --write-env` writes the LAN address and key into `.env.local` for you | simplest of all, but an `https://` page can't use it — browsers block plain `ws://` from a secure origin, and there is no way around that |
+| **Plain HTTP on your LAN** | `crosspane --host 0.0.0.0 --write-env` | simplest, but an `https://` page can't use it — browsers block plain `ws://` from a secure origin, with no way around it |
 | **No network at all** | `agent.copyCapture()` | unaffected by addresses, certificates and origins; the main path on a locked-down build |
 
 A **self-signed certificate does not work** in app webviews: since Android 7, apps don't trust
 user-installed CAs, so no amount of installing helps. That's why crosspane accepts a certificate
 but never generates one.
+
+Anyone who knows your hub's address can send junk sessions to it — never read one. If that matters
+for a hub that's long-lived and shared, `--ingest-key <key>` requires a `?k=` from senders too, at
+the cost of carrying it in your env var.
 
 </details>
 

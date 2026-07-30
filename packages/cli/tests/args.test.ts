@@ -14,7 +14,8 @@ describe('parseCliArguments', () => {
       tlsCert: undefined,
       tlsKey: undefined,
       publicUrl: undefined,
-      ingestKey: undefined, // 기본은 재시작마다 새 값 — 고정은 옵트인
+      ingestKey: undefined, // 옵트인 — 기본은 주소만으로 보낼 수 있다
+      tunnel: false, // 제3자를 거치는 일은 명시적 옵트인이어야 한다
     });
   });
 
@@ -67,6 +68,11 @@ describe('parseCliArguments', () => {
   it('--public-url은 http(s)만 받는다 — 에이전트가 이 값으로 WS 주소를 만든다', () => {
     expect(() => parseCliArguments(['--public-url', 'wss://a.example'])).toThrow(/must be http/);
     expect(() => parseCliArguments(['--public-url', 'not a url'])).toThrow(/Invalid value/);
+  });
+
+  it('--tunnel은 플래그다 (값 없음)', () => {
+    expect(parseCliArguments(['--tunnel']).tunnel).toBe(true);
+    expect(parseCliArguments([]).tunnel).toBe(false);
   });
 
   it('--ingest-key로 키를 고정할 수 있다 — 배포된 앱의 주소가 계속 유효해야 한다', () => {

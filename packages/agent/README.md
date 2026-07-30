@@ -104,18 +104,14 @@ initCrosspane(options?: {
 | `agent.enabled` | `false` when gated off |
 | `agent.live` | `true` if streaming to a hub; `false` means offline capture only |
 
-## One setup for every environment
+## Where the hub address comes from
 
-Point it at one address that is reachable from everywhere, and nothing else varies between
-localhost, a phone, a deployed page and production:
+One address, and nothing varies between localhost, a phone, a deployed page and production:
 
 ```ts
-import { initCrosspane, isDebugActivated } from '@crosspane/agent'
-
 initCrosspane({
   label: 'checkout webview',
   serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,  // Vite: import.meta.env.VITE_CROSSPANE_URL
-  enabled: isDebugActivated,
 })
 ```
 
@@ -123,26 +119,37 @@ initCrosspane({
 NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com
 ```
 
-The same value is fine in every environment, production included. Sending sessions needs no credential;
-**reading** them needs a token that never leaves your machine. So a page source anyone can read
-gives nothing away, and `enabled: isDebugActivated` means **no hooks are installed at all** until a
-device opts in by opening the page once with `?__crosspane=on` (`?__crosspane=off` clears it).
+Just the address, like any other base URL. The same value is fine in every environment including
+production: sending sessions needs no credential, while **reading** them needs a token that stays
+on the developer's machine. Run `crosspane --tunnel --write-env` and even this is filled in for you
+during local and on-device development.
 
-Run `crosspane --help` for how to get an address like that; a named `cloudflared` tunnel on a
-domain you already own is one command and free.
+On `localhost` you can omit it entirely — the agent looks for a hub on `http://localhost:7788` by
+itself. Unset and not on localhost means offline capture only; the agent never guesses.
 
-Two things worth knowing rather than configuring:
+## Who actually streams
 
-- **On `localhost` you can skip the env var.** With no address at all the agent looks for a hub on
-  `http://localhost:7788` by itself.
-- **A webview the app opens itself has no address bar**, so `?__crosspane=on` can't be typed there.
-  Gate on something the app already knows: `enabled: () => user.isQA`.
-- **`agent.copyCapture()` always works** — no address, certificate or origin involved. That is the
-  path for a build that can't reach anything.
+Every install with that address streams, which is what you want in a dev or QA build. If the same
+build reaches people you don't want sending you logs, gate on something the app already knows —
+with `enabled: false` the agent installs **no hooks at all**:
 
-If you skip `enabled`, every device with that build streams; if you skip `serverUrl` on a deployed
-page, the env var is read instead but then a device also has to opt in. `agent.live` tells you
-which state you ended up in.
+```ts
+initCrosspane({ serverUrl: HUB, enabled: () => user.isQA })
+```
+
+That is the right gate for **a webview the app opens itself**: there is no address bar in one, so
+nothing URL-based can work there.
+
+For a page with no user model (a static site, a kiosk), `isDebugActivated` gates on a link instead
+— open it once with `?__crosspane=on`, clear with `?__crosspane=off`:
+
+```ts
+import { initCrosspane, isDebugActivated } from '@crosspane/agent'
+initCrosspane({ serverUrl: HUB, enabled: isDebugActivated })
+```
+
+`agent.live` tells you which state you ended up in. `agent.copyCapture()` works regardless — no
+address, certificate or origin involved.
 
 ## Notes
 
