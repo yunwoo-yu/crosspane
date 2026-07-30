@@ -386,7 +386,11 @@ describe('성능 지표', () => {
     return instance.capture().events.filter((event) => event.type === 'vital');
   }
 
-  function stubVitalObserver(byType: Record<string, Partial<PerformanceEntry>[]>) {
+  /**
+   * 엔트리 모양이 지표마다 다르다 (layout-shift의 value/hadRecentInput, event의 duration…).
+   * `Partial<PerformanceEntry>`로 좁히면 그 필드들이 타입에 없다 — 스텁은 넓게 받는다.
+   */
+  function stubVitalObserver(byType: Record<string, Record<string, unknown>[]>) {
     class StubObserver {
       constructor(private readonly callback: (list: { getEntries: () => unknown[] }) => void) {}
       observe({ type }: { type: string }) {
@@ -403,7 +407,7 @@ describe('성능 지표', () => {
   it('LCP·CLS·longtask를 기록하고 나쁜 값만 눈에 띄게 한다', () => {
     stubVitalObserver({
       'largest-contentful-paint': [{ startTime: 3200 }],
-      'layout-shift': [{ ...{ value: 0.25, hadRecentInput: false } }],
+      'layout-shift': [{ value: 0.25, hadRecentInput: false }],
       longtask: [{ duration: 120 }],
     });
     agent = initCrosspane({ label: 'probe' });
@@ -415,14 +419,14 @@ describe('성능 지표', () => {
   });
 
   it('사용자 입력 직후의 레이아웃 이동은 세지 않는다 — CLS의 정의가 그렇다', () => {
-    stubVitalObserver({ 'layout-shift': [{ ...{ value: 0.5, hadRecentInput: true } }] });
+    stubVitalObserver({ 'layout-shift': [{ value: 0.5, hadRecentInput: true }] });
     agent = initCrosspane({ label: 'probe' });
 
     expect(vitals(agent)).toHaveLength(0);
   });
 
   it('빠른 상호작용은 보내지 않는다 — 전부 보내면 회선을 잠식한다', () => {
-    stubVitalObserver({ event: [{ ...{ duration: 40, name: 'click' } }] });
+    stubVitalObserver({ event: [{ duration: 40, name: 'click' }] });
     agent = initCrosspane({ label: 'probe' });
 
     expect(vitals(agent)).toHaveLength(0);
