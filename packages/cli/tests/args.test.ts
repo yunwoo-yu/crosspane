@@ -16,6 +16,8 @@ describe('parseCliArguments', () => {
       publicUrl: undefined,
       ingestKey: undefined, // 옵트인 — 기본은 주소만으로 보낼 수 있다
       tunnel: false, // 제3자를 거치는 일은 명시적 옵트인이어야 한다
+      lanTls: false, // 남의 인증서를 받아 쓰는 것도 옵트인이어야 한다
+      hostname: undefined,
     });
   });
 
@@ -70,9 +72,10 @@ describe('parseCliArguments', () => {
     expect(() => parseCliArguments(['--public-url', 'not a url'])).toThrow(/Invalid value/);
   });
 
-  it('--tunnel은 플래그다 (값 없음)', () => {
+  it('--tunnel / --lan-tls는 플래그다 (값 없음)', () => {
     expect(parseCliArguments(['--tunnel']).tunnel).toBe(true);
-    expect(parseCliArguments([]).tunnel).toBe(false);
+    expect(parseCliArguments(['--lan-tls']).lanTls).toBe(true);
+    expect(parseCliArguments([])).toMatchObject({ tunnel: false, lanTls: false });
   });
 
   it('--ingest-key로 키를 고정할 수 있다 — 배포된 앱의 주소가 계속 유효해야 한다', () => {
