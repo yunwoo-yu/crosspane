@@ -59,70 +59,48 @@ Options:
   -h, --help           Show this help
   -v, --version        Print the crosspane version
 
-Add the agent to your app (dev/QA builds) — no address needed:
-  import { initCrosspane } from '@crosspane/agent'
-  initCrosspane({ label: 'checkout webview' })
+One setup for every environment:
+  npm install @crosspane/agent
 
-  On localhost it finds the hub by itself. For other environments it is an ordinary env
-  var, like any API URL — set NEXT_PUBLIC_CROSSPANE_URL (or VITE_/PUBLIC_/REACT_APP_)
-  per environment and leave it out of production; the agent reads it with no extra code.
-  --write-env below exists only for the case a static value can't cover: a hub on your
-  laptop plus a phone, where the LAN address and token change every restart.
+    import { initCrosspane, isDebugActivated } from '@crosspane/agent'
+    initCrosspane({
+      label: 'checkout webview',
+      serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,   // Vite: import.meta.env.VITE_...
+      enabled: isDebugActivated,
+    })
 
-  Pass serverUrl explicitly for a webview the app opens itself — there is no address bar
-  in one, so the per-device opt-in link (?__crosspane=on) cannot be used there. That link
-  is for pages you open by URL: an in-app browser reached from a chat message or a QR code.
-  Offline capture works everywhere regardless — see agent.copyCapture().
+  One address, reachable from everywhere, and nothing varies between localhost, a phone, a
+  deployed page and production. The same value is fine in every environment: the ?k= key in it
+  is write-only (it can send sessions here, never read one), and enabled: isDebugActivated means
+  nothing is installed until a device opens the page once with ?__crosspane=on.
 
-Debugging an https:// page (staging, or anything already deployed):
-  This is about where you run the hub; the app still just reads its env var.
-  A secure page cannot open a plain ws:// connection — that is a browser rule with no
-  workaround, so the hub has to be reachable over wss://. If your team already runs a hub
-  at a fixed https:// address, put that in your env file and ignore the rest of this.
-  Otherwise, to make your own hub reachable:
-
-  1. Tunnel (works on any network, including cellular; no certificate of your own)
-       cloudflared tunnel --url http://localhost:7788      # prints https://<id>.trycloudflare.com
-       crosspane --public-url https://<id>.trycloudflare.com --write-env
-     Session logs pass through the tunnel provider — use it only where that is acceptable.
-
-  2. A certificate the device already trusts (nothing leaves your network)
-       crosspane --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem --write-env
-     Works with a corporate CA that is already on your managed devices, or a publicly
-     trusted certificate for a name that resolves to your LAN IP.
-     A self-signed certificate does NOT work in app webviews: since Android 7 apps do not
-     trust user-installed CAs, so no amount of installing helps.
-
-  3. Reverse-proxy the hub through the staging origin itself (same origin, no mixed content)
-       crosspane --public-url https://staging.example.com/__crosspane --write-env
-     Point that path at the hub from your app server; nothing goes to a third party.
-
-  4. No infrastructure at all: skip live mode and use agent.copyCapture(), which needs
-     no network and is unaffected by any of the above.
-
-Keeping a deployed app's address valid:
-  Nothing to create, copy or keep in sync. The hub generates the ingest key on first run and
-  remembers both it and --public-url in ~/.crosspane/config.json.
-
-  One-time setup, if you want a hostname that survives restarts (a *quick* tunnel picks a new
-  one each run). A named cloudflared tunnel on a domain you already own is free:
+  Get an address like that once — a named cloudflared tunnel on a domain you own is free:
        cloudflared tunnel login
        cloudflared tunnel create crosspane
        cloudflared tunnel route dns crosspane crosspane.example.com
        cloudflared tunnel run --url http://localhost:7788 crosspane
        crosspane --public-url https://crosspane.example.com     # once; remembered
-  Tailscale Funnel works too (a fixed *.ts.net name), and a team hub on real infrastructure
-  needs none of this.
 
-  From then on it is just:
-       crosspane
-  and the one address you pasted into your deployment config stays valid. That paste is the
-  only manual step left: a deployed app can only learn the address from its own build or
-  server config, and a link cannot carry it (a crafted link would redirect someone's logs).
-  It is the same one-time paste as a Sentry DSN.
+  From then on: crosspane. The address and key live in ~/.crosspane/config.json, so what you
+  put in your app stays valid. Pasting it into your deployment config once is the only manual
+  step, and it cannot be avoided: a deployed app learns the address from its own build or server
+  config, and a link must not carry it (a crafted link would redirect someone else's logs).
 
-  Anyone who sees the key can send junk sessions to your hub but cannot read any. Rotate it
-  by deleting ~/.crosspane/config.json (then update the app's address).
+  Shortcuts, not separate setups:
+    - On localhost, omit everything: the agent finds http://localhost:7788 by itself.
+    - A webview the app opens itself has no address bar, so ?__crosspane=on cannot be typed —
+      gate on what the app knows instead: enabled: () => user.isQA
+    - agent.copyCapture() needs no network, certificate or origin at all.
+
+  Can't route logs through a tunnel? Any of these replaces it and the app code above is
+  unchanged — only the address differs:
+    - a team hub on your own infrastructure with a normal certificate
+    - your own certificate: --tls-cert / --tls-key (a corporate CA already on your devices, or a
+      public certificate for a name resolving to your LAN IP). A self-signed one does NOT work in
+      app webviews: since Android 7 apps do not trust user-installed CAs
+    - a reverse proxy on your own origin: --public-url https://staging.example.com/__crosspane
+    - plain HTTP on your LAN: --host 0.0.0.0 --write-env writes the address into .env.local for
+      you. Simplest, but an https:// page cannot use it — browsers block plain ws:// there
 
 MCP mode (crosspane mcp):
   Exposes the running hub's sessions to a coding agent over stdio, so it can ask

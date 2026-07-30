@@ -104,79 +104,45 @@ initCrosspane(options?: {
 | `agent.enabled` | `false` when gated off |
 | `agent.live` | `true` if streaming to a hub; `false` means offline capture only |
 
-## Where the hub address comes from
+## One setup for every environment
 
-On `localhost` you don't configure anything. Everywhere else it's an ordinary env var, the
-same way you configure an API URL:
-
-```ts
-initCrosspane({
-  label: 'checkout webview',
-  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,  // Vite: import.meta.env.VITE_CROSSPANE_URL
-})
-```
-
-```
-.env.development   NEXT_PUBLIC_CROSSPANE_URL=http://localhost:7788
-.env.staging       NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.staging.example.com
-.env.production    (leave it out)
-```
-
-Unset means offline capture only — the agent never guesses an address. You can also omit
-`serverUrl` and let the agent read those variable names itself
-(`NEXT_PUBLIC_`/`VITE_`/`PUBLIC_`/`REACT_APP_`).
-
-Full resolution order, if you need the details:
-
-| Page is on | Live mode connects to |
-|---|---|
-| `localhost` | `http://localhost:7788` automatically, or the configured address if there is one |
-| any other host, `serverUrl` passed | that address |
-| any other host, address only from env | it — but **only** on devices activated with `?__crosspane=on` |
-| anywhere, no address | nothing; the ring buffer still records for offline capture |
-
-Auto-connect requires the page itself to be on loopback, so a build that reaches real users
-never contacts a hub. The activation gate applies to env-derived addresses because CI places
-those and they can survive into a production build; an explicit `serverUrl` is a deliberate
-act and skips it.
-
-**In a webview the app opens itself there is no address bar, so `?__crosspane=on` cannot be
-typed — pass `serverUrl` explicitly there.** The activation link is for pages you open by URL:
-an in-app browser reached from a chat message or QR code, or a phone browser. Omitting
-`serverUrl` where you can't add the parameter means nothing streams, with no way to see why
-from inside the webview; `agent.live` is the only signal.
-
-The address you configure carries a **write-only ingest key** — it can send sessions to the hub
-but not read any — so it is safe in a page whose source every visitor can read. That is what
-makes debugging a production page possible; reading sessions needs a separate token that stays
-on the developer's machine.
-
-To keep one shared build from streaming everyone's session, gate `enabled` — with `false` the
-agent installs **no hooks at all**, so other people's app is untouched:
+Point it at one address that is reachable from everywhere, and nothing else varies between
+localhost, a phone, a deployed page and production:
 
 ```ts
 import { initCrosspane, isDebugActivated } from '@crosspane/agent'
 
-// only devices that opened ?__crosspane=on — nothing is installed for anyone else
-initCrosspane({ serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL, enabled: isDebugActivated })
-
-// or gate on the account the app already knows (works with no address bar)
-initCrosspane({ serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL, enabled: () => user.isQA })
-
-// or both
-initCrosspane({ serverUrl, enabled: () => isDebugActivated() && user.isQA })
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,  // Vite: import.meta.env.VITE_CROSSPANE_URL
+  enabled: isDebugActivated,
+})
 ```
 
-`isDebugActivated()` is the same check the agent uses internally, exported so you don't
-reimplement the parameter/storage handling in every app.
+```
+NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com/?k=<key>
+```
 
-A hub on your own laptop plus a phone is the one case a static value can't cover — the LAN
-address and token change every restart. `crosspane --host 0.0.0.0 --write-env` writes them
-into `.env.local` and removes them when the hub stops.
+The same value is fine in every environment, production included. The key in it is **write-only**
+— it can send sessions to the hub but never read one — so a page source anyone can read gives
+nothing away, and `enabled: isDebugActivated` means **no hooks are installed at all** until a
+device opts in by opening the page once with `?__crosspane=on` (`?__crosspane=off` clears it).
 
-From an `https://` page the hub must be reachable over `wss://` with a certificate the device
-trusts — see "Debugging an `https://` page" in the
-[crosspane README](https://github.com/yunwoo-yu/crosspane#debugging-an-https-page).
+Run `crosspane --help` for how to get an address like that; a named `cloudflared` tunnel on a
+domain you already own is one command and free.
+
+Two things worth knowing rather than configuring:
+
+- **On `localhost` you can skip the env var.** With no address at all the agent looks for a hub on
+  `http://localhost:7788` by itself.
+- **A webview the app opens itself has no address bar**, so `?__crosspane=on` can't be typed there.
+  Gate on something the app already knows: `enabled: () => user.isQA`.
+- **`agent.copyCapture()` always works** — no address, certificate or origin involved. That is the
+  path for a build that can't reach anything.
+
+If you skip `enabled`, every device with that build streams; if you skip `serverUrl` on a deployed
+page, the env var is read instead but then a device also has to opt in. `agent.live` tells you
+which state you ended up in.
 
 ## Notes
 
