@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
+import { configPath, loadConfig, loadOrCreateIngestKey, saveConfigValue } from './config.js';
 import { setVerbose } from './debug.js';
 import { clearEnvFile, writeEnvFile } from './env-file.js';
 import { startMcpServer } from './mcp/index.js';
@@ -28,6 +29,26 @@ async function main(): Promise<void> {
   const options = parseCliArguments(argv);
   setVerbose(options.verbose || process.env.CROSSPANE_VERBOSE === '1');
 
+  /**
+   * 고정 터널 주소는 한 번 주면 기억한다 — 매 기동마다 다시 타이핑하게 만들면 결국
+   * 셸 프로파일에 export를 넣게 되고, 그건 사용자가 관리할 값을 늘리는 것이다.
+   * 우선순위: 플래그·환경변수 > 저장값. `--public-url ''`로 지울 수 있다.
+   */
+  const savedPublicUrl = loadConfig().publicUrl;
+  // `--public-url ''`는 저장된 값을 지운다 (터널을 그만 쓸 때)
+  const cleared = options.publicUrl === '';
+  const publicUrl = cleared ? undefined : (options.publicUrl ?? savedPublicUrl);
+  const publicUrlIsNew =
+    options.publicUrl !== undefined &&
+    options.publicUrl !== '' &&
+    options.publicUrl !== savedPublicUrl;
+  if (publicUrlIsNew && options.publicUrl !== undefined) {
+    saveConfigValue('publicUrl', options.publicUrl);
+  } else if (cleared && savedPublicUrl !== undefined) {
+    saveConfigValue('publicUrl', '');
+    console.log('  forgot the saved --public-url');
+  }
+
   /** LAN 바인딩 여부 — 안내할 주소를 LAN IP로 할지 localhost로 할지 결정한다 */
   const exposed = options.host !== '127.0.0.1' && options.host !== 'localhost';
   /**
@@ -38,7 +59,7 @@ async function main(): Promise<void> {
    * 동안 `crosspane --public-url https://…`은 **토큰 없는 공개 허브**가 됐다 — 주소를 아는
    * 누구나 세션 로그를 읽고 가짜 세션을 주입할 수 있는 상태다.
    */
-  const reachableFromOutside = exposed || options.publicUrl !== undefined;
+  const reachableFromOutside = exposed || publicUrl !== undefined;
   /**
    * 외부에서 닿을 때만 토큰을 요구한다. 루프백 전용이면 OS가 이미 막아 주므로 토큰이
    * 마찰만 된다. `--no-auth`는 사내 테스트 자동화용 탈출구다(경고를 함께 찍는다).
@@ -53,7 +74,15 @@ async function main(): Promise<void> {
    * 읽기 토큰이 거기 있으면 누구나 세션 로그를 읽는다. 인제스트 키는 공개돼도 되고,
    * 최악이 남이 우리 허브에 쓰레기 세션을 넣는 것이다 — 그래서 프로덕션에 넣을 수 있다.
    */
-  const ingestKey = options.ingestKey ?? generatedIngestKey(reachableFromOutside, options.noAuth);
+  /**
+   * 인제스트 키는 **한 번 만들어 저장한다** — 매번 새로 만들면 배포된 앱의 주소가 상해서
+   * 허브 재시작마다 재배포해야 한다(`config.ts`). 명시한 값이 항상 이긴다(팀 허브·CI).
+   */
+  const storedKey =
+    reachableFromOutside && !options.noAuth && options.ingestKey === undefined
+      ? loadOrCreateIngestKey()
+      : undefined;
+  const ingestKey = options.ingestKey ?? storedKey?.key;
   const tls = readTlsFiles(options.tlsCert, options.tlsKey);
   const server = await startHubServer({
     port: options.port,
@@ -61,7 +90,7 @@ async function main(): Promise<void> {
     authToken,
     ingestKey,
     tls,
-    publicUrl: options.publicUrl,
+    publicUrl,
     // 명시된 포트는 존중하고, 기본 포트는 사용 중이면 +1씩 폴백
     portAttempts: options.portExplicit ? 1 : 10,
   });
@@ -91,7 +120,7 @@ async function main(): Promise<void> {
     port: server.port,
     exposed,
     ingestKey,
-    publicUrl: options.publicUrl,
+    publicUrl,
     scheme,
   });
   if (reachableFromOutside) {
@@ -102,22 +131,26 @@ async function main(): Promise<void> {
       ingestKey
         ? '  the ?k= key in that URL is write-only: it can send sessions to this hub but not\n' +
             '  read any. That is why it is safe in a deployed page, where the address is visible\n' +
-            '  to every visitor. Reading needs the ?t= token above — keep that one off your pages.\n' +
-            '  Both change every restart.'
+            '  to every visitor. Reading needs the ?t= token above — keep that one off your pages,\n' +
+            '  and note it changes every restart while the ?k= key stays the same.'
         : '  ⚠ --no-auth: anyone who can reach this hub can read your session logs and inject sessions.',
     );
   } else {
     console.log('  local only — pass --host 0.0.0.0 to receive live agent sessions from devices');
   }
-  if (options.ingestKey !== undefined) {
+  if (storedKey?.created === true) {
     console.log(
-      '  using a fixed ingest key — the address in your app stays valid across restarts.\n' +
-        '  Pair it with a stable hostname and you never touch the deployed value again.',
+      storedKey.ephemeral
+        ? `  ⚠ could not save the ingest key to ${configPath()} — it will differ next restart,\n` +
+            "    so an address baked into a deployed app won't keep working. Fix the path, or\n" +
+            '    pass --ingest-key / CROSSPANE_INGEST_KEY yourself.'
+        : `  generated an ingest key and saved it to ${configPath()} — it is reused from now on,\n` +
+            '    so an address you put in a deployed app keeps working across restarts.',
     );
   }
-  if (options.publicUrl !== undefined) {
+  if (publicUrl !== undefined) {
     console.log(
-      `  advertising ${options.publicUrl} — make sure it actually forwards to this hub,\n` +
+      `  advertising ${publicUrl}${publicUrlIsNew ? ' (remembered — no flag needed next time)' : ''} — make sure it actually forwards to this hub,\n` +
         '  including the WebSocket upgrade on /agent and /ws.\n' +
         '  A tunnel reaches the whole internet, so the token above is what keeps the hub yours;\n' +
         '  session logs also transit the tunnel provider.',
@@ -160,17 +193,6 @@ async function main(): Promise<void> {
   };
   process.on('uncaughtException', onFatal('uncaughtException'));
   process.on('unhandledRejection', onFatal('unhandledRejection'));
-}
-
-/**
- * 인제스트 키를 만든다 — `--ingest-key`로 고정하지 않았을 때만.
- *
- * 기본이 매번 새 값인 이유는 안전한 기본값이지만, **고정할 수 있어야 한다**:
- * 배포된 앱의 주소가 이 키를 담으므로 키가 바뀌면 허브를 재시작할 때마다 앱을 다시
- * 배포해야 한다. 쓰기 전용이라 공개돼도 되는 값이므로 고정에 대가가 없다.
- */
-function generatedIngestKey(reachable: boolean, noAuth: boolean): string | undefined {
-  return reachable && !noAuth ? randomBytes(8).toString('hex') : undefined;
 }
 
 /**

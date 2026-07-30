@@ -176,33 +176,32 @@ A **self-signed certificate does not work** in app webviews: since Android 7, ap
 trust user-installed CAs, so no amount of installing helps. That's why crosspane accepts a
 certificate but never generates one.
 
-### Configure it once, then stop touching it
+### Keeping a deployed app's address valid
 
-The address your app holds has two moving parts, and by default **both** move: a quick tunnel
-picks a new hostname each run, and the ingest key is regenerated on every hub restart. That is
-what forces a redeploy every session. Pin both and the deployed value never changes again.
+**Nothing to create, copy, or keep in sync.** The hub generates the ingest key on first run and
+remembers it — along with `--public-url` — in `~/.crosspane/config.json`. (The read token still
+rotates each restart; that one *is* sensitive and never leaves your machine.)
+
+One-time setup, if you want a hostname that survives restarts — a *quick* tunnel picks a new one
+each run, while a named `cloudflared` tunnel on a domain you already own is free and permanent:
 
 ```bash
-# 1. a permanent hostname — a *named* tunnel on a domain you already own, free
 cloudflared tunnel login
 cloudflared tunnel create crosspane
 cloudflared tunnel route dns crosspane crosspane.example.com
 cloudflared tunnel run --url http://localhost:7788 crosspane
 
-# 2. a permanent key — write-only, so there is nothing to protect by rotating it
-export CROSSPANE_PUBLIC_URL=https://crosspane.example.com
-export CROSSPANE_INGEST_KEY=$(openssl rand -hex 8)   # once, then keep it
+crosspane --public-url https://crosspane.example.com    # once — remembered from now on
 ```
 
-Now `crosspane` takes no flags, and your app keeps one value forever:
+From then on it's just `crosspane`, and the address you pasted into your deployment config stays
+valid. **That paste is the only manual step left**, and it's irreducible: a deployed app can
+only learn the address from its own build or server config, and a link can't carry it — a
+crafted link would redirect someone else's logs. It's the same one-time paste as a Sentry DSN.
 
-```
-NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com/?k=<that key>
-```
-
-The read token still rotates every restart — that one *is* sensitive, and it never leaves your
-machine. Tailscale Funnel works as well for step 1 (a fixed `*.ts.net` name), and a team hub
-on real infrastructure needs neither step.
+Tailscale Funnel works too (a fixed `*.ts.net` name), and a team hub on real infrastructure
+needs none of this. To rotate the key, delete `~/.crosspane/config.json` and update the address
+in your app.
 
 ## What you get
 

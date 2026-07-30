@@ -43,11 +43,13 @@ Options:
   --tls-key <file>     Private key for --tls-cert
   --public-url <url>   Address to advertise instead of the LAN one, for when the hub sits
                        behind a tunnel or reverse proxy (e.g. https://xyz.trycloudflare.com).
-                       --write-env and the dashboard both use it.
-                       Defaults to $CROSSPANE_PUBLIC_URL
-  --ingest-key <key>   Use a fixed write-only key instead of a fresh one per restart.
-                       This is what stops you re-deploying your app every time the hub
-                       restarts — see "A setup you configure once" below.
+                       --write-env and the dashboard both use it. **Given once, remembered** —
+                       later runs need no flag. Pass an empty string to forget it.
+                       Also reads $CROSSPANE_PUBLIC_URL
+  --ingest-key <key>   Use this write-only key instead of the saved one. You normally do
+                       not need it: the hub generates a key on first run and reuses it from
+                       ~/.crosspane/config.json, so an address in a deployed app keeps
+                       working. Pass it for a shared team hub or CI.
                        Defaults to $CROSSPANE_INGEST_KEY
   --no-open            Don't open the dashboard in your browser automatically
   --no-auth            Disable the access token that --host adds. Only do this on a
@@ -98,29 +100,29 @@ Debugging an https:// page (staging, or anything already deployed):
   4. No infrastructure at all: skip live mode and use agent.copyCapture(), which needs
      no network and is unaffected by any of the above.
 
-A setup you configure once (no redeploy when the hub restarts):
-  Both halves of the address your app holds have to stop changing. By default the hostname
-  moves (a quick tunnel picks a new one) and the ingest key is regenerated per restart, so
-  the deployed value goes stale — that is the friction, and both halves are fixable.
+Keeping a deployed app's address valid:
+  Nothing to create, copy or keep in sync. The hub generates the ingest key on first run and
+  remembers both it and --public-url in ~/.crosspane/config.json.
 
-  1. A stable hostname. A quick tunnel gives you a random one; a *named* tunnel on a domain
-     you already own gives a permanent one, free:
+  One-time setup, if you want a hostname that survives restarts (a *quick* tunnel picks a new
+  one each run). A named cloudflared tunnel on a domain you already own is free:
        cloudflared tunnel login
        cloudflared tunnel create crosspane
        cloudflared tunnel route dns crosspane crosspane.example.com
        cloudflared tunnel run --url http://localhost:7788 crosspane
-     Tailscale Funnel is another stable option (a fixed *.ts.net name).
+       crosspane --public-url https://crosspane.example.com     # once; remembered
+  Tailscale Funnel works too (a fixed *.ts.net name), and a team hub on real infrastructure
+  needs none of this.
 
-  2. A stable key. Pick one and keep it — it is write-only, so there is nothing to protect
-     by rotating it:
-       export CROSSPANE_PUBLIC_URL=https://crosspane.example.com
-       export CROSSPANE_INGEST_KEY=$(openssl rand -hex 8)   # once, then keep it
+  From then on it is just:
+       crosspane
+  and the one address you pasted into your deployment config stays valid. That paste is the
+  only manual step left: a deployed app can only learn the address from its own build or
+  server config, and a link cannot carry it (a crafted link would redirect someone's logs).
+  It is the same one-time paste as a Sentry DSN.
 
-  Now crosspane needs no flags, and your app's env var never changes again:
-       NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com/?k=<that key>
-
-  Anyone who sees the key can send junk sessions to your hub but cannot read any; rotate it
-  by changing both places if that ever matters.
+  Anyone who sees the key can send junk sessions to your hub but cannot read any. Rotate it
+  by deleting ~/.crosspane/config.json (then update the app's address).
 
 MCP mode (crosspane mcp):
   Exposes the running hub's sessions to a coding agent over stdio, so it can ask
@@ -198,6 +200,8 @@ const VALUE_FLAGS = new Set([
  * http(s)가 아니면 조용히 연결 실패한다 — 여기서 끊는 편이 낫다.
  */
 function parsePublicUrl(value: string): string {
+  // 빈 문자열은 "저장된 값을 지운다"는 뜻이다 — 지우는 방법이 파일 편집뿐이면 안 된다
+  if (value === '') return '';
   let parsed: URL;
   try {
     parsed = new URL(value);
