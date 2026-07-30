@@ -19,6 +19,8 @@ export function installHooks(options: HookOptions): (() => void)[] {
   teardowns.push(hookFetch(options));
   teardowns.push(hookXhr(options));
   teardowns.push(hookNavigation(options));
+  // 마지막에 설치한다 — 위 훅들의 설치 시각을 기준으로 중복을 가르기 때문이다
+  teardowns.push(hookResourceTiming(options));
   return teardowns;
 }
 
@@ -203,4 +205,71 @@ function hookNavigation({ sessionId, emit }: HookOptions): () => void {
     history.replaceState = originalReplace;
     window.removeEventListener('popstate', emitNavigation);
   };
+}
+
+/**
+ * 브라우저가 이미 기록해 둔 리소스 타이밍으로 **훅이 못 보는 요청을 메운다.**
+ *
+ * 왜 필요한가 (실측): 훅은 `fetch`와 `XMLHttpRequest`만 가로챈다. 그래서 한 페이지에서
+ * 일어난 요청 8건 중 대시보드에 보인 것은 1건뿐이었다 — 이미지·CSS·동적 script·
+ * `sendBeacon`·`EventSource`가 통째로 빠지고, 무엇보다 **에이전트가 설치되기 전에 나간
+ * 요청**(앱 부팅 시 API 호출의 전형)이 사라졌다. 화면에 없으면 사용자는 "요청이 안 나갔다"로
+ * 읽는다 — 실제로는 우리가 못 본 것이다.
+ *
+ * `buffered: true`가 핵심이다: 관찰을 시작하기 **전에** 쌓인 엔트리까지 받아 온다.
+ * 그래서 init 이전 요청이 복구된다.
+ *
+ * 중복은 시각으로 가른다. 훅 설치 이후의 fetch/xhr은 훅이 더 정확하게(메서드·상태
+ * 코드·본문) 보고하므로 여기서는 건너뛴다. 그 이전 것은 훅이 볼 수 없었으므로 보고한다.
+ */
+function hookResourceTiming({ sessionId, emit }: HookOptions): () => void {
+  if (typeof PerformanceObserver !== 'function' || typeof performance === 'undefined') {
+    return () => undefined;
+  }
+  // performance.now() 기준 — 엔트리의 startTime과 같은 시간축이어야 비교가 성립한다
+  const installedAt = performance.now();
+
+  const report = (entries: PerformanceEntryList): void => {
+    for (const entry of entries) {
+      const resource = entry as PerformanceResourceTiming;
+      const kind = initiatorKind(resource.initiatorType);
+      // 훅이 이미 보고했을 요청은 건너뛴다 (훅 쪽이 상태 코드·메서드까지 안다)
+      if ((kind === 'fetch' || kind === 'xhr') && resource.startTime >= installedAt) continue;
+      // 우리 자신의 허브 통신은 보고하지 않는다 — 관찰이 관찰을 낳는다
+      if (resource.name.includes('/agent')) continue;
+      const status = resource.responseStatus;
+      emit({
+        type: 'network',
+        sessionId,
+        // 리소스 타이밍은 메서드를 주지 않는다. 브라우저가 이 방식으로 세는 것은
+        // 사실상 전부 GET이지만, 단정하지 않고 모른다고 말한다
+        method: kind === 'beacon' ? 'POST' : 'GET',
+        url: resource.name,
+        // 0은 "실패"로 읽히므로 모를 때는 아예 비운다 (프로토콜 주석 참조)
+        ...(typeof status === 'number' && status > 0 ? { status } : {}),
+        durationMs: Math.round(resource.duration),
+        initiator: kind,
+        observed: true,
+        ts: Date.now() - Math.round(performance.now() - resource.startTime),
+      });
+    }
+  };
+
+  const observer = new PerformanceObserver((list) => report(list.getEntries()));
+  try {
+    // buffered: 관찰 시작 전에 쌓인 것까지 — init 이전 요청을 되살리는 지점
+    observer.observe({ type: 'resource', buffered: true });
+  } catch {
+    // 이 타입을 모르는 브라우저 — 훅이 보는 것만으로 계속 동작한다
+    return () => undefined;
+  }
+  return () => observer.disconnect();
+}
+
+/** `PerformanceResourceTiming.initiatorType`을 화면에 쓸 이름으로 */
+function initiatorKind(initiatorType: string): string {
+  if (initiatorType === 'xmlhttprequest') return 'xhr';
+  if (initiatorType === 'link') return 'css';
+  // 'other'는 EventSource·동적 import 등 브라우저가 분류하지 않은 것들이다
+  return initiatorType || 'other';
 }

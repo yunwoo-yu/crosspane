@@ -243,3 +243,76 @@ describe('exportFile', () => {
     click.mockRestore();
   });
 });
+
+/**
+ * 리소스 타이밍 보강 — 훅이 못 보는 요청을 메운다.
+ *
+ * 이 동작이 조용히 깨지면 화면이 다시 "8건 중 1건"으로 돌아간다(실측 수치).
+ * 사용자에게는 요청이 **일어나지 않은 것처럼** 보이므로, 회귀를 반드시 잡아야 한다.
+ */
+describe('리소스 타이밍 보강', () => {
+  function stubObserver(entries: Partial<PerformanceResourceTiming>[]) {
+    class StubObserver {
+      constructor(private readonly callback: (list: { getEntries: () => unknown[] }) => void) {}
+      observe() {
+        // buffered: true 의미 — 관찰 시작 전에 쌓인 것을 즉시 넘긴다
+        this.callback({ getEntries: () => entries });
+      }
+      disconnect() {}
+    }
+    vi.stubGlobal('PerformanceObserver', StubObserver);
+  }
+
+  it('훅이 못 보는 요청을 메운다 — 이미지·CSS·beacon과 init 이전 요청', () => {
+    stubObserver([
+      { name: '/an-image.png', initiatorType: 'img', startTime: 0, duration: 12 },
+      { name: '/a-style.css', initiatorType: 'link', startTime: 1, duration: 8 },
+      { name: '/a-beacon', initiatorType: 'beacon', startTime: 2, duration: 1 },
+      // 에이전트가 설치되기 전에 나간 fetch — 훅은 이걸 볼 수 없었다
+      { name: '/early-fetch', initiatorType: 'fetch', startTime: 3, duration: 5 },
+    ]);
+    agent = initCrosspane({ label: 'probe' });
+
+    const seen = networkEvents(agent).map((event) => `${event.initiator} ${event.url}`);
+    expect(seen).toContain('img /an-image.png');
+    expect(seen).toContain('css /a-style.css');
+    expect(seen).toContain('beacon /a-beacon');
+    expect(seen).toContain('fetch /early-fetch');
+  });
+
+  it('훅 설치 이후의 fetch/xhr은 건너뛴다 — 훅 쪽이 더 정확하다', () => {
+    // startTime이 설치 시각보다 뒤면 훅이 이미 보고했다는 뜻이다
+    stubObserver([
+      { name: '/late-fetch', initiatorType: 'fetch', startTime: 1e9, duration: 3 },
+      { name: '/late-xhr', initiatorType: 'xmlhttprequest', startTime: 1e9, duration: 3 },
+    ]);
+    agent = initCrosspane({ label: 'probe' });
+
+    expect(networkEvents(agent)).toHaveLength(0);
+  });
+
+  it('상태 코드를 모르면 비운다 — 0으로 채우면 실패로 읽힌다', () => {
+    stubObserver([{ name: '/an-sse', initiatorType: 'other', startTime: 0, duration: 2 }]);
+    agent = initCrosspane({ label: 'probe' });
+
+    const [event] = networkEvents(agent);
+    expect(event.status).toBeUndefined();
+    expect(event.observed).toBe(true);
+  });
+
+  it('허브로 가는 우리 자신의 통신은 보고하지 않는다 — 관찰이 관찰을 낳는다', () => {
+    stubObserver([
+      { name: 'http://localhost:7788/agent', initiatorType: 'other', startTime: 0, duration: 1 },
+    ]);
+    agent = initCrosspane({ label: 'probe' });
+
+    expect(networkEvents(agent)).toHaveLength(0);
+  });
+
+  it('PerformanceObserver가 없어도 죽지 않는다', () => {
+    vi.stubGlobal('PerformanceObserver', undefined);
+    expect(() => {
+      agent = initCrosspane({ label: 'probe' });
+    }).not.toThrow();
+  });
+});

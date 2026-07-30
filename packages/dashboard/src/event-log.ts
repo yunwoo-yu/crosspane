@@ -116,6 +116,7 @@ export function networkEntryFromEvent(event: ServerEvent): Omit<NetworkEntry, 'i
     durationMs: event.durationMs,
     error: event.error,
     initiator: event.initiator,
+    observed: event.observed,
     responseHeaders: event.responseHeaders,
     bodyPreview: event.bodyPreview,
     bodyTruncated: event.bodyTruncated,

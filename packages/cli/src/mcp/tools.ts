@@ -269,7 +269,9 @@ function formatEvent(event: SessionEvent): string {
         event.stack ? `\n${indent(event.stack)}` : ''
       }`;
     case 'network': {
-      const status = event.status === 0 ? 'FAILED' : String(event.status);
+      // 모름(리소스 타이밍 관측)을 'FAILED'로 적으면 에이전트가 오답한다
+      const status =
+        event.status === undefined ? '—' : event.status === 0 ? 'FAILED' : String(event.status);
       const reason = event.error ? ` — ${event.error}` : '';
       const body = event.bodyPreview
         ? `\n${indent(event.bodyPreview + (event.bodyTruncated ? ' …[truncated]' : ''))}`
@@ -314,6 +316,9 @@ function indent(text: string): string {
 // ── 유틸 ─────────────────────────────────────────────────────────
 
 function isFailedRequest(event: Extract<SessionEvent, { type: 'network' }>): boolean {
+  // status 없음 = 모름이지 실패가 아니다 (리소스 타이밍으로 관측된 요청).
+  // 실패로 세면 코딩 에이전트가 멀쩡한 이미지를 원인으로 지목한다
+  if (event.status === undefined) return false;
   return event.status === 0 || event.status >= 400;
 }
 

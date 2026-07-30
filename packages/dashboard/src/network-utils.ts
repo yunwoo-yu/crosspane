@@ -10,12 +10,20 @@ export interface NetworkFilters {
 
 const XHR_TYPES = new Set(['xhr', 'fetch']);
 
-/** status 0 = 응답을 못 받음 (네트워크 실패/차단/중단) — 에이전트가 0으로 보낸다 */
-export function isErrorStatus(status: number): boolean {
+/**
+ * status 0 = 응답을 못 받음 (네트워크 실패/차단/중단) — 에이전트가 0으로 보낸다.
+ *
+ * **undefined는 실패가 아니라 "모름"이다.** 리소스 타이밍으로 관측한 요청은 브라우저가
+ * 상태 코드를 주지 않는 경우가 있다. 이것을 실패로 세면 "실패한 요청만" 필터가
+ * 멀쩡한 이미지로 가득 차서 쓸모가 없어진다
+ */
+export function isErrorStatus(status: number | undefined): boolean {
+  if (status === undefined) return false;
   return status === 0 || status >= 400;
 }
 
-export function statusTone(status: number): 'ok' | 'redirect' | 'error' {
+export function statusTone(status: number | undefined): 'ok' | 'redirect' | 'unknown' | 'error' {
+  if (status === undefined) return 'unknown';
   if (isErrorStatus(status)) return 'error';
   if (status >= 300) return 'redirect';
   return 'ok';

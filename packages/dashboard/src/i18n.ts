@@ -42,6 +42,16 @@ const en = {
   searchRequests: 'search requests',
   resumeFollowing: 'Resume following new logs',
   noRequests: 'No requests yet — interact with the page',
+  /**
+   * 필터가 가린 건수 — **이 문구가 없으면 "기록이 안 된 것"과 "필터에 걸린 것"을
+   * 구분할 수 없다.** 정확히 그 혼동이 이 화면의 가장 큰 불편이었다
+   */
+  hiddenByFilter: (count: number) => `${count} hidden by filters`,
+  showEverything: 'Show all',
+  showHidden: (count: number) => `+${count} hidden — show all`,
+  observedTitle:
+    'Seen through resource timing, not intercepted — no status code, method or body for this one',
+  observedBadge: 'observed',
   xhrFetchOnly: 'XHR/fetch',
   hideStaticAssets: 'Hide static assets — show XHR/fetch only',
   onlyFailed: 'Only failed requests (network error, 4xx, 5xx)',
@@ -109,6 +119,12 @@ const ko: Messages = {
   searchRequests: '요청 검색',
   resumeFollowing: '새 로그 따라가기 재개',
   noRequests: '아직 요청이 없습니다 — 페이지를 조작해 보세요',
+  hiddenByFilter: (count) => `필터에 가려진 ${count}건`,
+  showEverything: '전부 보기',
+  showHidden: (count) => `+${count}건 가려짐 — 전부 보기`,
+  observedTitle:
+    '가로챈 것이 아니라 리소스 타이밍으로 관측된 요청입니다 — 상태 코드·메서드·본문이 없습니다',
+  observedBadge: '관측',
   xhrFetchOnly: 'XHR/fetch',
   hideStaticAssets: '정적 리소스 숨기기 — XHR/fetch만 보기',
   onlyFailed: '실패한 요청만 (네트워크 오류, 4xx, 5xx)',
