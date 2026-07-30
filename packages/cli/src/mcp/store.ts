@@ -47,6 +47,9 @@ export class SessionStore {
         }
         return;
       }
+      // 재생 경계 신호 — 스토어가 담을 것이 없다 (index.ts가 첫 응답 시점에 쓴다)
+      case 'history-complete':
+        return;
       default: {
         // 등록되지 않은 세션의 이벤트는 버린다 — hello 이전에 도착한 잔여분
         const session = this.sessions.get(event.sessionId);

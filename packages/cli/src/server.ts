@@ -376,6 +376,9 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
         );
       }
     }
+    // 재생 끝 — 접속 직후 질문에 답하는 소비자(crosspane mcp)가 부분 히스토리로
+    // 답하지 않도록 경계를 알린다 (`@crosspane/protocol`의 history-complete 주석)
+    client.send(JSON.stringify({ type: 'history-complete' } satisfies ServerEvent));
     // 대시보드 → 서버 방향 커맨드는 현재 없다 — 미지의 메시지는 조용히 무시
     client.on('message', () => {});
   });
