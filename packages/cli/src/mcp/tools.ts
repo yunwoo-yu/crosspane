@@ -184,7 +184,7 @@ function listSessions(ctx: ToolContext): ToolResult {
     ];
     if (meta.url) lines.push(`  url ${meta.url}`);
     lines.push(
-      `  ${counts.console} console, ${counts.network} network, ${counts.errors} errors, ${counts.navigation} navigations` +
+      `  ${counts.console} console, ${counts.network} network, ${counts.errors} errors, ${counts.navigation} navigations, ${counts.interaction} interactions` +
         (session.dropped > 0 ? ` (+${session.dropped} older events dropped)` : ''),
     );
     return lines.join('\n');
@@ -282,6 +282,20 @@ function formatEvent(event: SessionEvent): string {
       return `${at} NAV     ${event.url}`;
     case 'screen':
       return `${at} screen  (${event.format} recording chunk)`;
+    case 'interaction': {
+      // 코딩 에이전트가 재현 절차를 읽을 수 있게 — "무엇을 눌렀더니"가 원인 추적의 시작이다
+      const extra =
+        event.key !== undefined
+          ? ` [${event.key}]`
+          : event.valueLength !== undefined
+            ? ` (${event.valueLength} chars)`
+            : '';
+      return `${at} USER    ${event.kind} ${event.target}${extra}`;
+    }
+    case 'vital': {
+      const value = event.name === 'CLS' ? event.value.toFixed(3) : `${Math.round(event.value)}ms`;
+      return `${at} PERF    ${event.name} ${value}${event.detail === undefined ? '' : ` ${event.detail}`}`;
+    }
   }
 }
 
@@ -327,8 +341,9 @@ function countEvents(events: SessionEvent[]): {
   network: number;
   errors: number;
   navigation: number;
+  interaction: number;
 } {
-  const counts = { console: 0, network: 0, errors: 0, navigation: 0 };
+  const counts = { console: 0, network: 0, errors: 0, navigation: 0, interaction: 0 };
   for (const event of events) {
     if (event.type === 'console') {
       // 합쳐진 이벤트는 실제 발생 횟수로 센다 — 1건으로 세면 "에러 1개"로 오도한다
@@ -342,6 +357,8 @@ function countEvents(events: SessionEvent[]): {
       counts.errors += event.repeat ?? 1;
     } else if (event.type === 'navigation') {
       counts.navigation += 1;
+    } else if (event.type === 'interaction') {
+      counts.interaction += 1;
     }
   }
   return counts;

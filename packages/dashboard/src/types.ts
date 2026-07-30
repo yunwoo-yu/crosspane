@@ -21,7 +21,7 @@ export interface SessionState {
 export interface LogEntry {
   id: number;
   sessionId: string;
-  kind: 'console' | 'pageerror' | 'navigation';
+  kind: 'console' | 'pageerror' | 'navigation' | 'interaction' | 'vital';
   level: string;
   text: string;
   /** pageerror의 스택 — 상세 펼침용 */

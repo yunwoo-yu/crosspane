@@ -92,9 +92,58 @@ export function logEntryFromEvent(event: ServerEvent): Omit<LogEntry, 'id'> | nu
         text: event.url,
         ts: event.ts,
       };
+    case 'interaction':
+      // 사용자가 한 일 — 로그 흐름 속에 있어야 "무엇을 눌렀더니"가 읽힌다
+      return {
+        sessionId: event.sessionId,
+        kind: 'interaction',
+        level: 'info',
+        text: interactionText(event),
+        ts: event.ts,
+      };
+    case 'vital':
+      return {
+        sessionId: event.sessionId,
+        kind: 'vital',
+        // 느린 지표는 눈에 띄어야 한다 — 임계값은 Web Vitals의 "개선 필요" 경계다
+        level: isPoorVital(event.name, event.value) ? 'warning' : 'info',
+        text: vitalText(event),
+        ts: event.ts,
+      };
     default:
       return null;
   }
+}
+
+/** `click  button#pay "결제하기"` — 무엇을 했는지가 먼저 읽히게 */
+function interactionText(event: Extract<ServerEvent, { type: 'interaction' }>): string {
+  const suffix =
+    event.key !== undefined
+      ? ` [${event.key}]`
+      : event.valueLength !== undefined
+        ? ` (${event.valueLength} chars)`
+        : '';
+  return `${event.kind}  ${event.target}${suffix}`;
+}
+
+function vitalText(event: Extract<ServerEvent, { type: 'vital' }>): string {
+  // CLS는 시간이 아니라 비율이다 — ms를 붙이면 완전히 다른 뜻이 된다
+  const value = event.name === 'CLS' ? event.value.toFixed(3) : `${Math.round(event.value)}ms`;
+  return `${event.name} ${value}${event.detail === undefined ? '' : `  ${event.detail}`}`;
+}
+
+/**
+ * "개선 필요" 경계 — Web Vitals의 공개 임계값이다.
+ * 이걸 넘긴 것만 경고로 올려서, 정상 지표가 화면을 노랗게 물들이지 않게 한다.
+ */
+function isPoorVital(name: string, value: number): boolean {
+  if (name === 'LCP') return value > 2500;
+  if (name === 'CLS') return value > 0.1;
+  if (name === 'INP') return value > 200;
+  if (name === 'FCP') return value > 1800;
+  if (name === 'TTFB') return value > 800;
+  if (name === 'longtask') return value > 50;
+  return false;
 }
 
 /** 화면 재생용 rrweb 이벤트 추출 — screen 이벤트의 data를 그대로 돌려준다 */

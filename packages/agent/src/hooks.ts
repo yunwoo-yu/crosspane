@@ -21,6 +21,8 @@ export function installHooks(options: HookOptions): (() => void)[] {
   teardowns.push(hookNavigation(options));
   // 마지막에 설치한다 — 위 훅들의 설치 시각을 기준으로 중복을 가르기 때문이다
   teardowns.push(hookResourceTiming(options));
+  teardowns.push(hookInteractions(options));
+  teardowns.push(hookVitals(options));
   return teardowns;
 }
 
@@ -272,4 +274,135 @@ function initiatorKind(initiatorType: string): string {
   if (initiatorType === 'link') return 'css';
   // 'other'는 EventSource·동적 import 등 브라우저가 분류하지 않은 것들이다
   return initiatorType || 'other';
+}
+
+/**
+ * 사용자가 한 일 — 클릭·입력·키·제출·스크롤.
+ *
+ * 왜 필요한가: 로그와 요청만으로는 "무엇 때문에"가 빠진다. 웹뷰에는 개발자도구가 없어
+ * 재현 절차를 물어볼 수도 없다. 타임라인에 상호작용이 있으면 "결제 버튼을 눌렀더니
+ * 이 요청이 실패했다"가 한 화면에서 읽힌다.
+ *
+ * **입력 값은 절대 담지 않는다** — 비밀번호·카드번호가 로그로 새는 것은 이 툴이 만들면
+ * 안 되는 사고다. 길이만 담는다. `capture: true`로 캡처 단계에서 듣기 때문에 페이지가
+ * `stopPropagation()`을 해도 놓치지 않고, **passive라 페이지 동작에 영향을 주지 않는다.**
+ */
+function hookInteractions({ sessionId, emit, maxTextLength }: HookOptions): () => void {
+  if (typeof document === 'undefined') return () => undefined;
+
+  const send = (kind: string, event: Event, extra: Record<string, unknown> = {}): void => {
+    emit({
+      type: 'interaction',
+      sessionId,
+      kind,
+      target: describeTarget(event.target, maxTextLength),
+      ...extra,
+      ts: Date.now(),
+    });
+  };
+
+  const onClick = (event: Event) => send('click', event);
+  const onSubmit = (event: Event) => send('submit', event);
+  const onKeydown = (event: Event) => {
+    const key = (event as KeyboardEvent).key;
+    // 문자 키는 담지 않는다 — 이어 붙이면 타이핑한 내용이 그대로 복원된다.
+    // 흐름을 읽는 데 필요한 것은 Enter·Escape·Tab 같은 조작 키다
+    if (key === undefined || key.length === 1) return;
+    send('keydown', event, { key });
+  };
+  const onInput = (event: Event) => {
+    const target = event.target as { value?: unknown } | null;
+    const value = typeof target?.value === 'string' ? target.value : undefined;
+    send('input', event, value === undefined ? {} : { valueLength: value.length });
+  };
+
+  document.addEventListener('click', onClick, { capture: true, passive: true });
+  document.addEventListener('submit', onSubmit, { capture: true, passive: true });
+  document.addEventListener('keydown', onKeydown, { capture: true, passive: true });
+  document.addEventListener('input', onInput, { capture: true, passive: true });
+  return () => {
+    document.removeEventListener('click', onClick, true);
+    document.removeEventListener('submit', onSubmit, true);
+    document.removeEventListener('keydown', onKeydown, true);
+    document.removeEventListener('input', onInput, true);
+  };
+}
+
+/** 요소를 사람이 알아볼 수 있게 — 태그 + id/클래스 + 보이는 텍스트 */
+function describeTarget(target: EventTarget | null, maxTextLength: number): string {
+  const element = target as Element | null;
+  if (element?.tagName === undefined) return 'document';
+  let described = element.tagName.toLowerCase();
+  if (element.id) described += `#${element.id}`;
+  const className = typeof element.className === 'string' ? element.className.trim() : '';
+  if (className) described += `.${className.split(/\s+/).slice(0, 2).join('.')}`;
+  // 보이는 텍스트가 있으면 그게 사람에게 가장 확실한 단서다 ("결제하기")
+  const text = element.textContent?.trim().replace(/\s+/g, ' ');
+  if (text) described += ` "${truncate(text, Math.min(maxTextLength, 40))}"`;
+  return described;
+}
+
+/**
+ * 렌더링·응답성 지표 — 웹뷰에서 "왜 이렇게 느리지"에 손댈 수 있게 한다.
+ *
+ * 전부 `PerformanceObserver`라 페이지에 아무것도 주입하지 않는다. 지원하지 않는 타입은
+ * 조용히 건너뛴다 — 브라우저마다 가진 것이 다르고, 하나가 없다고 나머지를 포기할 이유가 없다.
+ */
+function hookVitals({ sessionId, emit }: HookOptions): () => void {
+  if (typeof PerformanceObserver !== 'function') return () => undefined;
+  const observers: PerformanceObserver[] = [];
+
+  const observe = (type: string, handle: (entry: PerformanceEntry) => void): void => {
+    try {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) handle(entry);
+      });
+      observer.observe({ type, buffered: true });
+      observers.push(observer);
+    } catch {
+      // 이 브라우저가 모르는 지표 — 나머지는 그대로 동작한다
+    }
+  };
+
+  const report = (name: string, value: number, detail?: string): void => {
+    emit({
+      type: 'vital',
+      sessionId,
+      name,
+      value: Math.round(value * 100) / 100,
+      ...(detail === undefined ? {} : { detail }),
+      ts: Date.now(),
+    });
+  };
+
+  observe('largest-contentful-paint', (entry) => {
+    const element = (entry as unknown as { element?: Element }).element;
+    report('LCP', entry.startTime, element?.tagName?.toLowerCase());
+  });
+  observe('paint', (entry) => {
+    if (entry.name === 'first-contentful-paint') report('FCP', entry.startTime);
+  });
+  observe('layout-shift', (entry) => {
+    const shift = entry as unknown as { value: number; hadRecentInput: boolean };
+    // 사용자 입력 직후의 이동은 의도된 것이다 — CLS 정의가 그렇다
+    if (shift.hadRecentInput || shift.value < 0.01) return;
+    report('CLS', shift.value);
+  });
+  observe('event', (entry) => {
+    const timing = entry as unknown as { duration: number; name: string };
+    // 느린 상호작용만 — 전부 보내면 회선과 링버퍼를 상호작용이 잠식한다
+    if (timing.duration < 200) return;
+    report('INP', timing.duration, timing.name);
+  });
+  observe('longtask', (entry) => {
+    report('longtask', entry.duration);
+  });
+  observe('navigation', (entry) => {
+    const nav = entry as PerformanceNavigationTiming;
+    report('TTFB', nav.responseStart);
+  });
+
+  return () => {
+    for (const observer of observers) observer.disconnect();
+  };
 }

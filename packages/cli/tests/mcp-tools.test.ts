@@ -305,3 +305,61 @@ describe('반복 이벤트를 코딩 에이전트에게도 밝힌다', () => {
     expect(lines[header + 1]).toContain('at pay.js:1:1');
   });
 });
+
+/**
+ * 상호작용·성능 지표가 MCP 출력에 있어야 한다.
+ *
+ * 왜 중요한가: 대시보드에는 보이는데 MCP에 없으면 코딩 에이전트는 **재현 절차를 모른 채**
+ * 원인을 추측한다. 같은 데이터에서 두 소비자가 다른 결론을 내는 것이 가장 나쁜 상태다.
+ */
+describe('상호작용·성능 지표', () => {
+  it('타임라인에 사용자가 한 일과 성능 지표를 함께 낸다', () => {
+    seed([
+      { type: 'interaction', sessionId: 's1', kind: 'click', target: 'button#pay "결제"', ts: 1 },
+      {
+        type: 'interaction',
+        sessionId: 's1',
+        kind: 'input',
+        target: 'input#card',
+        valueLength: 16,
+        ts: 2,
+      },
+      { type: 'vital', sessionId: 's1', name: 'LCP', value: 3200, detail: 'img', ts: 3 },
+      { type: 'vital', sessionId: 's1', name: 'CLS', value: 0.25, ts: 4 },
+    ]);
+    const text = callTool('get_timeline', {}, ctx).text;
+
+    expect(text).toContain('USER    click button#pay "결제"');
+    // 값이 아니라 길이만 — 비밀번호가 MCP를 통해 새면 안 된다
+    expect(text).toContain('(16 chars)');
+    expect(text).toContain('PERF    LCP 3200ms img');
+    // CLS는 시간이 아니라 비율이다 — ms를 붙이면 완전히 다른 뜻이 된다
+    expect(text).toContain('PERF    CLS 0.250');
+  });
+
+  it('세션 목록이 상호작용 건수를 센다', () => {
+    seed([
+      { type: 'interaction', sessionId: 's1', kind: 'click', target: 'button', ts: 1 },
+      { type: 'interaction', sessionId: 's1', kind: 'submit', target: 'form', ts: 2 },
+    ]);
+    expect(callTool('list_sessions', {}, ctx).text).toContain('2 interactions');
+  });
+
+  it('상태를 모르는 요청은 실패로 세지 않는다 — 에이전트가 멀쩡한 이미지를 원인으로 지목한다', () => {
+    seed([
+      {
+        type: 'network',
+        sessionId: 's1',
+        method: 'GET',
+        url: '/hero.png',
+        durationMs: 5,
+        initiator: 'img',
+        observed: true,
+        ts: 1,
+      },
+    ]);
+    const errors = callTool('get_errors', {}, ctx).text;
+    expect(errors).not.toContain('/hero.png');
+    expect(callTool('get_timeline', {}, ctx).text).toContain('—');
+  });
+});
