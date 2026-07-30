@@ -6,6 +6,9 @@
 ## 모듈 맵
 
 - `index.ts` — `initCrosspane` 게이팅·세션 생성·조립, `capture()`/`exportFile()`/`dispose()`
+- `endpoint.ts` — **무설정 주소 해석**: 명시 > env 주입 > 루프백 기본값 > 없음(오프라인).
+  배포 호스트의 기기별 활성화(`?__crosspane=on`)도 여기 있다.
+  보안 게이트가 이 파일에 있으니 **`.claude/rules/agent-sdk.md`를 먼저 읽을 것**
 - `hooks.ts` — console/error·rejection/fetch/XHR/navigation 훅. 각 훅은 해제 함수를 반환
 - `serialize.ts` — 예산 한계 직렬화(콘솔 훅 핫패스). 경로 선택은 실측 근거가 있다 —
   파일 상단 주석과 `scripts/bench.mjs`를 먼저 볼 것 (네이티브를 이기려 한 시도가 3배 느렸다)

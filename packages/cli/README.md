@@ -60,11 +60,7 @@ npm install @crosspane/agent
 ```ts
 import { initCrosspane } from '@crosspane/agent'
 
-const agent = initCrosspane({
-  label: 'checkout webview',
-  // omit serverUrl for offline-only capture
-  serverUrl: 'http://192.168.0.10:7788',
-})
+const agent = initCrosspane({ label: 'checkout webview' })
 
 // Offline mode: wire this to a debug gesture / hidden QA menu.
 // In a webview, prefer copyCapture() — downloads often don't work there
@@ -72,11 +68,34 @@ const agent = initCrosspane({
 agent.exportFile()   // downloads <label>.crosspane.json
 ```
 
-No bundler? Load the single-file build (~3.4 KB gzipped) with a plain script tag —
+That's the whole setup on localhost — the agent finds the hub by itself. No address, no
+token, no config. `agent.live` tells you whether it's streaming.
+
+No bundler? Load the single-file build (~4 KB gzipped) with a plain script tag —
 see the [agent README](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent#without-a-bundler).
 
 **3. Reproduce the bug.** Console logs, uncaught errors, unhandled rejections, failed
 requests and navigations show up in the dashboard — or in the exported file.
+
+### Phones and deployed URLs
+
+The agent only auto-connects when the page is on `localhost` — a build that reaches real
+users never phones home. For anything else, the hub injects its own address at build time:
+
+```bash
+npx crosspane --host 0.0.0.0 --write-env   # writes .env.local, removed when the hub stops
+npm run dev                                # restart so the dev server picks it up
+```
+
+The variable name is chosen from your `package.json` (`NEXT_PUBLIC_`, `VITE_`, `PUBLIC_`
+or `REACT_APP_`), so nothing changes in your code. On a **deployed** page each device also
+has to opt in once — open it with `?__crosspane=on` (that choice sticks; `?__crosspane=off`
+clears it). The link only carries "on": the destination comes from the build, never from
+the URL, so a link can't redirect anyone's logs somewhere else.
+
+> **`https://` pages can't use live mode.** Browsers block plain `ws://` from a secure
+> page, and a hub on your laptop has no certificate, so the connection never leaves the
+> browser. Use offline capture there (`copyCapture()`) — it needs no network at all.
 
 ## What you get
 
@@ -178,17 +197,30 @@ device is attached. Pass `--hub <url>` if the hub isn't on the default port.
 const agent = initCrosspane({
   label?: string            // shown in the dashboard (default: document.title)
   enabled?: boolean | (() => boolean)
-  serverUrl?: string        // live mode; omit for offline-only
+  serverUrl?: string        // usually omit — resolved automatically (see below)
   bufferSize?: number       // ring buffer size (default: 2000 events)
   captureBodies?: boolean   // capture response bodies (default: false)
   bodyPreviewLimit?: number // default: 2048 chars
 })
 
+agent.live           // → true if streaming to a hub (false = offline capture only)
 agent.capture()      // → SessionCapture object (send it wherever you like)
 agent.exportFile()   // → downloads .crosspane.json
 agent.copyCapture()  // → Promise<boolean>, puts the JSON on the clipboard
 agent.dispose()      // → restores console/fetch/XHR, closes the live connection
 ```
+
+`serverUrl` is resolved in this order, so you rarely pass it:
+
+| Page is on | Live mode connects to |
+| --- | --- |
+| `localhost` | `http://localhost:7788` automatically, or the injected address if there is one |
+| any other host | the injected address — **only** on devices activated with `?__crosspane=on` |
+| anywhere, no injected address | nothing; the ring buffer still records for offline capture |
+
+Passing `serverUrl` yourself always wins and never needs activation — writing it down is
+already a deliberate act. Injected addresses are treated more carefully because CI puts
+them there, so they can end up in a production build.
 
 ## Getting captures off a locked device
 
@@ -208,7 +240,7 @@ assumed). Pick a route that survives that:
 | `agent.copyCapture()` | ✓ | Falls back to `execCommand('copy')` on non-secure origins. Needs a user gesture — call it from a tap, not on a timer. Returns `false` if it couldn't copy: **show that to the tester**, or they'll blame the tool instead of reporting the bug |
 | Native bridge | ✗ (a few lines of app code) | The most reliable route for RN / native webviews — see below |
 | `agent.exportFile()` | ✗ | Fine in a desktop browser or a webview whose host implements downloads |
-| Live mode (`serverUrl`) | ✓ | Best when the device can reach your machine; the hub also saves sessions itself |
+| Live mode | ✓ | Best when the device can reach your machine; the hub also saves sessions itself. Not available from an `https://` page — browsers block plain `ws://` there |
 
 For a native webview, hand the object to the app and let it write a file or open a share
 sheet — it is a plain JSON-serializable value:

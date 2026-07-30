@@ -30,6 +30,10 @@ Options:
                        receive live agent sessions from phones/devices on your network.
                        Exposing the hub generates a one-time access token, printed with
                        the URLs below; put it in the agent's serverUrl)
+  --write-env [file]   Write this hub's address (and access token) into an env file so
+                       the agent needs no arguments at all — defaults to .env.local.
+                       Read by Vite/Next/CRA/Astro; the variable name is picked from your
+                       package.json. Removed again when the hub stops
   --no-open            Don't open the dashboard in your browser automatically
   --no-auth            Disable the access token that --host adds. Only do this on a
                        network you fully trust: without it, anyone who can reach the
@@ -38,9 +42,14 @@ Options:
   -h, --help           Show this help
   -v, --version        Print the crosspane version
 
-Add the agent to your app (dev/QA builds):
+Add the agent to your app (dev/QA builds) — no address needed:
   import { initCrosspane } from '@crosspane/agent'
-  initCrosspane({ label: 'checkout webview', serverUrl: 'http://<your-ip>:7788' })
+  initCrosspane({ label: 'checkout webview' })
+
+  On localhost it finds the hub by itself. For a phone or a deployed URL, run the hub
+  with --write-env and the address is injected at build time; on a deployed page each
+  device opts in by opening it once with ?__crosspane=on (nothing streams otherwise).
+  Offline capture works everywhere regardless — see agent.copyCapture().
 
 MCP mode (crosspane mcp):
   Exposes the running hub's sessions to a coding agent over stdio, so it can ask
@@ -65,7 +74,12 @@ export interface CliOptions {
   verbose: boolean;
   /** 노출된 허브의 접속 토큰을 끈다 (사내 자동화용 탈출구) */
   noAuth: boolean;
+  /** 허브 주소를 적을 env 파일 경로. undefined면 쓰지 않는다 */
+  writeEnv: string | undefined;
 }
+
+/** `--write-env`에 경로를 주지 않았을 때. Vite·Next·CRA·Astro가 모두 읽고, 보통 gitignore돼 있다 */
+export const DEFAULT_ENV_FILE = '.env.local';
 
 const DEFAULT_PORT = 7788;
 const DEFAULT_HOST = '127.0.0.1';
@@ -86,12 +100,20 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let openBrowser = true;
   let verbose = false;
   let noAuth = false;
+  let writeEnv: string | undefined;
 
   while (args.length > 0) {
     const flag = args.shift();
     if (flag === undefined) break;
     if (flag === '--no-open') {
       openBrowser = false;
+      continue;
+    }
+    if (flag === '--write-env') {
+      // 값이 선택적인 유일한 플래그 — 다음 토큰이 플래그면 값이 없는 것으로 본다.
+      // (`--write-env --host 0.0.0.0`이 host를 파일명으로 삼아 버리면 안 된다)
+      const next = args[0];
+      writeEnv = next !== undefined && !next.startsWith('-') ? args.shift() : DEFAULT_ENV_FILE;
       continue;
     }
     if (flag === '--verbose') {
@@ -117,7 +139,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     }
   }
 
-  return { port, portExplicit, host, openBrowser, verbose, noAuth };
+  return { port, portExplicit, host, openBrowser, verbose, noAuth, writeEnv };
 }
 
 export interface McpCliOptions {

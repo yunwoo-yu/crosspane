@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cliVersion, parseCliArguments, parseMcpArguments } from '../src/args';
+import { cliVersion, DEFAULT_ENV_FILE, parseCliArguments, parseMcpArguments } from '../src/args';
 
 describe('parseCliArguments', () => {
   it('기본값: 포트 7788, 로컬 전용 바인딩, 브라우저 자동 열기', () => {
@@ -10,7 +10,22 @@ describe('parseCliArguments', () => {
       openBrowser: true,
       verbose: false,
       noAuth: false, // 노출 시에만 토큰이 붙고, 그걸 끄는 건 명시적 옵트아웃이다
+      writeEnv: undefined, // 사용자 파일을 건드리는 일은 옵트인이어야 한다
     });
+  });
+
+  it('--write-env는 값 없이도 되고 기본 파일은 .env.local이다', () => {
+    expect(parseCliArguments(['--write-env']).writeEnv).toBe(DEFAULT_ENV_FILE);
+    expect(parseCliArguments(['--write-env', 'apps/web/.env.local']).writeEnv).toBe(
+      'apps/web/.env.local',
+    );
+  });
+
+  it('--write-env가 뒤따르는 플래그를 파일명으로 삼지 않는다', () => {
+    // 이걸 놓치면 '0.0.0.0'이 파일명이 되고 허브는 로컬에만 뜬다 — 조용히 어긋난다
+    const options = parseCliArguments(['--write-env', '--host', '0.0.0.0']);
+    expect(options.writeEnv).toBe(DEFAULT_ENV_FILE);
+    expect(options.host).toBe('0.0.0.0');
   });
 
   it('--port는 명시 플래그로 기록된다 (자동 폴백 없음)', () => {

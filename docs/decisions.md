@@ -260,6 +260,50 @@ The hidden count is shown rather than silently applied, for the same reason trun
 `(truncated)` and coalesced duplicates say `×N`: a cap the user can't see is a cap that
 misleads them about what happened.
 
+## The hub's address is inferred, and the gate is the page's own origin
+
+`serverUrl` was always optional, so the friction was never the line count — it was the
+*contents* of that string. You had to find your LAN IP, paste a token that changes on every
+hub restart, and remember to keep both out of a production build. Three chores, all of them
+information the hub already had.
+
+So the agent infers it: explicit `serverUrl` > build-time injected env > `http://localhost:7788`
+when the page is on loopback > nothing. `crosspane --write-env` closes the loop by having the
+hub write its own address into `.env.local`, because the side that knows the value should be
+the side that records it. The variable name is picked per framework (`NEXT_PUBLIC_`, `VITE_`,
+`PUBLIC_`, `REACT_APP_`) rather than shipping a plugin per framework — env files are something
+Vite, Next, CRA and Astro all already read, and each plugin would be permanent maintenance for
+the same result.
+
+**The gate is where the page is, not whether an address exists.** `/agent` deliberately does not
+validate Origin (a real device's origin is arbitrary), so "connect if you have an address" would
+let any website inject fake sessions into a developer's local hub. Loopback-only auto-connect
+also means a build that reaches real users cannot phone home. On a deployed host, an injected
+address additionally requires per-device activation (`?__crosspane=on`), because CI is what puts
+env values there and they can survive into production. A hand-written `serverUrl` is exempt —
+inconsistent on purpose, since silently disconnecting existing 0.9.x users is a worse failure
+than the asymmetry.
+
+The activation link carries `on` and nothing else. An earlier sketch had it carry the hub URL,
+which would have made `?__crosspane=https://attacker.example` a one-link log exfiltration
+channel: destinations come from the build, never from the URL.
+
+Three things here were found by running a real browser, not by reasoning:
+
+- A `typeof process !== 'undefined'` guard in front of the injected literal broke exactly the
+  case it was meant to protect — bundlers replace the *literal* while leaving no `process`
+  object in the browser, so the guard skipped a value that had been injected successfully.
+  Reaching around the access (`globalThis.process`) suppresses the replacement instead.
+- jsdom reports `location.hostname === 'localhost'` and implements `WebSocket`, so without a
+  guard every unit test in an app that calls `initCrosspane()` would open connections to a hub.
+- `import.meta` collapses to `{}` in the standalone esbuild bundle (target es2019). It survives
+  in the tsc output, which is what npm consumers actually resolve, so Vite can still replace it.
+
+The bundle budget went 4 → 4.5 KB gzip for this. The measurement: esm 3.85 KB (still under 4),
+iife 4.04 KB, and the 41 bytes over the line were two of the four env variable names. Trading
+CRA/Astro/SvelteKit support for 41 bytes is the wrong trade, and 4 was a rounded number rather
+than a measured limit.
+
 ## What the agent deliberately cannot do
 
 - **Breakpoints.** JavaScript cannot pause itself; this is why weinre and its successors
@@ -267,6 +311,11 @@ misleads them about what happened.
 - **Anything before `initCrosspane` runs.** Boot failures and parse errors are invisible.
 - **Loading under a strict CSP that blocks the hub.** Bundling rather than CDN-loading
   avoids the `script-src` half of this; `connect-src` still has to allow live mode.
+- **Live mode from an `https://` page.** Measured: a secure page opening
+  `ws://127.0.0.1:7899` is blocked outright — the local ws server never sees a connection.
+  A hub on a laptop has no certificate, and asking every device to trust a local CA is the
+  exact friction this project exists to remove. Offline capture is the answer there, and it
+  needs no network at all.
 
 These are stated in the README rather than worked around, because pretending otherwise
 would cost users more than the missing feature does.

@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { lanAddresses } from './addresses.js';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
 import { setVerbose } from './debug.js';
+import { clearEnvFile, writeEnvFile } from './env-file.js';
 import { startMcpServer } from './mcp/index.js';
 import { startHubServer } from './server.js';
 
@@ -72,6 +73,13 @@ async function main(): Promise<void> {
     console.log('  local only — pass --host 0.0.0.0 to receive live agent sessions from devices');
   }
 
+  if (options.writeEnv !== undefined) {
+    // 기기가 접속할 주소를 적는다. 노출됐으면 LAN 주소(에이전트가 폰에서 붙는 곳),
+    // 아니면 루프백 — 폴백 포트로 떴을 때도 정확한 값이 들어간다
+    const agentAddress = exposed ? (lanAddresses()[0] ?? 'localhost') : 'localhost';
+    announceEnvFile(options.writeEnv, `http://${agentAddress}:${server.port}${tokenQuery}`);
+  }
+
   const isInteractiveTerminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
   if (options.openBrowser && isInteractiveTerminal) openInBrowser(dashboardUrl);
 
@@ -80,6 +88,9 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log('\nshutting down…');
+    // env를 먼저 지운다: 죽은 주소·토큰이 남으면 다음 실행에서 루프백 기본값을 덮어써
+    // 에이전트가 조용히 아무데도 붙지 않는다 (진단이 매우 어려운 상태)
+    if (options.writeEnv !== undefined) clearEnvFile(options.writeEnv);
     server.close();
     process.exit(code);
   };
@@ -95,6 +106,39 @@ async function main(): Promise<void> {
   };
   process.on('uncaughtException', onFatal('uncaughtException'));
   process.on('unhandledRejection', onFatal('unhandledRejection'));
+}
+
+/**
+ * env 파일에 허브 주소를 쓰고 결과를 사람에게 알린다.
+ *
+ * 조용히 쓰지 않는다: 이 파일에는 **접속 토큰이 들어간다.** 어디에 무엇이 쓰였는지,
+ * git에 올라갈 위험이 있는지, 충돌하는 정의가 있는지를 전부 보여야 한다.
+ * 쓰기 실패로 허브를 죽이지는 않는다 — env 없이도 대시보드와 오프라인 캡처는 동작한다.
+ */
+function announceEnvFile(filePath: string, url: string): void {
+  let result: ReturnType<typeof writeEnvFile>;
+  try {
+    result = writeEnvFile(filePath, url);
+  } catch (err) {
+    console.log(
+      `⚠ could not write ${filePath}: ${err instanceof Error ? err.message : String(err)}\n` +
+        "  the hub is running — pass the agent's serverUrl by hand, or fix the path and restart.",
+    );
+    return;
+  }
+  console.log(`  wrote ${filePath} → ${result.names.join(', ')} (removed when this hub stops)`);
+  if (result.gitignored === false) {
+    console.log(
+      `  ⚠ ${filePath} is NOT gitignored and now contains this hub's access token —\n` +
+        '    add it to .gitignore before committing.',
+    );
+  }
+  if (result.conflicts.length > 0) {
+    console.log(
+      `  ⚠ ${result.conflicts.join(', ')} already defined elsewhere in ${filePath} — ` +
+        'which one wins\n    depends on the loader. Remove the other definition.',
+    );
+  }
 }
 
 /**

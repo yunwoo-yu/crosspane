@@ -21,10 +21,7 @@ npm install @crosspane/agent
 ```ts
 import { initCrosspane } from '@crosspane/agent'
 
-const agent = initCrosspane({
-  label: 'checkout webview',
-  serverUrl: 'http://192.168.0.10:7788', // omit for offline-only capture
-})
+const agent = initCrosspane({ label: 'checkout webview' })
 
 // Offline mode: wire this to a debug gesture or hidden QA menu
 agent.exportFile() // downloads <label>.crosspane.json
@@ -89,7 +86,7 @@ Response bodies are **not** captured unless you pass `captureBodies: true`.
 initCrosspane(options?: {
   label?: string             // shown in the dashboard (default: document.title)
   enabled?: boolean | (() => boolean)
-  serverUrl?: string         // live mode; omit for offline-only
+  serverUrl?: string         // usually omit — resolved automatically (see below)
   bufferSize?: number        // ring buffer size (default: 2000 events)
   captureBodies?: boolean    // capture response bodies (default: false)
   bodyPreviewLimit?: number  // default: 2048 chars
@@ -105,6 +102,26 @@ initCrosspane(options?: {
 | `agent.dispose()` | Restores `console`/`fetch`/XHR, closes the live connection |
 | `agent.session` | Session metadata (id, label, userAgent, platform) |
 | `agent.enabled` | `false` when gated off |
+| `agent.live` | `true` if streaming to a hub; `false` means offline capture only |
+
+## Where the hub address comes from
+
+You rarely pass `serverUrl`. It is resolved in this order:
+
+| Page is on | Live mode connects to |
+|---|---|
+| `localhost` | `http://localhost:7788` automatically, or the injected address if there is one |
+| any other host | the injected address — **only** on devices activated with `?__crosspane=on` |
+| anywhere, no injected address | nothing; the ring buffer still records for offline capture |
+
+Injected addresses come from `crosspane --host 0.0.0.0 --write-env`, which writes the hub's
+address and access token into `.env.local` (`NEXT_PUBLIC_`/`VITE_`/`PUBLIC_`/`REACT_APP_`
+depending on your framework) and removes them when the hub stops.
+
+Because auto-connect requires the page itself to be on loopback, a build that reaches real
+users never contacts a hub. Passing `serverUrl` yourself always wins and never needs
+activation. Live mode is not available from an `https://` page — browsers block plain
+`ws://` from a secure origin, so use offline capture there.
 
 ## Notes
 

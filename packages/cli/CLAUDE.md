@@ -12,6 +12,9 @@
   `GET /hub-info`(실제 포트·LAN 주소 → 대시보드가 붙여넣을 스니펫을 만든다.
   허브만 이 정보를 알고 사용자는 대시보드를 본다)
 - `addresses.ts` — LAN IPv4 목록. CLI 안내와 `/hub-info`가 공유한다
+- `env-file.ts` — `--write-env`: 허브 주소·토큰을 앱의 env 파일에 적는다(관리 블록만 소유,
+  종료 시 제거). 변수 이름은 `packages/agent/src/endpoint.ts`가 읽는 것과 **일치해야 한다** —
+  틀리면 조용히 undefined가 된다
 - `static.ts` — 대시보드 정적 서빙 (경로 탈출 방어, SPA 폴백)
 - `protocol.ts` — `@crosspane/protocol` 재수출 (소비자 import 경로 유지용)
 - `mcp/` — `crosspane mcp`: 코딩 에이전트용 MCP stdio 서버.

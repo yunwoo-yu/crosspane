@@ -12,6 +12,8 @@ function fakeAgent(enabled = true): CrosspaneAgent & { emitted: SessionEvent[] }
   const emitted: SessionEvent[] = [];
   return {
     enabled,
+    // 라이브 여부는 이 플러그인의 계약과 무관하다 — agent.emit으로만 싣는다
+    live: false,
     session: { id: 's-1', label: 'test', userAgent: 'ua', startedAt: 0 },
     capture: () => ({
       version: 1,
