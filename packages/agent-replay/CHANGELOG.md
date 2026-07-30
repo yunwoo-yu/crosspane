@@ -1,5 +1,12 @@
 # @crosspane/agent-replay
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [f872e29]
+  - @crosspane/agent@0.8.0
+
 ## 0.2.3
 
 ### Patch Changes
