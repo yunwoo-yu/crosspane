@@ -59,6 +59,10 @@ Add the agent to your app (dev/QA builds) — no address needed:
   per environment and leave it out of production; the agent reads it with no extra code.
   --write-env below exists only for the case a static value can't cover: a hub on your
   laptop plus a phone, where the LAN address and token change every restart.
+
+  Pass serverUrl explicitly for a webview the app opens itself — there is no address bar
+  in one, so the per-device opt-in link (?__crosspane=on) cannot be used there. That link
+  is for pages you open by URL: an in-app browser reached from a chat message or a QR code.
   Offline capture works everywhere regardless — see agent.copyCapture().
 
 Debugging an https:// page (staging, or anything already deployed):

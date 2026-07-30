@@ -140,6 +140,12 @@ never contacts a hub. The activation gate applies to env-derived addresses becau
 those and they can survive into a production build; an explicit `serverUrl` is a deliberate
 act and skips it.
 
+**In a webview the app opens itself there is no address bar, so `?__crosspane=on` cannot be
+typed — pass `serverUrl` explicitly there.** The activation link is for pages you open by URL:
+an in-app browser reached from a chat message or QR code, or a phone browser. Omitting
+`serverUrl` where you can't add the parameter means nothing streams, with no way to see why
+from inside the webview; `agent.live` is the only signal.
+
 A hub on your own laptop plus a phone is the one case a static value can't cover — the LAN
 address and token change every restart. `crosspane --host 0.0.0.0 --write-env` writes them
 into `.env.local` and removes them when the hub stops.

@@ -111,12 +111,26 @@ npx crosspane --host 0.0.0.0 --write-env   # writes .env.local, removed when the
 npm run dev                                # restart so the dev server picks it up
 ```
 
-**On a deployed page, omitting `serverUrl` also asks each device to opt in once** — open it
-with `?__crosspane=on` (that choice sticks; `?__crosspane=off` clears it). This keeps a
-shared staging URL from streaming every visitor's session. Passing `serverUrl` explicitly
-skips that gate, because writing the address down is already a deliberate act. The link only
-ever carries "on": the destination comes from the build, never from the URL, so a link can't
-redirect anyone's logs somewhere else.
+**Pass `serverUrl` explicitly for a webview the app opens itself.** That's the case this tool
+exists for — a payment webview, an embedded page — and there is no address bar in it, so the
+opt-in link below is impossible to use. An explicit address streams straight away, which is
+what you want in a QA build.
+
+**Omitting `serverUrl` on a deployed page asks each device to opt in once**, by opening it with
+`?__crosspane=on` (that choice sticks; `?__crosspane=off` clears it). This keeps a shared
+staging URL from streaming every visitor's session. It only works where you control the URL:
+
+| Where the page opens | Opt-in link usable? |
+|---|---|
+| In-app browser (KakaoTalk, Instagram — you send the link, or a QR code) | yes |
+| A phone browser on your staging URL | yes |
+| **A webview the app opens itself** (the app decides the URL) | **no — pass `serverUrl`** |
+
+If you omit `serverUrl` where you can't add the parameter, nothing streams and there is no way
+to see why from inside the webview. Check `agent.live` if you're unsure which state you're in.
+
+The link only ever carries "on": the destination comes from the build, never from the URL, so a
+link can't redirect anyone's logs somewhere else.
 
 ### Debugging an `https://` page
 
