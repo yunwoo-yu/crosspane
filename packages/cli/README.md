@@ -167,12 +167,16 @@ accept. Any of these replaces it, and the app-side code above does not change �
 | **Plain HTTP on your LAN** | `crosspane --host 0.0.0.0 --write-env` | simplest, and right for a dev server you open from a phone on the same Wi-Fi. A deployed page can't use it — see below |
 | **No network at all** | `agent.copyCapture()` | unaffected by addresses, certificates and origins; the main path on a locked-down build |
 
-**A page served from the public internet can only reach public addresses.** Measured: from
-`https://example.com`, a WebSocket to a LAN address with a valid Let's Encrypt certificate never
-even leaves the browser, while the same page reaches a public `wss://` endpoint fine and a page on
-that LAN reaches the same address fine. So for a deployed page the receiver has to be public —
-a tunnel, a hub you deployed, or your own server holding the logs. No certificate changes this, and
-neither does writing `wss://` into the build.
+**A deployed page reaching a hub on your LAN is a permission, not a prohibition.** Chrome answers
+`LocalNetworkAccessPermissionDenied` — and `local-network-access` is a real permission whose state
+is `prompt` in an ordinary browser, like camera or microphone. Measured with that check lifted and
+nothing else changed: `https://example.com` → `wss://<lan-ip>.local-ip.sh/agent` delivered a session
+and a console event to the hub, over a genuine Let's Encrypt certificate.
+
+So a LAN hub *can* serve a deployed page, given a certificate valid for a name that resolves to the
+private IP plus one grant on the device. Whether that prompt appears inside an **in-app webview** —
+the case this tool exists for — is not yet verified, so the options below remain the reliable ones
+for now.
 
 A **self-signed certificate does not work** in app webviews either: since Android 7, apps don't
 trust user-installed CAs. That's why crosspane accepts a certificate but never generates one — and
