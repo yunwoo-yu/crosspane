@@ -129,6 +129,12 @@ staging URL from streaming every visitor's session. It only works where you cont
 If you omit `serverUrl` where you can't add the parameter, nothing streams and there is no way
 to see why from inside the webview. Check `agent.live` if you're unsure which state you're in.
 
+**Putting this on a production page is safe by design.** The address that goes into your build
+carries a **write-only ingest key** (`?k=`) — it can send sessions to your hub but cannot read
+any. That matters because a deployed page's source is visible to every visitor, so anything the
+page knows is public. Reading needs a separate token (`?t=`) that stays on your machine and
+never belongs in a page. Worst case if the key leaks: someone sends junk sessions to your hub.
+
 **One shared build, or a live site with real users?** Gate `enabled` — with `false` the agent
 installs **no hooks at all**, so everyone else's app is untouched:
 

@@ -146,6 +146,11 @@ an in-app browser reached from a chat message or QR code, or a phone browser. Om
 `serverUrl` where you can't add the parameter means nothing streams, with no way to see why
 from inside the webview; `agent.live` is the only signal.
 
+The address you configure carries a **write-only ingest key** — it can send sessions to the hub
+but not read any — so it is safe in a page whose source every visitor can read. That is what
+makes debugging a production page possible; reading sessions needs a separate token that stays
+on the developer's machine.
+
 To keep one shared build from streaming everyone's session, gate `enabled` — with `false` the
 agent installs **no hooks at all**, so other people's app is untouched:
 

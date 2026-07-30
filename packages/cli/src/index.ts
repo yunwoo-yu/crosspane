@@ -45,11 +45,22 @@ async function main(): Promise<void> {
    */
   const authToken =
     reachableFromOutside && !options.noAuth ? randomBytes(8).toString('hex') : undefined;
+  /**
+   * 쓰기 전용 인제스트 키 — 에이전트 주소에 담기는 것은 이것뿐이다.
+   *
+   * 읽기 토큰을 에이전트에 주지 않는 이유: 배포된 페이지에 에이전트를 넣으면 그 주소가
+   * 클라이언트로 들어가 **페이지 소스에 노출된다**(운영 사이트에 붙여 실측했다).
+   * 읽기 토큰이 거기 있으면 누구나 세션 로그를 읽는다. 인제스트 키는 공개돼도 되고,
+   * 최악이 남이 우리 허브에 쓰레기 세션을 넣는 것이다 — 그래서 프로덕션에 넣을 수 있다.
+   */
+  const ingestKey =
+    reachableFromOutside && !options.noAuth ? randomBytes(8).toString('hex') : undefined;
   const tls = readTlsFiles(options.tlsCert, options.tlsKey);
   const server = await startHubServer({
     port: options.port,
     host: options.host,
     authToken,
+    ingestKey,
     tls,
     publicUrl: options.publicUrl,
     // 명시된 포트는 존중하고, 기본 포트는 사용 중이면 +1씩 폴백
@@ -80,7 +91,7 @@ async function main(): Promise<void> {
   const agentAddresses = agentUrls({
     port: server.port,
     exposed,
-    authToken,
+    ingestKey,
     publicUrl: options.publicUrl,
     scheme,
   });
@@ -89,9 +100,11 @@ async function main(): Promise<void> {
       console.log(`  live agents → ${address}  (serverUrl for @crosspane/agent)`);
     }
     console.log(
-      authToken
-        ? '  the token in those URLs is required — anyone who can reach this hub could\n' +
-            '  otherwise read your session logs and inject fake sessions. It changes every restart.'
+      ingestKey
+        ? '  the ?k= key in that URL is write-only: it can send sessions to this hub but not\n' +
+            '  read any. That is why it is safe in a deployed page, where the address is visible\n' +
+            '  to every visitor. Reading needs the ?t= token above — keep that one off your pages.\n' +
+            '  Both change every restart.'
         : '  ⚠ --no-auth: anyone who can reach this hub can read your session logs and inject sessions.',
     );
   } else {
