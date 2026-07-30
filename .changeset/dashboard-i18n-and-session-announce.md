@@ -1,5 +1,4 @@
 ---
-'@crosspane/dashboard': minor
 'crosspane': minor
 ---
 
