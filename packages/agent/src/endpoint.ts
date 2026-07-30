@@ -34,9 +34,19 @@ export function isLoopbackHost(hostname: string): boolean {
   return /^(\[?::1\]?|127\.0\.0\.1|(.+\.)?localhost)$/.test(hostname);
 }
 
-/** 주입값이 실제로 설정된 것인지 — 치환되지 않은 env는 빈 문자열로 도착한다 */
+/**
+ * 주소가 실제로 설정된 것인지.
+ *
+ * 미설정 env가 도착하는 형태가 여러 가지다 — 전부 "설정되지 않음"으로 봐야 한다:
+ * - `undefined`: 번들러가 치환하지 않았거나 옵션을 넘기지 않았다
+ * - `''`: env 파일에 키만 있고 값이 비었다 (`NEXT_PUBLIC_CROSSPANE_URL=`)
+ * - `'undefined'`/`'null'`: 정의되지 않은 값을 템플릿 리터럴로 감쌌다
+ *   (`serverUrl: \`${process.env.X}\``). 이걸 통과시키면 전송이 `undefined/agent`로
+ *   붙으려 하며 **영구히 조용히 실패한다** — URL 파싱이 던져 문자열 치환 폴백으로
+ *   떨어지므로 스킴조차 남지 않는다(실측). 조용한 실패는 이 툴에서 가장 나쁜 결과다
+ */
 function nonEmpty(value: string | undefined): value is string {
-  return value !== undefined && value !== '';
+  return value !== undefined && value !== '' && value !== 'undefined' && value !== 'null';
 }
 
 /**

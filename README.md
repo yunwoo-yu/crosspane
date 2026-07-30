@@ -78,60 +78,67 @@ see the [agent README](https://github.com/yunwoo-yu/crosspane/tree/main/packages
 **3. Reproduce the bug.** Console logs, uncaught errors, unhandled rejections, failed
 requests and navigations show up in the dashboard — or in the exported file.
 
-### Phones and deployed URLs
+### Other environments: it's just an env var
 
-The agent only auto-connects when the page is on `localhost` — a build that reaches real
-users never phones home. For anything else, the hub injects its own address at build time:
+The agent only auto-connects when the page is on `localhost`, so a build that reaches real
+users never phones home. Everywhere else the address comes from your environment config —
+the same mechanism you already use for API URLs:
+
+```ts
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,  // Vite: import.meta.env.VITE_CROSSPANE_URL
+})
+```
+
+```
+.env.development   NEXT_PUBLIC_CROSSPANE_URL=http://localhost:7788
+.env.staging       NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.staging.example.com
+.env.production    (leave it out)
+```
+
+Each build gets the right address, production gets none, and there are no crosspane flags
+involved. If the variable is unset the agent falls back to offline capture — it never
+guesses. You can also omit `serverUrl` entirely: the agent reads those same variable names
+itself (`NEXT_PUBLIC_`, `VITE_`, `PUBLIC_`, `REACT_APP_`).
+
+**The one case where a static value can't work** is a hub on your own laptop plus a device
+that isn't your laptop — a phone on your Wi-Fi. The LAN address and the access token change
+every restart, so only the hub knows them. Let it write them:
 
 ```bash
 npx crosspane --host 0.0.0.0 --write-env   # writes .env.local, removed when the hub stops
 npm run dev                                # restart so the dev server picks it up
 ```
 
-The variable name is chosen from your `package.json` (`NEXT_PUBLIC_`, `VITE_`, `PUBLIC_`
-or `REACT_APP_`), so nothing changes in your code. On a **deployed** page each device also
-has to opt in once — open it with `?__crosspane=on` (that choice sticks; `?__crosspane=off`
-clears it). The link only carries "on": the destination comes from the build, never from
-the URL, so a link can't redirect anyone's logs somewhere else.
+**On a deployed page, omitting `serverUrl` also asks each device to opt in once** — open it
+with `?__crosspane=on` (that choice sticks; `?__crosspane=off` clears it). This keeps a
+shared staging URL from streaming every visitor's session. Passing `serverUrl` explicitly
+skips that gate, because writing the address down is already a deliberate act. The link only
+ever carries "on": the destination comes from the build, never from the URL, so a link can't
+redirect anyone's logs somewhere else.
 
 ### Debugging an `https://` page
 
-A secure page cannot open a plain `ws://` connection — measured, and there is no way
-around it from inside the page (`img`, `iframe` and `fetch` all get the same treatment).
-So the hub has to be reachable over `wss://`, with a certificate the device already
-trusts. Pick whichever fits:
+This is about **where you run the hub**, not about your app config — the env var above
+doesn't change.
 
-**1. Tunnel** — works on any network, including cellular, with no certificate of your own:
+A secure page cannot open a plain `ws://` connection (measured; `img`, `iframe` and `fetch`
+all get the same treatment, and `localhost` gets no exception). So the hub needs to be
+reachable over `wss://` with a certificate the device already trusts. If your team already
+runs a hub at a fixed `https://` address, you're done — put it in `.env.staging` and stop
+reading. Otherwise, one of these makes your own hub reachable:
 
-```bash
-cloudflared tunnel --url http://localhost:7788      # prints https://<id>.trycloudflare.com
-crosspane --public-url https://<id>.trycloudflare.com --write-env
-```
+| | how | trade-off |
+|---|---|---|
+| **Tunnel** | `cloudflared tunnel --url http://localhost:7788`, then run the hub with `--public-url https://<id>.trycloudflare.com` | works on any network including cellular, no certificate of your own — but session logs transit the tunnel provider |
+| **A certificate the device trusts** | `--tls-cert cert.pem --tls-key key.pem` | nothing leaves your network; needs a corporate CA already on your devices, or a public certificate for a name resolving to your LAN IP |
+| **Reverse proxy on the staging origin** | `--public-url https://staging.example.com/__crosspane`, and point that path at the hub | same origin, no third party; needs one route in your app server, forwarding the WebSocket upgrade |
+| **Nothing at all** | `agent.copyCapture()` | no network, no certificate, no origin rules — the path that always works |
 
-Session logs pass through the tunnel provider, so use this only where that's acceptable.
-
-**2. A certificate the device already trusts** — nothing leaves your network:
-
-```bash
-crosspane --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem --write-env
-```
-
-Good when you have a corporate CA already deployed to managed devices, or a publicly
-trusted certificate for a name that resolves to your LAN IP. A **self-signed certificate
-does not work** in app webviews: since Android 7, apps don't trust user-installed CAs,
-so no amount of installing helps.
-
-**3. Reverse-proxy the hub through the staging origin** — same origin, no mixed content,
-nothing goes to a third party:
-
-```bash
-crosspane --public-url https://staging.example.com/__crosspane --write-env
-```
-
-Point that path at the hub from your app server, forwarding the WebSocket upgrade.
-
-**4. No infrastructure at all** — skip live mode and use `agent.copyCapture()`, which
-needs no network and is unaffected by any of this.
+A **self-signed certificate does not work** in app webviews: since Android 7, apps don't
+trust user-installed CAs, so no amount of installing helps. That's why crosspane accepts a
+certificate but never generates one.
 
 ## What you get
 

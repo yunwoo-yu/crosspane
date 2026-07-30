@@ -54,14 +54,19 @@ Add the agent to your app (dev/QA builds) — no address needed:
   import { initCrosspane } from '@crosspane/agent'
   initCrosspane({ label: 'checkout webview' })
 
-  On localhost it finds the hub by itself. For a phone or a deployed URL, run the hub
-  with --write-env and the address is injected at build time; on a deployed page each
-  device opts in by opening it once with ?__crosspane=on (nothing streams otherwise).
+  On localhost it finds the hub by itself. For other environments it is an ordinary env
+  var, like any API URL — set NEXT_PUBLIC_CROSSPANE_URL (or VITE_/PUBLIC_/REACT_APP_)
+  per environment and leave it out of production; the agent reads it with no extra code.
+  --write-env below exists only for the case a static value can't cover: a hub on your
+  laptop plus a phone, where the LAN address and token change every restart.
   Offline capture works everywhere regardless — see agent.copyCapture().
 
 Debugging an https:// page (staging, or anything already deployed):
+  This is about where you run the hub; the app still just reads its env var.
   A secure page cannot open a plain ws:// connection — that is a browser rule with no
-  workaround, so the hub has to be reachable over wss://. Pick whichever fits:
+  workaround, so the hub has to be reachable over wss://. If your team already runs a hub
+  at a fixed https:// address, put that in your env file and ignore the rest of this.
+  Otherwise, to make your own hub reachable:
 
   1. Tunnel (works on any network, including cellular; no certificate of your own)
        cloudflared tunnel --url http://localhost:7788      # prints https://<id>.trycloudflare.com

@@ -106,26 +106,46 @@ initCrosspane(options?: {
 
 ## Where the hub address comes from
 
-You rarely pass `serverUrl`. It is resolved in this order:
+On `localhost` you don't configure anything. Everywhere else it's an ordinary env var, the
+same way you configure an API URL:
+
+```ts
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,  // Vite: import.meta.env.VITE_CROSSPANE_URL
+})
+```
+
+```
+.env.development   NEXT_PUBLIC_CROSSPANE_URL=http://localhost:7788
+.env.staging       NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.staging.example.com
+.env.production    (leave it out)
+```
+
+Unset means offline capture only — the agent never guesses an address. You can also omit
+`serverUrl` and let the agent read those variable names itself
+(`NEXT_PUBLIC_`/`VITE_`/`PUBLIC_`/`REACT_APP_`).
+
+Full resolution order, if you need the details:
 
 | Page is on | Live mode connects to |
 |---|---|
-| `localhost` | `http://localhost:7788` automatically, or the injected address if there is one |
-| any other host | the injected address — **only** on devices activated with `?__crosspane=on` |
-| anywhere, no injected address | nothing; the ring buffer still records for offline capture |
+| `localhost` | `http://localhost:7788` automatically, or the configured address if there is one |
+| any other host, `serverUrl` passed | that address |
+| any other host, address only from env | it — but **only** on devices activated with `?__crosspane=on` |
+| anywhere, no address | nothing; the ring buffer still records for offline capture |
 
-Injected addresses come from `crosspane --host 0.0.0.0 --write-env`, which writes the hub's
-address and access token into `.env.local` (`NEXT_PUBLIC_`/`VITE_`/`PUBLIC_`/`REACT_APP_`
-depending on your framework) and removes them when the hub stops.
+Auto-connect requires the page itself to be on loopback, so a build that reaches real users
+never contacts a hub. The activation gate applies to env-derived addresses because CI places
+those and they can survive into a production build; an explicit `serverUrl` is a deliberate
+act and skips it.
 
-Because auto-connect requires the page itself to be on loopback, a build that reaches real
-users never contacts a hub. Passing `serverUrl` yourself always wins and never needs
-activation.
+A hub on your own laptop plus a phone is the one case a static value can't cover — the LAN
+address and token change every restart. `crosspane --host 0.0.0.0 --write-env` writes them
+into `.env.local` and removes them when the hub stops.
 
-From an `https://` page the address has to be `https://` too — browsers block plain `ws://`
-from a secure origin, so the hub needs a certificate the device trusts. Run it with
-`--tls-cert`/`--tls-key`, or put it behind a tunnel or your staging origin with
-`--public-url`; see "Debugging an `https://` page" in the
+From an `https://` page the hub must be reachable over `wss://` with a certificate the device
+trusts — see "Debugging an `https://` page" in the
 [crosspane README](https://github.com/yunwoo-yu/crosspane#debugging-an-https-page).
 
 ## Notes

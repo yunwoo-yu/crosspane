@@ -99,6 +99,25 @@ describe('resolveLiveEndpoint', () => {
     ).toBe('http://localhost:7789');
   });
 
+  it("문자열 'undefined'/'null'을 주소로 쓰지 않는다 — 조용히 영구 실패한다", () => {
+    // `serverUrl: \`${process.env.X}\`` 처럼 감싸면 이 값이 온다. 통과시키면 전송이
+    // undefined/agent로 붙으려 하고(URL 파싱 실패 → 문자열 폴백) 아무 진단도 남지 않는다
+    for (const bogus of ['undefined', 'null']) {
+      expect(
+        resolveLiveEndpoint({ explicit: bogus, hostname: 'staging.example.com', activated: true }),
+        bogus,
+      ).toBeUndefined();
+      expect(
+        resolveLiveEndpoint({ env: bogus, hostname: 'staging.example.com', activated: true }),
+        bogus,
+      ).toBeUndefined();
+    }
+    // 루프백이면 잘못된 값 대신 기본값으로 떨어진다 — 여기서는 실제로 붙을 수 있다
+    expect(
+      resolveLiveEndpoint({ explicit: 'undefined', hostname: 'localhost', activated: true }),
+    ).toBe(`http://localhost:${DEFAULT_HUB_PORT}`);
+  });
+
   it('빈 문자열은 미설정으로 본다 — 주입되지 않은 env가 빈 값으로 치환된다', () => {
     expect(
       resolveLiveEndpoint({ explicit: '', env: '', hostname: 'localhost', activated: true }),
