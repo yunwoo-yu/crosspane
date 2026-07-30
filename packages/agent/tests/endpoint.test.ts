@@ -3,6 +3,7 @@ import {
   ACTIVATION_STORAGE_KEY,
   DEFAULT_HUB_PORT,
   envServerUrl,
+  isDebugActivated,
   isLoopbackHost,
   isRealPage,
   resolveActivation,
@@ -212,6 +213,18 @@ describe('resolveActivation', () => {
     } finally {
       if (original) Object.defineProperty(window, 'localStorage', original);
     }
+  });
+});
+
+describe('isDebugActivated', () => {
+  it('현재 페이지 기준으로 판정한다 — 앱이 enabled에 그대로 넘기는 함수다', () => {
+    // jsdom의 location은 localhost다 → 표시가 없으면 켜진 것으로 본다
+    expect(isDebugActivated()).toBe(true);
+  });
+
+  it('저장된 off를 존중한다 — enabled 게이팅이 즉시 반영되어야 한다', () => {
+    resolveActivation('?__crosspane=off', 'localhost');
+    expect(isDebugActivated()).toBe(false);
   });
 });
 
