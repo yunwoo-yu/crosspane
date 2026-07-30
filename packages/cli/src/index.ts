@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
+import { configPath, loadOrCreateIngestKey } from './config.js';
 import { setVerbose } from './debug.js';
 import { clearEnvFile, writeEnvFile } from './env-file.js';
 import { startMcpServer } from './mcp/index.js';
@@ -53,7 +54,15 @@ async function main(): Promise<void> {
    * 읽기 토큰이 거기 있으면 누구나 세션 로그를 읽는다. 인제스트 키는 공개돼도 되고,
    * 최악이 남이 우리 허브에 쓰레기 세션을 넣는 것이다 — 그래서 프로덕션에 넣을 수 있다.
    */
-  const ingestKey = options.ingestKey ?? generatedIngestKey(reachableFromOutside, options.noAuth);
+  /**
+   * 인제스트 키는 **한 번 만들어 저장한다** — 매번 새로 만들면 배포된 앱의 주소가 상해서
+   * 허브 재시작마다 재배포해야 한다(`config.ts`). 명시한 값이 항상 이긴다(팀 허브·CI).
+   */
+  const storedKey =
+    reachableFromOutside && !options.noAuth && options.ingestKey === undefined
+      ? loadOrCreateIngestKey()
+      : undefined;
+  const ingestKey = options.ingestKey ?? storedKey?.key;
   const tls = readTlsFiles(options.tlsCert, options.tlsKey);
   const server = await startHubServer({
     port: options.port,
@@ -102,17 +111,21 @@ async function main(): Promise<void> {
       ingestKey
         ? '  the ?k= key in that URL is write-only: it can send sessions to this hub but not\n' +
             '  read any. That is why it is safe in a deployed page, where the address is visible\n' +
-            '  to every visitor. Reading needs the ?t= token above — keep that one off your pages.\n' +
-            '  Both change every restart.'
+            '  to every visitor. Reading needs the ?t= token above — keep that one off your pages,\n' +
+            '  and note it changes every restart while the ?k= key stays the same.'
         : '  ⚠ --no-auth: anyone who can reach this hub can read your session logs and inject sessions.',
     );
   } else {
     console.log('  local only — pass --host 0.0.0.0 to receive live agent sessions from devices');
   }
-  if (options.ingestKey !== undefined) {
+  if (storedKey?.created === true) {
     console.log(
-      '  using a fixed ingest key — the address in your app stays valid across restarts.\n' +
-        '  Pair it with a stable hostname and you never touch the deployed value again.',
+      storedKey.ephemeral
+        ? `  ⚠ could not save the ingest key to ${configPath()} — it will differ next restart,\n` +
+            "    so an address baked into a deployed app won't keep working. Fix the path, or\n" +
+            '    pass --ingest-key / CROSSPANE_INGEST_KEY yourself.'
+        : `  generated an ingest key and saved it to ${configPath()} — it is reused from now on,\n` +
+            '    so an address you put in a deployed app keeps working across restarts.',
     );
   }
   if (options.publicUrl !== undefined) {
@@ -160,17 +173,6 @@ async function main(): Promise<void> {
   };
   process.on('uncaughtException', onFatal('uncaughtException'));
   process.on('unhandledRejection', onFatal('unhandledRejection'));
-}
-
-/**
- * 인제스트 키를 만든다 — `--ingest-key`로 고정하지 않았을 때만.
- *
- * 기본이 매번 새 값인 이유는 안전한 기본값이지만, **고정할 수 있어야 한다**:
- * 배포된 앱의 주소가 이 키를 담으므로 키가 바뀌면 허브를 재시작할 때마다 앱을 다시
- * 배포해야 한다. 쓰기 전용이라 공개돼도 되는 값이므로 고정에 대가가 없다.
- */
-function generatedIngestKey(reachable: boolean, noAuth: boolean): string | undefined {
-  return reachable && !noAuth ? randomBytes(8).toString('hex') : undefined;
 }
 
 /**

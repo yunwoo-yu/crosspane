@@ -45,9 +45,10 @@ Options:
                        behind a tunnel or reverse proxy (e.g. https://xyz.trycloudflare.com).
                        --write-env and the dashboard both use it.
                        Defaults to $CROSSPANE_PUBLIC_URL
-  --ingest-key <key>   Use a fixed write-only key instead of a fresh one per restart.
-                       This is what stops you re-deploying your app every time the hub
-                       restarts — see "A setup you configure once" below.
+  --ingest-key <key>   Use this write-only key instead of the saved one. You normally do
+                       not need it: the hub generates a key on first run and reuses it from
+                       ~/.crosspane/config.json, so an address in a deployed app keeps
+                       working. Pass it for a shared team hub or CI.
                        Defaults to $CROSSPANE_INGEST_KEY
   --no-open            Don't open the dashboard in your browser automatically
   --no-auth            Disable the access token that --host adds. Only do this on a
@@ -98,29 +99,23 @@ Debugging an https:// page (staging, or anything already deployed):
   4. No infrastructure at all: skip live mode and use agent.copyCapture(), which needs
      no network and is unaffected by any of the above.
 
-A setup you configure once (no redeploy when the hub restarts):
-  Both halves of the address your app holds have to stop changing. By default the hostname
-  moves (a quick tunnel picks a new one) and the ingest key is regenerated per restart, so
-  the deployed value goes stale — that is the friction, and both halves are fixable.
+Keeping a deployed app's address valid:
+  The ingest key is handled for you — generated on first run, saved to
+  ~/.crosspane/config.json, reused every restart. Nothing to create or copy.
 
-  1. A stable hostname. A quick tunnel gives you a random one; a *named* tunnel on a domain
-     you already own gives a permanent one, free:
+  The other half of the address is the hostname, and a *quick* tunnel picks a new one each
+  run. Give it a permanent name once and the value in your app never changes again — a named
+  cloudflared tunnel on a domain you already own is free:
        cloudflared tunnel login
        cloudflared tunnel create crosspane
        cloudflared tunnel route dns crosspane crosspane.example.com
        cloudflared tunnel run --url http://localhost:7788 crosspane
-     Tailscale Funnel is another stable option (a fixed *.ts.net name).
-
-  2. A stable key. Pick one and keep it — it is write-only, so there is nothing to protect
-     by rotating it:
        export CROSSPANE_PUBLIC_URL=https://crosspane.example.com
-       export CROSSPANE_INGEST_KEY=$(openssl rand -hex 8)   # once, then keep it
+  Tailscale Funnel works too (a fixed *.ts.net name), and a team hub on real infrastructure
+  needs none of this.
 
-  Now crosspane needs no flags, and your app's env var never changes again:
-       NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com/?k=<that key>
-
-  Anyone who sees the key can send junk sessions to your hub but cannot read any; rotate it
-  by changing both places if that ever matters.
+  Anyone who sees the key can send junk sessions to your hub but cannot read any. Rotate it
+  by deleting ~/.crosspane/config.json (then update the app's address).
 
 MCP mode (crosspane mcp):
   Exposes the running hub's sessions to a coding agent over stdio, so it can ask
