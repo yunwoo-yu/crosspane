@@ -7,10 +7,23 @@ import {
 } from '@crosspane/protocol';
 import { RingBuffer } from './buffer.js';
 import { copyText } from './clipboard.js';
-import { envServerUrl, isLiveActivated, resolveLiveEndpoint } from './endpoint.js';
+import { envServerUrl, resolveActivation, resolveLiveEndpoint } from './endpoint.js';
 import { installHooks } from './hooks.js';
 import { LiveTransport } from './transport.js';
 
+/**
+ * 이 기기에서 디버깅이 켜졌는지 (`?__crosspane=on` 링크로 켜고 그 기기에서 유지된다).
+ *
+ * `enabled`에 그대로 넘기면 **활성화하지 않은 방문자에게는 훅이 하나도 설치되지 않는다** —
+ * 광고·분석이 도는 운영 사이트에 넣을 때 필요한 형태다:
+ *
+ * ```ts
+ * initCrosspane({ label, serverUrl, enabled: isDebugActivated })
+ * ```
+ *
+ * 다른 조건과 조합할 수도 있다: `enabled: () => isDebugActivated() && user.isQA`
+ */
+export { isDebugActivated } from './endpoint.js';
 export type { SessionCapture, SessionEvent, SessionMeta };
 
 export interface CrosspaneAgentOptions {
@@ -161,7 +174,7 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
     explicit: options.serverUrl,
     env: envServerUrl(),
     hostname: location.hostname,
-    activated: isLiveActivated(location.search, location.hostname),
+    activated: resolveActivation(location.search, location.hostname),
     userAgent: navigator.userAgent,
   });
   const transport = liveUrl === undefined ? null : new LiveTransport(liveUrl, session);

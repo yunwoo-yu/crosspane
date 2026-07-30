@@ -106,10 +106,32 @@ declare global {
 }
 
 /**
- * 이 기기에서 라이브 전송이 켜져 있는지.
+ * 이 기기에서 디버깅이 켜져 있는지. **`enabled`에 그대로 넘길 수 있다:**
  *
- * 루프백(내 개발 머신)은 항상 켜져 있다. 배포된 페이지는 **기기별 옵트인**이다 —
- * 스테이징·프로덕션은 여러 사람이 보는 곳이므로, 링크를 연 기기만 기록해야 한다.
+ * ```ts
+ * initCrosspane({ serverUrl, enabled: isDebugActivated })
+ * ```
+ *
+ * 그렇게 하면 활성화하지 않은 방문자에게는 훅이 **하나도 설치되지 않는다** — 광고·분석이
+ * 도는 운영 사이트에 넣을 때 필요한 형태다. 내보내는 이유가 그것이다: 이 판정을
+ * 라이브러리가 내주지 않으면 앱마다 파라미터 읽기·저장·try/catch를 다시 구현하게 되고,
+ * 실제로 그렇게 됐다(실사용 프로젝트에 적용해 보고 알아냈다).
+ */
+export function isDebugActivated(): boolean {
+  return resolveActivation(location.search, location.hostname);
+}
+
+/**
+ * 활성화 판정 (순수 — 테스트용 진입점).
+ *
+ * 배포된 페이지는 **기기별 옵트인**이다: 스테이징·프로덕션은 여러 사람이 보는 곳이므로
+ * 링크를 연 기기만 기록해야 한다. 루프백(내 개발 머신)은 아무 표시가 없으면 켜진 것으로
+ * 본다 — 무설정 로컬 개발이 그 위에 서 있다.
+ *
+ * **파라미터를 루프백보다 먼저 본다.** 예전에는 루프백에서 즉시 true를 돌려주고 파라미터를
+ * 읽지도 저장하지도 않았다. 그래서 `?__crosspane=on`으로 켠 뒤 페이지를 옮기면 저장된 값이
+ * 없어 꺼졌고, `?__crosspane=off`는 조용히 무시됐다 — **사용자가 명시한 것을 무시하는
+ * 동작이라 이 프로젝트의 규칙에 정면으로 어긋난다**(실사용 프로젝트에서 발견).
  *
  * 활성화 링크는 **"켠다"만 담고 "어디로 보낼지"는 담지 않는다.** 목적지를 링크로 받게
  * 만들면 `?__crosspane=https://attacker.example`을 담은 링크 하나로 피해자의 콘솔·토큰이
@@ -119,15 +141,15 @@ declare global {
  * 더 중요한 불변식이다(`.claude/rules/agent-sdk.md`). 링크가 퍼져도 담긴 정보는
  * "켠다"뿐이므로 최악의 경우가 팀 자신의 허브에 세션이 하나 더 붙는 것이다.
  */
-export function isLiveActivated(search: string, hostname: string): boolean {
-  if (isLoopbackHost(hostname)) return true;
-
+export function resolveActivation(search: string, hostname: string): boolean {
   const requested = readActivationParam(search);
   if (requested !== undefined) {
     writeStoredActivation(requested);
     return requested;
   }
-  return readStoredActivation();
+  const stored = readStoredActivation();
+  if (stored !== undefined) return stored;
+  return isLoopbackHost(hostname);
 }
 
 /** `?__crosspane=on|off` (값 없는 `?__crosspane`도 on). 없으면 undefined */
@@ -147,18 +169,24 @@ function readActivationParam(search: string): boolean | undefined {
 
 // 스토리지 접근은 항상 던질 수 있다 — 프라이빗 모드 웹뷰, 쿠키 차단, 파일 오리진.
 // 저장에 실패해도 이번 페이지의 활성화 판정은 유지되어야 하므로 조용히 넘긴다.
-function readStoredActivation(): boolean {
+//
+// **`off`를 지우지 않고 'off'로 적는다.** 지우기만 하면 "표시 없음"이 되고, 루프백에서는
+// 표시 없음이 곧 켜짐이므로 사용자가 끈 것이 다음 로드에 되살아난다(실측). 껐다는 사실도
+// 저장해야 하는 정보다.
+function readStoredActivation(): boolean | undefined {
   try {
-    return localStorage.getItem(ACTIVATION_STORAGE_KEY) === 'on';
+    const stored = localStorage.getItem(ACTIVATION_STORAGE_KEY);
+    if (stored === 'on') return true;
+    if (stored === 'off') return false;
+    return undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
 function writeStoredActivation(on: boolean): void {
   try {
-    if (on) localStorage.setItem(ACTIVATION_STORAGE_KEY, 'on');
-    else localStorage.removeItem(ACTIVATION_STORAGE_KEY);
+    localStorage.setItem(ACTIVATION_STORAGE_KEY, on ? 'on' : 'off');
   } catch {
     // 저장 못 해도 이번 로드에는 반영된다 (호출부가 반환값을 쓴다)
   }
@@ -210,13 +238,16 @@ export function resolveLiveEndpoint(input: LiveEndpointInput): string | undefine
   // 여기부터는 전부 자동 추론이다 — 실제 페이지가 아니면 아무것도 추론하지 않는다
   if (input.userAgent !== undefined && !isRealPage(input.userAgent)) return undefined;
 
-  // 루프백은 그 자체로 활성 상태다. 호출자(`isLiveActivated`)도 같은 판정을 하지만
-  // 여기서 한 번 더 본다 — 활성화 게이트가 호출 순서에 의존하면 안 된다
-  const loopback = isLoopbackHost(input.hostname);
+  // 껐으면 여기서 끝난다. **루프백도 예외가 아니다** — `?__crosspane=off`가 로컬에서만
+  // 안 먹으면 사용자가 명시한 것을 무시하는 셈이고, 그 상태를 알 방법도 없다.
+  // (`resolveActivation`이 표시 없는 루프백을 이미 켜진 것으로 돌려주므로 무설정은 그대로다)
+  if (!input.activated) return undefined;
 
   // 주입값이 있으면 그대로 쓴다 — 루프백에서도 폴백 포트(+1)로 뜬 허브를 가리킬 수 있다
-  if (nonEmpty(input.env)) return input.activated || loopback ? input.env : undefined;
+  if (nonEmpty(input.env)) return input.env;
 
   // 페이지의 호스트명을 유지한다: localhost와 127.0.0.1을 섞으면 이유 없이 오리진이 갈라진다
-  return loopback ? `http://${input.hostname}:${DEFAULT_HUB_PORT}` : undefined;
+  return isLoopbackHost(input.hostname)
+    ? `http://${input.hostname}:${DEFAULT_HUB_PORT}`
+    : undefined;
 }

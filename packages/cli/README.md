@@ -129,18 +129,21 @@ staging URL from streaming every visitor's session. It only works where you cont
 If you omit `serverUrl` where you can't add the parameter, nothing streams and there is no way
 to see why from inside the webview. Check `agent.live` if you're unsure which state you're in.
 
-**One shared build, one tester?** An address in the env var means every install streams to your
-hub. Gate it on your own account instead — the app already knows who is logged in, and this
-needs no address bar:
+**One shared build, or a live site with real users?** Gate `enabled` — with `false` the agent
+installs **no hooks at all**, so everyone else's app is untouched:
 
 ```ts
-initCrosspane({
-  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,
-  enabled: () => user.isQA,          // or user.email === 'you@example.com'
-})
+import { initCrosspane, isDebugActivated } from '@crosspane/agent'
+
+// only devices that opened ?__crosspane=on
+initCrosspane({ serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL, enabled: isDebugActivated })
+
+// or on the account the app already knows — works with no address bar
+initCrosspane({ serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL, enabled: () => user.isQA })
 ```
 
-`enabled: false` installs no hooks at all, so everyone else's app is untouched.
+`isDebugActivated()` is the agent's own opt-in check, exported so you don't reimplement the
+parameter and storage handling in every app.
 
 The link only ever carries "on": the destination comes from the build, never from the URL, so a
 link can't redirect anyone's logs somewhere else.
