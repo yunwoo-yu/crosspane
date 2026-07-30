@@ -53,8 +53,15 @@ async function main(): Promise<void> {
    * 기본 포트가 점유되면 +1로 폴백하므로 여기서 만들면 틀린 주소를 안내하게 된다.
    * 사용자가 직접 준 `--tls-cert`가 항상 이긴다.
    */
+  /**
+   * `--lan-tls`는 "다른 기기에서 이 허브에 붙어라"는 뜻이고, LAN 바인딩은 그 의도의
+   * 필연적 결과다. 예전에는 `--host 0.0.0.0`을 함께 주지 않으면 그냥 종료했는데,
+   * 그건 사용자가 이미 말한 것을 한 번 더 말하게 하는 마찰일 뿐이었다.
+   * 다만 LAN 노출은 조용히 하지 않는다 — 아래에서 어떤 주소로 열렸는지 밝힌다.
+   */
+  const host = options.lanTls && isLoopback(options.host) ? '0.0.0.0' : options.host;
   const lanTls =
-    options.lanTls && options.tlsCert === undefined ? await openLanTls(options.host) : undefined;
+    options.lanTls && options.tlsCert === undefined ? await openLanTls(host) : undefined;
   const savedPublicUrl = loadConfig().publicUrl;
   // `--public-url ''`는 저장된 값을 지운다 (터널을 그만 쓸 때)
   const cleared = options.publicUrl === '';
@@ -72,7 +79,7 @@ async function main(): Promise<void> {
   }
 
   /** LAN 바인딩 여부 — 안내할 주소를 LAN IP로 할지 localhost로 할지 결정한다 */
-  const exposed = options.host !== '127.0.0.1' && options.host !== 'localhost';
+  const exposed = !isLoopback(host);
   /**
    * 이 허브가 이 머신 밖에서 닿는지. **토큰 여부는 이 값으로 정한다.**
    *
@@ -101,11 +108,24 @@ async function main(): Promise<void> {
   const tls = readTlsFiles(options.tlsCert, options.tlsKey) ?? lanTls?.material;
   const server = await startHubServer({
     port: options.port,
-    host: options.host,
+    host,
     authToken,
     ingestKey,
     tls,
     publicUrl,
+    // 인증서가 덮는 이름으로 안내해야 한다 — LAN IP는 이름이 맞지 않아 조용히 실패한다
+    tlsHostname: lanTls?.hostname,
+    /**
+     * 세션이 붙고 끊길 때 터미널에 알린다. 대시보드를 열지 않아도 "붙었는지"와
+     * "어느 페이지인지"를 알 수 있어야 한다 — 붙였는데 아무 반응이 없으면
+     * 사용자는 주소가 틀렸는지 코드가 안 도는지 구분하지 못한다.
+     */
+    onSessionChange: ({ kind, session }) => {
+      const where = session.url === undefined ? '' : `  ${session.url}`;
+      console.log(
+        kind === 'joined' ? `● session · ${session.label}${where}` : `○ ended   · ${session.label}`,
+      );
+    },
     // 명시된 포트는 존중하고, 기본 포트는 사용 중이면 +1씩 폴백
     portAttempts: options.portExplicit ? 1 : 10,
   });
@@ -162,7 +182,10 @@ async function main(): Promise<void> {
               : '  --ingest-key is set, so senders must include ?k= too.'),
     );
   } else {
-    console.log('  local only — pass --host 0.0.0.0 to receive live agent sessions from devices');
+    console.log(
+      '  local only — nothing outside this machine can reach it yet.\n' +
+        '  To debug a page on your phone:  crosspane --lan-tls   (works for https:// pages too)',
+    );
   }
 
   if (publicUrl !== undefined) {
@@ -175,8 +198,14 @@ async function main(): Promise<void> {
   } else if (!tls) {
     // https 페이지에서 왜 안 되는지를 여기서 알려준다 — 나중에 알면 원인 찾기가 매우 어렵다
     console.log(
-      '  note: an https:// page cannot connect to this hub over plain ws://. See --tls-cert\n' +
-        '  and --public-url in `crosspane --help` ("Debugging an https:// page").',
+      /*
+       * `--lan-tls`를 먼저 말한다. 이 제약을 실제로 없애는 것이 그것이고,
+       * 예전 문구는 인증서를 직접 준비하라는 두 가지만 가리켜 우리가 이미 해결해 둔
+       * 길을 사용자에게 숨기고 있었다.
+       */
+      '  note: an https:// page cannot connect to this hub over plain ws://.\n' +
+        '  Fix it with:  crosspane --lan-tls   (fetches a certificate browsers already trust)\n' +
+        '  Or bring your own with --tls-cert / --public-url — see `crosspane --help`.',
     );
   }
 
@@ -213,6 +242,10 @@ async function main(): Promise<void> {
   process.on('unhandledRejection', onFatal('unhandledRejection'));
 }
 
+function isLoopback(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
 /**
  * LAN용 신뢰 인증서를 준비한다. 실패하면 원인과 대안을 남기고 종료한다 —
  * `--lan-tls`를 줬는데 조용히 평문으로 뜨면 https 페이지에서 왜 안 붙는지 알 수 없다.
@@ -220,10 +253,10 @@ async function main(): Promise<void> {
 async function openLanTls(
   host: string,
 ): Promise<{ material: { cert: string; key: string }; hostname: string } | undefined> {
-  const ip = host !== '127.0.0.1' && host !== 'localhost' ? lanAddresses()[0] : undefined;
+  const ip = isLoopback(host) ? undefined : lanAddresses()[0];
   if (ip === undefined) {
     console.error(
-      '--lan-tls needs --host 0.0.0.0 (it is for reaching this hub from other devices)',
+      '--lan-tls found no LAN address on this machine — connect to a network and try again.',
     );
     process.exit(1);
   }

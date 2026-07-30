@@ -79,6 +79,9 @@ body {
 
 /* ── 하단 패널 ────────────────────────────────────── */
 
+/* 필터 바는 좁은 화면에서 줄바꿈한다 — nowrap이면 390px에서 검색 입력이 잘려
+   글자를 볼 수 없게 된다(실측). 세로로 한 줄 늘어나는 편이 낫다 */
+
 /* 세션 패널 — pane 그리드가 사라진 뒤로 이 패널이 본문이다.
    남은 높이를 전부 차지해야 로그가 화면을 채운다 (flex: 0 0 auto면 아래쪽만 쓴다) */
 .console {
@@ -93,7 +96,8 @@ body {
 .console-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 8px 16px;
   font-size: 12px;
   color: var(--muted);
@@ -144,17 +148,26 @@ body {
   flex: 0 0 62px;
   color: var(--muted);
   font-size: 10px;
+  /* 줄바꿈되면 로그 열이 어긋난다 — 폭은 고정하고 넘치면 잘리게 둔다 */
+  white-space: nowrap;
 }
 
 .log-kind {
   flex: 0 0 90px;
   color: var(--muted);
   font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .log-text {
   white-space: pre-wrap;
   word-break: break-word;
+  /* 남은 폭을 채운다 — flex 아이템 기본값은 내용 폭이라 hover 배경이 텍스트만큼만
+     칠해져 어느 줄에 있는지 알기 어려웠다 */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* ── 토스트 ───────────────────────────────────────── */

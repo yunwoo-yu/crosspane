@@ -1,21 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ConsolePanel } from '../src/components/ConsolePanel';
 import { MAX_LOGS } from '../src/constants';
-import type { LogEntry, SessionMeta } from '../src/types';
+import type { LogEntry } from '../src/types';
+import { fireEvent, render, screen } from './render';
 
 /**
  * 패널의 계약은 "무엇이 보이는가"다. 순수 함수(filterLogs·isNearBottom)는 따로 검증하니
  * 여기서는 **배선**을 고정한다: 필터가 실제로 목록을 바꾸는가, 상한과 합친 횟수를
  * 화면에 밝히는가, 오토스크롤이 사용자 스크롤을 존중하는가.
  */
-
-const session = (id: string, label: string): SessionMeta => ({
-  id,
-  label,
-  userAgent: 'ua',
-  startedAt: 0,
-});
 
 let nextId = 0;
 const log = (partial: Partial<LogEntry> = {}): LogEntry => ({
@@ -30,9 +23,7 @@ const log = (partial: Partial<LogEntry> = {}): LogEntry => ({
 
 describe('ConsolePanel', () => {
   it('로그 텍스트와 레벨을 렌더한다', () => {
-    const { container } = render(
-      <ConsolePanel logs={[log({ level: 'error', text: 'boom' })]} sessions={[]} />,
-    );
+    const { container } = render(<ConsolePanel logs={[log({ level: 'error', text: 'boom' })]} />);
     expect(screen.getByText('boom')).toBeTruthy();
     // 'error'는 레벨 필터 버튼에도 있으므로 로그 줄 안에서 찾는다
     const line = container.querySelector('.log-line');
@@ -44,7 +35,6 @@ describe('ConsolePanel', () => {
     render(
       <ConsolePanel
         logs={[log({ kind: 'pageerror', level: 'error', text: 'oops', detail: 'at pay.js:1:1' })]}
-        sessions={[]}
       />,
     );
     expect(screen.getByText('at pay.js:1:1')).toBeTruthy();
@@ -52,10 +42,7 @@ describe('ConsolePanel', () => {
 
   it('내비게이션은 구분선으로 렌더한다 — 로그가 어느 화면의 것인지 보여준다', () => {
     render(
-      <ConsolePanel
-        logs={[log({ kind: 'navigation', level: 'info', text: 'http://x/pay' })]}
-        sessions={[]}
-      />,
+      <ConsolePanel logs={[log({ kind: 'navigation', level: 'info', text: 'http://x/pay' })]} />,
     );
     expect(screen.getByText('navigate')).toBeTruthy();
     expect(screen.getByText('→ http://x/pay')).toBeTruthy();
@@ -63,9 +50,7 @@ describe('ConsolePanel', () => {
 
   describe('반복 횟수', () => {
     it('합쳐진 로그는 ×N을 함께 보여준다 — 조용히 합치면 오도한다', () => {
-      render(
-        <ConsolePanel logs={[log({ text: 'Failed to fetch', repeat: 3_000 })]} sessions={[]} />,
-      );
+      render(<ConsolePanel logs={[log({ text: 'Failed to fetch', repeat: 3_000 })]} />);
       expect(screen.getByText('×3000')).toBeTruthy();
     });
 
@@ -74,7 +59,6 @@ describe('ConsolePanel', () => {
       render(
         <ConsolePanel
           logs={[log({ text: 'Failed to fetch', repeat: 120, ts: t0, repeatUntil: t0 + 600_000 })]}
-          sessions={[]}
         />,
       );
       expect(screen.getByText('×120')).toBeTruthy();
@@ -83,15 +67,13 @@ describe('ConsolePanel', () => {
     });
 
     it('순간적 폭주는 기간을 붙이지 않는다', () => {
-      render(
-        <ConsolePanel logs={[log({ repeat: 50, ts: 1_000, repeatUntil: 1_200 })]} sessions={[]} />,
-      );
+      render(<ConsolePanel logs={[log({ repeat: 50, ts: 1_000, repeatUntil: 1_200 })]} />);
       expect(screen.getByText('×50')).toBeTruthy();
       expect(screen.getByTitle('50 consecutive occurrences')).toBeTruthy();
     });
 
     it('1회면 배지를 붙이지 않는다', () => {
-      render(<ConsolePanel logs={[log({ repeat: 1 }), log()]} sessions={[]} />);
+      render(<ConsolePanel logs={[log({ repeat: 1 }), log()]} />);
       expect(screen.queryByText(/^×/)).toBeNull();
     });
   });
@@ -99,7 +81,7 @@ describe('ConsolePanel', () => {
   describe('렌더 상한', () => {
     it('상한 이하면 알림 없이 전부 보여준다', () => {
       const logs = Array.from({ length: 10 }, (_, i) => log({ text: `line${i}` }));
-      render(<ConsolePanel logs={logs} sessions={[]} />);
+      render(<ConsolePanel logs={logs} />);
       expect(screen.queryByText(/older entries hidden/)).toBeNull();
       expect(screen.getByText('line0')).toBeTruthy();
     });
@@ -107,7 +89,7 @@ describe('ConsolePanel', () => {
     it('상한을 넘으면 최신만 렌더하고 숨긴 건수를 밝힌다', () => {
       // 캡처 파일에는 상한이 없다 — 전부 그리면 브라우저가 멈춘다(실측)
       const logs = Array.from({ length: MAX_LOGS + 250 }, (_, i) => log({ text: `line${i}` }));
-      render(<ConsolePanel logs={logs} sessions={[]} />);
+      render(<ConsolePanel logs={logs} />);
 
       expect(screen.getByText(/250 older entries hidden/)).toBeTruthy();
       // 최신이 남는다 — 실패 직전 맥락이 뒤쪽에 있다
@@ -117,7 +99,7 @@ describe('ConsolePanel', () => {
 
     it('검색으로 좁히면 숨어 있던 앞쪽 엔트리에 도달한다', () => {
       const logs = Array.from({ length: MAX_LOGS + 250 }, (_, i) => log({ text: `line${i}` }));
-      render(<ConsolePanel logs={logs} sessions={[]} />);
+      render(<ConsolePanel logs={logs} />);
       expect(screen.queryByText('line7')).toBeNull();
 
       fireEvent.change(screen.getByLabelText('search logs'), { target: { value: 'line7' } });
@@ -133,7 +115,7 @@ describe('ConsolePanel', () => {
         log({ level: 'warning', text: 'careful' }),
         log({ level: 'error', text: 'boom' }),
       ];
-      render(<ConsolePanel logs={logs} sessions={[]} />);
+      render(<ConsolePanel logs={logs} />);
 
       fireEvent.click(screen.getByRole('button', { name: 'error' }));
       expect(screen.getByText('boom')).toBeTruthy();
@@ -145,24 +127,16 @@ describe('ConsolePanel', () => {
       expect(screen.queryByText('plain')).toBeNull();
     });
 
-    it('세션 버튼이 그 세션의 로그만 남긴다', () => {
-      const logs = [
-        log({ sessionId: 's1', text: 'from one' }),
-        log({ sessionId: 's2', text: 'from two' }),
-      ];
-      render(
-        <ConsolePanel logs={logs} sessions={[session('s1', '결제 웹뷰'), session('s2', '홈')]} />,
-      );
-
-      fireEvent.click(screen.getByRole('button', { name: '홈' }));
-      expect(screen.getByText('from two')).toBeTruthy();
-      expect(screen.queryByText('from one')).toBeNull();
-    });
+    /*
+     * 세션별 필터는 여기 없다 — 상단 세션 탭(SessionList)이 이미 하는 일이고,
+     * App이 걸러서 넘긴다. 패널에 같은 버튼을 또 두면 두 곳이 서로 모르는 채로
+     * 겹쳐 걸려 "왜 안 보이지"가 되고, 좁은 화면에서는 라벨이 세로로 깨졌다(실측).
+     */
   });
 
   describe('오토스크롤', () => {
     it('바닥 근처를 벗어나면 따라가기를 멈추고 복귀 버튼을 준다', () => {
-      const { container } = render(<ConsolePanel logs={[log()]} sessions={[]} />);
+      const { container } = render(<ConsolePanel logs={[log()]} />);
       const body = container.querySelector('.console-body') as HTMLElement;
       expect(screen.queryByTitle('Resume following new logs')).toBeNull();
 
@@ -178,7 +152,7 @@ describe('ConsolePanel', () => {
     });
 
     it('복귀 버튼을 누르면 바닥으로 내려가고 버튼이 사라진다', () => {
-      const { container } = render(<ConsolePanel logs={[log()]} sessions={[]} />);
+      const { container } = render(<ConsolePanel logs={[log()]} />);
       const body = container.querySelector('.console-body') as HTMLElement;
       Object.defineProperties(body, {
         scrollTop: { value: 0, writable: true },
@@ -196,7 +170,7 @@ describe('ConsolePanel', () => {
   it('로그가 많아도 상한 이상 DOM을 만들지 않는다 (프리즈 회귀 방지)', () => {
     const logs = Array.from({ length: 20_000 }, (_, i) => log({ text: `line${i}` }));
     const started = performance.now();
-    const { container } = render(<ConsolePanel logs={logs} sessions={[]} />);
+    const { container } = render(<ConsolePanel logs={logs} />);
     const elapsed = performance.now() - started;
 
     // 알림 1줄 + 상한만큼
@@ -208,7 +182,7 @@ describe('ConsolePanel', () => {
 
 describe('빈 상태', () => {
   it('로그가 없으면 목록이 비어 있다 (안내는 App이 담당한다)', () => {
-    const { container } = render(<ConsolePanel logs={[]} sessions={[]} />);
+    const { container } = render(<ConsolePanel logs={[]} />);
     expect(container.querySelectorAll('.log-line')).toHaveLength(0);
   });
 });
@@ -219,7 +193,7 @@ describe('오토스크롤 effect는 로그가 바뀔 때만 돈다 (회귀)', ()
    * 사용자가 과거 로그를 보려고 스크롤을 올려도 리렌더마다 바닥으로 끌려간다.
    */
   const measureScrollWrites = (logs: LogEntry[]): number => {
-    const { container, rerender } = render(<ConsolePanel logs={logs} sessions={[]} />);
+    const { container, rerender } = render(<ConsolePanel logs={logs} />);
     const body = container.querySelector('.console-body') as HTMLElement;
     let writes = 0;
     Object.defineProperty(body, 'scrollTop', {
@@ -230,7 +204,7 @@ describe('오토스크롤 effect는 로그가 바뀔 때만 돈다 (회귀)', ()
       configurable: true,
     });
     Object.defineProperty(body, 'scrollHeight', { get: () => 5_000, configurable: true });
-    for (let i = 0; i < 3; i++) rerender(<ConsolePanel logs={logs} sessions={[]} />);
+    for (let i = 0; i < 3; i++) rerender(<ConsolePanel logs={logs} />);
     return writes;
   };
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocale } from '../hooks/useLocale';
 import { withHubToken } from '../hub-token';
 import { Button } from './ui/button';
 
@@ -16,6 +17,7 @@ interface HubInfo {
  * 허브가 7790에 떴는데 앱은 7788을 가리켜 세션이 사라진 적이 있다).
  */
 export function ConnectHint() {
+  const { t } = useLocale();
   const [info, setInfo] = useState<HubInfo | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -40,7 +42,7 @@ export function ConnectHint() {
   return (
     <div className="w-full max-w-xl text-left">
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-fg-muted text-xs">Point your app at this hub</span>
+        <span className="text-fg-muted text-xs">{t.pointAppHere}</span>
         <Button
           variant="ghost"
           size="icon"
@@ -49,7 +51,7 @@ export function ConnectHint() {
             void copyText(snippet).then(setCopied);
           }}
         >
-          {copied ? 'copied' : 'copy'}
+          {copied ? t.copied : t.copy}
         </Button>
       </div>
       <pre className="overflow-x-auto rounded border border-line bg-panel p-3 text-[11px] leading-relaxed">
@@ -63,7 +65,7 @@ export function ConnectHint() {
         )
       ) : (
         <p className="mt-1 text-fg-muted text-[11px]">
-          Local only — restart with <code className="text-fg">--host 0.0.0.0</code> (or{' '}
+          {t.localOnlyRestart} <code className="text-fg">--host 0.0.0.0</code> (or{' '}
           <code className="text-fg">pnpm try:lan</code>) to accept sessions from a phone on your
           network.
         </p>

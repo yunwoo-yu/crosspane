@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SessionList } from '../src/components/SessionList';
 import type { SessionMeta, SessionState } from '../src/types';
+import { fireEvent, render, screen } from './render';
 
 /**
  * 여러 기기를 동시에 붙이는 것이 이 툴의 전제다 — 목록은 어느 것이 살아 있고

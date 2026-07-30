@@ -2,12 +2,14 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { CaptureParseError, type LoadedCapture, parseCaptureFile } from './capture-file';
 import { ConnectHint } from './components/ConnectHint';
 import { ConsolePanel } from './components/ConsolePanel';
+import { LocaleToggle } from './components/LocaleToggle';
 import { NetworkPanel } from './components/NetworkPanel';
 import { ScreenPanel } from './components/ScreenPanel';
 import { SessionList } from './components/SessionList';
 import { Button } from './components/ui/button';
 import { ToastStack, useToasts } from './components/ui/toast';
 import { useCrosspaneSocket } from './hooks/useCrosspaneSocket';
+import { useLocale } from './hooks/useLocale';
 import { withHubToken } from './hub-token';
 import type { LogEntry, NetworkEntry, SessionMeta } from './types';
 
@@ -23,6 +25,7 @@ export default function App() {
     screenEvents,
     clearLogs,
   } = useCrosspaneSocket();
+  const { t } = useLocale();
   const [bottomTab, setBottomTab] = useState<'console' | 'network' | 'screen'>('console');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 리플레이 모드: 파일을 열면 라이브 스트림 대신 이 캡처를 본다 */
@@ -36,12 +39,12 @@ export default function App() {
         const loaded = parseCaptureFile(await file.text());
         setReplay(loaded);
         setSelectedId(null);
-        showToast(`Replaying ${loaded.session.label} (${loaded.logs.length} logs)`);
+        showToast(t.replayingToast(loaded.session.label, loaded.logs.length));
       } catch (err) {
-        showToast(err instanceof CaptureParseError ? err.message : 'Could not read that file');
+        showToast(err instanceof CaptureParseError ? err.message : t.fileReadFailed);
       }
     },
-    [showToast],
+    [showToast, t],
   );
 
   const onDrop = useCallback(
@@ -100,62 +103,71 @@ export default function App() {
     // biome-ignore lint/a11y/noStaticElementInteractions: 드롭 영역은 파일 입력 버튼으로도 동일 기능 제공
     <div className="app" onDrop={onDrop} onDragOver={(event) => event.preventDefault()}>
       <header className="flex items-center gap-2 border-line border-b px-4 py-2">
-        <span className="font-semibold">crosspane</span>
+        <span className="shrink-0 font-semibold">{t.appTitle}</span>
         {replay ? (
           <>
-            <span className="rounded bg-warn/20 px-2 py-0.5 text-warn text-xs">replay</span>
+            <span className="rounded bg-warn/20 px-2 py-0.5 text-warn text-xs">{t.replay}</span>
             {replay.droppedEvents > 0 && (
               // 상한으로 앞부분이 잘린 파일임을 밝힌다 — 조용히 두면 전량으로 오해한다
-              <span
-                className="text-fg-muted text-xs"
-                title="The buffer dropped these before the file was written — the session started earlier than the first entry shown"
-              >
-                {replay.droppedEvents.toLocaleString()} earlier events dropped
+              <span className="text-fg-muted text-xs" title={t.droppedTitle}>
+                {t.earlierDropped(replay.droppedEvents.toLocaleString())}
               </span>
             )}
             <Button variant="ghost" size="icon" onClick={() => setReplay(null)}>
-              Back to live
+              {t.backToLive}
             </Button>
           </>
         ) : (
           <span
-            className={`text-xs ${connected ? 'text-emerald-400' : 'text-fg-muted'}`}
+            /* truncate: 좁은 화면에서 "hub connected"가 두 줄로 접히며 헤더 높이를
+               키우던 것을 막는다 — 상태는 색으로도 읽힌다 */
+            className={`min-w-0 truncate text-xs ${connected ? 'text-emerald-400' : 'text-fg-muted'}`}
             /* 몇 번 실패하면 어디로 붙으려는지 보여준다 — 인증서 이름 불일치처럼
                흔한 원인은 주소를 봐야만 알 수 있고, 그 전까지는 그냥 connecting…이다 */
             title={connected ? undefined : hubUrl}
           >
-            {connected ? 'hub connected' : `connecting… ${failedAttempts > 2 ? `(${hubUrl})` : ''}`}
+            {connected
+              ? t.hubConnected
+              : `${t.connecting}${failedAttempts > 2 ? ` (${hubUrl})` : ''}`}
           </span>
         )}
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 [&_button]:whitespace-nowrap">
+          <LocaleToggle />
           <input
             ref={fileInputRef}
             type="file"
             accept=".json,application/json"
             className="hidden"
-            aria-label="open capture file"
+            aria-label={t.openCaptureLabel}
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void loadCaptureFile(file);
               event.target.value = '';
             }}
           />
-          <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()}>
-            Open capture…
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => fileInputRef.current?.click()}
+            title={t.openCapture}
+          >
+            <span className="hidden sm:inline">{t.openCapture}</span>
+            <span className="sm:hidden">{t.openCaptureShort}</span>
           </Button>
           {!replay && savableSessionId && (
             // 허브가 원본 이벤트로 파일을 만든다 — 표시용 엔트리를 역변환하지 않는다
             <a
               href={withHubToken(`/capture/${savableSessionId}`)}
               download
-              className="rounded px-2 py-1 text-fg-muted text-xs hover:bg-panel hover:text-fg"
+              className="whitespace-nowrap rounded px-2 py-1 text-fg-muted text-xs hover:bg-panel hover:text-fg"
             >
-              ⤓ Save session
+              ⤓ <span className="hidden sm:inline">{t.saveSession}</span>
+              <span className="sm:hidden">{t.saveSessionShort}</span>
             </a>
           )}
           {!replay && (
             <Button variant="ghost" size="icon" onClick={clearLogs}>
-              Clear
+              {t.clear}
             </Button>
           )}
         </div>
@@ -168,58 +180,58 @@ export default function App() {
         onSelect={setSelectedId}
       />
 
-      {!hasSessions && (
+      {hasSessions ? null : (
         <main className="flex flex-1 flex-col items-center justify-center gap-2 text-fg-muted">
           <span className="text-2xl">🛰️</span>
-          <span className="text-sm">No sessions yet</span>
-          <span className="max-w-md text-center text-xs">
-            Add <code className="text-fg">@crosspane/agent</code> to your app and point it at this
-            hub, or drop a <code className="text-fg">.crosspane.json</code> capture file here to
-            replay it.
-          </span>
+          <span className="text-sm">{t.noSessions}</span>
+          <span className="max-w-md text-center text-xs">{t.emptyStateHint}</span>
           {!replay && <ConnectHint />}
         </main>
       )}
 
-      <section className="console">
-        <div className="flex items-center gap-1.5 border-line border-b px-4 py-2">
-          <Button
-            variant={bottomTab === 'console' ? 'active' : 'ghost'}
-            size="icon"
-            className="px-2.5"
-            onClick={() => setBottomTab('console')}
-          >
-            Console
-            {errorLogCount > 0 && (
-              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 font-semibold text-[10px] text-white leading-none">
-                {errorLogCount}
-              </span>
-            )}
-          </Button>
-          <Button
-            variant={bottomTab === 'network' ? 'active' : 'ghost'}
-            size="icon"
-            onClick={() => setBottomTab('network')}
-          >
-            Network
-          </Button>
-          <Button
-            variant={bottomTab === 'screen' ? 'active' : 'ghost'}
-            size="icon"
-            onClick={() => setBottomTab('screen')}
-          >
-            Screen
-            {visibleScreenEvents.length > 0 && (
-              <span className="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
-            )}
-          </Button>
-        </div>
-        {bottomTab === 'console' && <ConsolePanel logs={visibleLogs} sessions={view.sessions} />}
-        {bottomTab === 'network' && (
-          <NetworkPanel entries={visibleNetwork} sessions={view.sessions} />
-        )}
-        {bottomTab === 'screen' && <ScreenPanel events={visibleScreenEvents} />}
-      </section>
+      {/* 세션이 없을 때 빈 필터 바와 빈 로그 영역을 함께 보여줄 이유가 없다 —
+          빈 상태 안내가 화면을 온전히 쓰게 둔다 */}
+      {hasSessions && (
+        <section className="console">
+          <div className="flex items-center gap-1.5 border-line border-b px-4 py-2">
+            <Button
+              variant={bottomTab === 'console' ? 'active' : 'ghost'}
+              size="icon"
+              className="px-2.5"
+              onClick={() => setBottomTab('console')}
+            >
+              {t.tabConsole}
+              {errorLogCount > 0 && (
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 font-semibold text-[10px] text-white leading-none">
+                  {errorLogCount}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant={bottomTab === 'network' ? 'active' : 'ghost'}
+              size="icon"
+              onClick={() => setBottomTab('network')}
+            >
+              {t.tabNetwork}
+            </Button>
+            <Button
+              variant={bottomTab === 'screen' ? 'active' : 'ghost'}
+              size="icon"
+              onClick={() => setBottomTab('screen')}
+            >
+              {t.tabScreen}
+              {visibleScreenEvents.length > 0 && (
+                <span className="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+              )}
+            </Button>
+          </div>
+          {bottomTab === 'console' && <ConsolePanel logs={visibleLogs} />}
+          {bottomTab === 'network' && (
+            <NetworkPanel entries={visibleNetwork} sessions={view.sessions} />
+          )}
+          {bottomTab === 'screen' && <ScreenPanel events={visibleScreenEvents} />}
+        </section>
+      )}
       <ToastStack toasts={toasts} />
     </div>
   );

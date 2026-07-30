@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocale } from '../hooks/useLocale';
 
 interface ScreenPanelProps {
   /** 이 세션의 rrweb 이벤트 (프로토콜의 screen.data 원본) */
@@ -10,7 +11,14 @@ interface ScreenPanelProps {
  * 정적으로 넣으면 화면 기록을 안 쓰는 사용자도 수백 KB를 받게 되고,
  * 대시보드 첫 페인트가 그만큼 늦어진다.
  */
+/**
+ * "플레이어를 못 불러왔다"를 문구 대신 이 값으로 저장한다 — 저장 시점에 번역하면
+ * effect가 언어에 의존하게 되고(플레이어 재생성) 이미 뜬 문구도 언어를 못 따라간다.
+ */
+const PLAYER_LOAD_FAILED = 'crosspane:player-load-failed';
+
 export function ScreenPanel({ events }: ScreenPanelProps) {
+  const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 컨테이너 실측 너비 — 플레이어는 생성 시점 크기로 스케일을 고정하므로
@@ -63,7 +71,7 @@ export function ScreenPanel({ events }: ScreenPanelProps) {
           },
         });
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load the player');
+        if (!cancelled) setError(err instanceof Error ? err.message : PLAYER_LOAD_FAILED);
       }
     })();
 
@@ -73,27 +81,28 @@ export function ScreenPanel({ events }: ScreenPanelProps) {
       const instance = player as { destroy?: () => void; $destroy?: () => void } | null;
       (instance?.destroy ?? instance?.$destroy)?.call(instance);
     };
+    // t를 의존성에 넣지 않는다: 언어를 바꿀 때마다 플레이어가 재생성되며 재생 위치가
+    // 날아간다. 대신 센티널만 저장하고 문구는 렌더에서 고른다 — 이미 뜬 에러도 언어를
+    // 따라간다(예전에는 처음 뜬 언어 그대로 굳었다)
   }, [events, width]);
 
   if (events.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 p-6 text-fg-muted">
-        <span className="text-sm">No screen recording in this session</span>
-        <span className="max-w-md text-center text-xs">
-          Add <code className="text-fg">@crosspane/agent-replay</code> and call{' '}
-          <code className="text-fg">startScreenRecording(agent)</code> to capture what the screen
-          looked like.
-        </span>
+        <span className="text-sm">{t.noScreenRecording}</span>
+        <span className="max-w-md text-center text-xs">{t.screenHint}</span>
       </div>
     );
   }
 
   return (
     <div className="min-h-0 flex-1 overflow-auto p-3">
-      {error && <div className="mb-2 text-danger text-xs">{error}</div>}
-      {events.length < 2 && (
-        <div className="mb-2 text-fg-muted text-xs">Waiting for the first full snapshot…</div>
+      {error && (
+        <div className="mb-2 text-danger text-xs">
+          {error === PLAYER_LOAD_FAILED ? t.playerLoadFailed : error}
+        </div>
       )}
+      {events.length < 2 && <div className="mb-2 text-fg-muted text-xs">{t.waitingSnapshot}</div>}
       <div ref={containerRef} className="crosspane-player" />
     </div>
   );

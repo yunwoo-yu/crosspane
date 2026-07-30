@@ -95,6 +95,16 @@ export interface HubServerOptions {
    * LTE처럼 같은 네트워크가 아닌 기기에서도 붙는다.
    */
   publicUrl?: string;
+  /**
+   * 세션이 붙고 끊길 때 호출된다 — CLI가 터미널에 알리기 위한 지점.
+   *
+   * 왜 필요한가: 지금까지 허브는 기동 후 침묵했다. 에이전트가 붙었는지, 어느 페이지가
+   * 로깅되는지 알려면 대시보드를 열어야만 했다. 붙였는데 아무 반응이 없으면 사용자는
+   * 주소가 틀렸는지 코드가 안 도는지 구분하지 못한다 — 이 툴에서 가장 흔한 막힘이다.
+   */
+  onSessionChange?: (event: { kind: 'joined' | 'left'; session: SessionMeta }) => void;
+  /** `--lan-tls`가 확보한 호스트명 — `/hub-info`가 안내할 주소가 된다 */
+  tlsHostname?: string;
 }
 
 const DEFAULT_HISTORY_LIMIT = 2_000;
@@ -199,6 +209,14 @@ export interface AgentUrlOptions {
   /** 터널·리버스 프록시의 외부 주소 — 있으면 이것만 쓴다 */
   publicUrl?: string;
   scheme: 'http' | 'https';
+  /**
+   * 인증서가 덮는 호스트명 (`--lan-tls`의 `172-30-1-29.local-ip.sh`).
+   *
+   * 왜 필요한가: 이 경우 LAN IP를 그대로 안내하면 **인증서 이름이 맞지 않아** 붙지
+   * 못한다. 그런데 실패는 조용하다 — 대시보드는 계속 "연결 중…"이고 페이지 쪽에는
+   * 아무 표시가 없다. 안내하는 주소는 실제로 붙는 주소여야 한다.
+   */
+  tlsHostname?: string;
 }
 
 /**
@@ -217,6 +235,9 @@ export function agentUrls(options: AgentUrlOptions): string[] {
   const query = options.ingestKey ? `/?k=${options.ingestKey}` : '';
   if (options.publicUrl !== undefined && options.publicUrl !== '') {
     return [`${options.publicUrl.replace(/\/+$/, '')}${query}`];
+  }
+  if (options.tlsHostname !== undefined) {
+    return [`${options.scheme}://${options.tlsHostname}:${options.port}${query}`];
   }
   const hosts = options.exposed ? lanAddresses() : ['localhost'];
   return hosts.map((host) => `${options.scheme}://${host}:${options.port}${query}`);
@@ -262,6 +283,7 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
           ingestKey: options.ingestKey,
           publicUrl: options.publicUrl,
           scheme: options.tls ? 'https' : 'http',
+          tlsHostname: options.tlsHostname,
         }),
       };
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -414,6 +436,7 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
           records.set(sessionId, { meta: message.session, history: [], dropped: 0, live: true });
         }
         sendToDashboards({ type: 'session-joined', session: message.session });
+        options.onSessionChange?.({ kind: 'joined', session: message.session });
         debugLog('agent', `session registered: ${sessionId} (${message.session.label})`);
         return;
       }
@@ -439,6 +462,7 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
         record.endedAt = Date.now();
       }
       sendToDashboards({ type: 'session-left', sessionId, ts: Date.now() });
+      if (record) options.onSessionChange?.({ kind: 'left', session: record.meta });
       pruneRetained();
     });
   });
