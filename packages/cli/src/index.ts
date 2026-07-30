@@ -112,7 +112,14 @@ async function main(): Promise<void> {
 
   const scheme = tls ? 'https' : 'http';
   const tokenQuery = authToken ? `/?t=${authToken}` : '';
-  const dashboardUrl = `${scheme}://localhost:${server.port}${tokenQuery}`;
+  /**
+   * 대시보드 주소. **TLS면 인증서가 덮는 이름을 써야 한다** — `localhost`로 안내하면
+   * 이름이 맞지 않아 페이지는 경고를 넘겨 뜨더라도 **WebSocket이 영영 붙지 않는다**
+   * (브라우저는 WS 핸드셰이크에서 인증서 예외를 허용하지 않는다 — 실측).
+   * 그 상태가 화면에는 그냥 `connecting…`으로만 보여서 원인을 찾기가 매우 어렵다.
+   */
+  const dashboardHost = lanTls?.hostname ?? 'localhost';
+  const dashboardUrl = `${scheme}://${dashboardHost}:${server.port}${tokenQuery}`;
   /**
    * 폴백을 조용히 넘기면 안 된다. **무설정 자동 연결은 기본 포트를 노리기 때문에**
    * (`packages/agent/src/endpoint.ts`) 폴백된 허브를 지나쳐, 세션이 먼저 뜬 다른 허브로

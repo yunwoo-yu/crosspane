@@ -12,8 +12,17 @@ import { withHubToken } from './hub-token';
 import type { LogEntry, NetworkEntry, SessionMeta } from './types';
 
 export default function App() {
-  const { connected, sessions, sessionStates, logs, networkEntries, screenEvents, clearLogs } =
-    useCrosspaneSocket();
+  const {
+    connected,
+    failedAttempts,
+    hubUrl,
+    sessions,
+    sessionStates,
+    logs,
+    networkEntries,
+    screenEvents,
+    clearLogs,
+  } = useCrosspaneSocket();
   const [bottomTab, setBottomTab] = useState<'console' | 'network' | 'screen'>('console');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 리플레이 모드: 파일을 열면 라이브 스트림 대신 이 캡처를 본다 */
@@ -109,8 +118,13 @@ export default function App() {
             </Button>
           </>
         ) : (
-          <span className={`text-xs ${connected ? 'text-emerald-400' : 'text-fg-muted'}`}>
-            {connected ? 'hub connected' : 'connecting…'}
+          <span
+            className={`text-xs ${connected ? 'text-emerald-400' : 'text-fg-muted'}`}
+            /* 몇 번 실패하면 어디로 붙으려는지 보여준다 — 인증서 이름 불일치처럼
+               흔한 원인은 주소를 봐야만 알 수 있고, 그 전까지는 그냥 connecting…이다 */
+            title={connected ? undefined : hubUrl}
+          >
+            {connected ? 'hub connected' : `connecting… ${failedAttempts > 2 ? `(${hubUrl})` : ''}`}
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
