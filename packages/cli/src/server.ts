@@ -54,6 +54,15 @@ export interface HubServerOptions {
    * 프록시 로그에 남을 수 있으므로 세션 수명 동안만 유효한 임시값으로 쓴다.
    */
   authToken?: string;
+  /**
+   * 쓰기 전용 인제스트 키. `/agent`만 통과시키며 **공개돼도 되는 값이다** —
+   * 배포된 페이지의 클라이언트에 들어가기 때문이다(공개 페이지가 아는 값은 누구나 안다).
+   *
+   * 이것이 프로덕션 디버깅을 가능하게 하는 지점이다: 읽기 토큰(`authToken`)은 내 머신에만
+   * 남고, 페이지에는 이 키만 실린다. 노출 시 최악은 남이 우리 허브에 쓰레기 세션을 넣는
+   * 것이고, 세션 로그를 읽지는 못한다. (Sentry의 DSN 공개 키와 같은 구분)
+   */
+  ingestKey?: string;
   /** 세션당 히스토리 상한 — 늦게 연 대시보드에 재전송할 이벤트 수 */
   historyLimit?: number;
   /** 종료된 세션을 히스토리째 유지할 최대 개수 (오래된 것부터 폐기) */
@@ -88,11 +97,40 @@ const DEFAULT_RETAINED_SESSIONS = 10;
 // 에이전트 배치 메시지 상한 — 무인증 엔드포인트의 메모리 고갈 방지
 const MAX_AGENT_MESSAGE_BYTES = 4 * 1024 * 1024;
 
-/** 요청의 `?t=` 토큰이 맞는지. 토큰이 설정되지 않았으면 항상 통과(로컬 전용 기본값) */
+/**
+ * 읽기 자격 — `?t=` 토큰이 맞는지. 설정되지 않았으면 항상 통과(로컬 전용 기본값).
+ *
+ * `/ws`·`/capture/:id`·`/hub-info`를 막는다. 이 토큰은 **세션 로그를 읽을 수 있으므로
+ * 절대 페이지에 실려선 안 된다** — `isIngestAuthorized` 주석 참조.
+ */
 export function isAuthorized(url: string | undefined, expected: string | undefined): boolean {
   if (expected === undefined) return true;
   const query = (url ?? '').split('?')[1] ?? '';
   return new URLSearchParams(query).get('t') === expected;
+}
+
+/**
+ * 쓰기 전용 자격 — `/agent` 수신만 막는다. `?k=` 인제스트 키 또는 읽기 토큰(`?t=`)을 받는다.
+ *
+ * **왜 별도 자격인가 (실측으로 알아냈다):** 공개 배포 페이지에 에이전트를 넣으면 허브
+ * 주소가 클라이언트에 들어가고, 공개 페이지가 아는 값은 누구나 안다. 단일 토큰으로
+ * 읽기·쓰기를 함께 막던 동안, 운영 사이트에 붙이자 **페이지 소스에서 읽기 토큰이 그대로
+ * 노출됐다** — 그 토큰이면 남의 세션 로그를 읽고 가짜 세션을 주입할 수 있다.
+ *
+ * 그래서 Sentry의 DSN 공개 키와 같은 모양으로 나눈다: 인제스트 키는 공개돼도 되고
+ * (최악이 남이 우리 허브에 쓰레기 세션을 넣는 것), 읽기는 내 머신에만 남는 토큰이 필요하다.
+ * **읽기 토큰을 `/agent`에도 계속 받아 주는 이유**는 하위호환이다 — 기존 사용자의
+ * `serverUrl`에는 `?t=`가 들어 있다.
+ */
+export function isIngestAuthorized(
+  url: string | undefined,
+  ingestKey: string | undefined,
+  readToken: string | undefined,
+): boolean {
+  if (ingestKey === undefined && readToken === undefined) return true;
+  const query = new URLSearchParams((url ?? '').split('?')[1] ?? '');
+  if (ingestKey !== undefined && query.get('k') === ingestKey) return true;
+  return readToken !== undefined && query.get('t') === readToken;
 }
 
 /**
@@ -143,7 +181,8 @@ export interface AgentUrlOptions {
   port: number;
   /** 허브가 LAN에 노출됐는지 (`--host`) */
   exposed: boolean;
-  authToken?: string;
+  /** 쓰기 전용 인제스트 키 — 이 주소에 담기는 것은 **이것뿐이다** */
+  ingestKey?: string;
   /** 터널·리버스 프록시의 외부 주소 — 있으면 이것만 쓴다 */
   publicUrl?: string;
   scheme: 'http' | 'https';
@@ -153,12 +192,16 @@ export interface AgentUrlOptions {
  * 에이전트가 붙을 주소 목록. 대시보드 안내(`/hub-info`)와 `--write-env`가 같은 값을 써야
  * 하므로 여기 한 곳에서 만든다.
  *
+ * **읽기 토큰(`?t=`)을 여기에 담지 말 것.** 이 주소는 배포된 페이지의 클라이언트로 들어가
+ * 페이지 소스에 노출된다(실측). 읽기 토큰이 거기 있으면 누구나 세션 로그를 읽고 가짜
+ * 세션을 주입할 수 있다 — 실제로 운영 사이트에 붙였다가 그 상태를 만들었다.
+ * 쓰기 전용 인제스트 키(`?k=`)만 담는다.
+ *
  * `publicUrl`이 있으면 **그것만** 돌려준다 — 터널 뒤에서는 LAN 주소가 기기에 닿지 않고,
  * 닿지 않는 주소를 함께 보여주면 사용자가 그걸 골라 조용히 실패한다.
  */
 export function agentUrls(options: AgentUrlOptions): string[] {
-  // 토큰이 있으면 주소에 담아 준다 — 사용자가 스니펫을 그대로 붙여넣을 수 있어야 한다
-  const query = options.authToken ? `/?t=${options.authToken}` : '';
+  const query = options.ingestKey ? `/?k=${options.ingestKey}` : '';
   if (options.publicUrl !== undefined && options.publicUrl !== '') {
     return [`${options.publicUrl.replace(/\/+$/, '')}${query}`];
   }
@@ -203,7 +246,7 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
         serverUrls: agentUrls({
           port,
           exposed,
-          authToken,
+          ingestKey: options.ingestKey,
           publicUrl: options.publicUrl,
           scheme: options.tls ? 'https' : 'http',
         }),
@@ -260,8 +303,14 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
 
   httpServer.on('upgrade', (req, socket, head) => {
     const pathname = (req.url ?? '').split('?')[0];
+    // 읽기와 쓰기를 다른 자격으로 막는다 — 인제스트 키는 페이지에 실려 공개되므로
+    // 그것으로 `/ws`(세션 로그 전량 재생)에 붙을 수 있으면 분리한 의미가 없다
+    const permitted =
+      pathname === '/agent'
+        ? isIngestAuthorized(req.url, options.ingestKey, authToken)
+        : isAuthorized(req.url, authToken);
     if (pathname === '/ws' || pathname === '/agent') {
-      if (!isAuthorized(req.url, authToken)) {
+      if (!permitted) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;

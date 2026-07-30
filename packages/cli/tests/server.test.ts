@@ -359,10 +359,12 @@ describe('agentUrls', () => {
     ]);
   });
 
-  it('토큰을 주소에 담는다 — 사용자가 스니펫을 그대로 붙여넣는다', () => {
-    expect(agentUrls({ port: 7788, exposed: false, scheme: 'http', authToken: 'abc' })).toEqual([
-      'http://localhost:7788/?t=abc',
-    ]);
+  it('쓰기 전용 인제스트 키를 담는다 — 읽기 토큰은 절대 담지 않는다', () => {
+    // 이 주소는 배포된 페이지의 클라이언트로 들어가 페이지 소스에 노출된다(실측).
+    // 읽기 토큰이 여기 있으면 누구나 세션 로그를 읽는다
+    const urls = agentUrls({ port: 7788, exposed: false, scheme: 'http', ingestKey: 'k1' });
+    expect(urls).toEqual(['http://localhost:7788/?k=k1']);
+    expect(urls[0]).not.toContain('t=');
   });
 
   it('publicUrl이 있으면 그것만 안내한다 — 닿지 않는 LAN 주소를 함께 보이면 그걸 골라 실패한다', () => {
@@ -371,22 +373,22 @@ describe('agentUrls', () => {
         port: 7788,
         exposed: true,
         scheme: 'http',
-        authToken: 'abc',
+        ingestKey: 'k1',
         publicUrl: 'https://xyz.trycloudflare.com',
       }),
-    ).toEqual(['https://xyz.trycloudflare.com/?t=abc']);
+    ).toEqual(['https://xyz.trycloudflare.com/?k=k1']);
   });
 
-  it('publicUrl의 끝 슬래시를 정리한다 — //?t= 가 되면 경로가 어긋난다', () => {
+  it('publicUrl의 끝 슬래시를 정리한다 — //?k= 가 되면 경로가 어긋난다', () => {
     expect(
       agentUrls({
         port: 7788,
         exposed: true,
         scheme: 'http',
-        authToken: 'abc',
+        ingestKey: 'k1',
         publicUrl: 'https://xyz.example/',
       }),
-    ).toEqual(['https://xyz.example/?t=abc']);
+    ).toEqual(['https://xyz.example/?k=k1']);
   });
 
   it('publicUrl에 경로가 있어도 유지한다 (스테이징 오리진 리버스 프록시)', () => {
@@ -545,15 +547,62 @@ describe('접속 토큰 (authToken)', () => {
       vi.unstubAllEnvs();
     });
 
-    it('serverUrls에 토큰을 담아 준다 — 사용자가 스니펫을 그대로 붙여넣는다', async () => {
-      server = await startHubServer({ port: 0, authToken: TOKEN });
+    it('serverUrls에는 인제스트 키만 담는다 — 읽기 토큰이 새면 안 된다', async () => {
+      server = await startHubServer({ port: 0, authToken: TOKEN, ingestKey: 'ingest1' });
       const info = (await (
         await fetch(`http://127.0.0.1:${server.port}/hub-info?t=${TOKEN}`)
       ).json()) as HubInfo;
-      for (const url of info.serverUrls) expect(url).toContain(`t=${TOKEN}`);
+      for (const url of info.serverUrls) {
+        expect(url).toContain('k=ingest1');
+        // 이 주소는 배포된 페이지에 그대로 실린다 — 읽기 토큰이 들어가면 전부 읽힌다(실측)
+        expect(url).not.toContain(TOKEN);
+      }
+    });
+  });
+
+  describe('읽기와 쓰기 자격 분리', () => {
+    const READ = 'read-token';
+    const INGEST = 'ingest-key';
+
+    it('인제스트 키로는 /agent에 붙지만 /ws로는 붙지 못한다 (핵심 회귀)', async () => {
+      server = await startHubServer({ port: 0, authToken: READ, ingestKey: INGEST });
+      const base = `ws://127.0.0.1:${server.port}`;
+      await expect(connects(`${base}/agent?k=${INGEST}`)).resolves.toBe(true);
+      // 여기가 무너지면 공개된 키로 남의 세션 로그를 전량 읽을 수 있다
+      await expect(connects(`${base}/ws?k=${INGEST}`)).resolves.toBe(false);
+    });
+
+    it('인제스트 키로는 캡처·허브정보도 읽지 못한다', async () => {
+      server = await startHubServer({ port: 0, authToken: READ, ingestKey: INGEST });
+      const info = await fetch(`http://127.0.0.1:${server.port}/hub-info?k=${INGEST}`);
+      expect(info.status).toBe(401);
+    });
+
+    it('읽기 토큰은 /agent에도 통한다 — 기존 serverUrl(?t=)을 끊지 않는다', async () => {
+      server = await startHubServer({ port: 0, authToken: READ, ingestKey: INGEST });
+      await expect(connects(`ws://127.0.0.1:${server.port}/agent?t=${READ}`)).resolves.toBe(true);
+    });
+
+    it('둘 다 아니면 /agent도 거절한다', async () => {
+      server = await startHubServer({ port: 0, authToken: READ, ingestKey: INGEST });
+      await expect(connects(`ws://127.0.0.1:${server.port}/agent?k=wrong`)).resolves.toBe(false);
+      await expect(connects(`ws://127.0.0.1:${server.port}/agent`)).resolves.toBe(false);
     });
   });
 });
+
+/** WS 접속이 성립하는지 — 401이면 false */
+function connects(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new WebSocket(url, { origin: 'http://localhost' });
+    socket.on('open', () => {
+      socket.close();
+      resolve(true);
+    });
+    socket.on('error', () => resolve(false));
+    setTimeout(() => resolve(false), 3_000);
+  });
+}
 
 describe('허브 히스토리 상한도 버린 수를 밝힌다', () => {
   let server: HubServer | undefined;
