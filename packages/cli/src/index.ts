@@ -53,8 +53,7 @@ async function main(): Promise<void> {
    * 읽기 토큰이 거기 있으면 누구나 세션 로그를 읽는다. 인제스트 키는 공개돼도 되고,
    * 최악이 남이 우리 허브에 쓰레기 세션을 넣는 것이다 — 그래서 프로덕션에 넣을 수 있다.
    */
-  const ingestKey =
-    reachableFromOutside && !options.noAuth ? randomBytes(8).toString('hex') : undefined;
+  const ingestKey = options.ingestKey ?? generatedIngestKey(reachableFromOutside, options.noAuth);
   const tls = readTlsFiles(options.tlsCert, options.tlsKey);
   const server = await startHubServer({
     port: options.port,
@@ -110,6 +109,12 @@ async function main(): Promise<void> {
   } else {
     console.log('  local only — pass --host 0.0.0.0 to receive live agent sessions from devices');
   }
+  if (options.ingestKey !== undefined) {
+    console.log(
+      '  using a fixed ingest key — the address in your app stays valid across restarts.\n' +
+        '  Pair it with a stable hostname and you never touch the deployed value again.',
+    );
+  }
   if (options.publicUrl !== undefined) {
     console.log(
       `  advertising ${options.publicUrl} — make sure it actually forwards to this hub,\n` +
@@ -155,6 +160,17 @@ async function main(): Promise<void> {
   };
   process.on('uncaughtException', onFatal('uncaughtException'));
   process.on('unhandledRejection', onFatal('unhandledRejection'));
+}
+
+/**
+ * 인제스트 키를 만든다 — `--ingest-key`로 고정하지 않았을 때만.
+ *
+ * 기본이 매번 새 값인 이유는 안전한 기본값이지만, **고정할 수 있어야 한다**:
+ * 배포된 앱의 주소가 이 키를 담으므로 키가 바뀌면 허브를 재시작할 때마다 앱을 다시
+ * 배포해야 한다. 쓰기 전용이라 공개돼도 되는 값이므로 고정에 대가가 없다.
+ */
+function generatedIngestKey(reachable: boolean, noAuth: boolean): string | undefined {
+  return reachable && !noAuth ? randomBytes(8).toString('hex') : undefined;
 }
 
 /**

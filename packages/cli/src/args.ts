@@ -43,7 +43,12 @@ Options:
   --tls-key <file>     Private key for --tls-cert
   --public-url <url>   Address to advertise instead of the LAN one, for when the hub sits
                        behind a tunnel or reverse proxy (e.g. https://xyz.trycloudflare.com).
-                       --write-env and the dashboard both use it
+                       --write-env and the dashboard both use it.
+                       Defaults to $CROSSPANE_PUBLIC_URL
+  --ingest-key <key>   Use a fixed write-only key instead of a fresh one per restart.
+                       This is what stops you re-deploying your app every time the hub
+                       restarts — see "A setup you configure once" below.
+                       Defaults to $CROSSPANE_INGEST_KEY
   --no-open            Don't open the dashboard in your browser automatically
   --no-auth            Disable the access token that --host adds. Only do this on a
                        network you fully trust: without it, anyone who can reach the
@@ -93,6 +98,30 @@ Debugging an https:// page (staging, or anything already deployed):
   4. No infrastructure at all: skip live mode and use agent.copyCapture(), which needs
      no network and is unaffected by any of the above.
 
+A setup you configure once (no redeploy when the hub restarts):
+  Both halves of the address your app holds have to stop changing. By default the hostname
+  moves (a quick tunnel picks a new one) and the ingest key is regenerated per restart, so
+  the deployed value goes stale — that is the friction, and both halves are fixable.
+
+  1. A stable hostname. A quick tunnel gives you a random one; a *named* tunnel on a domain
+     you already own gives a permanent one, free:
+       cloudflared tunnel login
+       cloudflared tunnel create crosspane
+       cloudflared tunnel route dns crosspane crosspane.example.com
+       cloudflared tunnel run --url http://localhost:7788 crosspane
+     Tailscale Funnel is another stable option (a fixed *.ts.net name).
+
+  2. A stable key. Pick one and keep it — it is write-only, so there is nothing to protect
+     by rotating it:
+       export CROSSPANE_PUBLIC_URL=https://crosspane.example.com
+       export CROSSPANE_INGEST_KEY=$(openssl rand -hex 8)   # once, then keep it
+
+  Now crosspane needs no flags, and your app's env var never changes again:
+       NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com/?k=<that key>
+
+  Anyone who sees the key can send junk sessions to your hub but cannot read any; rotate it
+  by changing both places if that ever matters.
+
 MCP mode (crosspane mcp):
   Exposes the running hub's sessions to a coding agent over stdio, so it can ask
   "why did the payment webview fail?" and read the console/network itself.
@@ -123,6 +152,15 @@ export interface CliOptions {
   tlsKey: string | undefined;
   /** 터널·리버스 프록시 뒤에 있을 때 안내할 외부 주소 */
   publicUrl: string | undefined;
+  /**
+   * 고정 인제스트 키. 주지 않으면 재시작마다 새로 만든다.
+   *
+   * 왜 고정할 수 있어야 하는가: 배포된 앱에 들어가는 주소가 이 키를 담는데, 키가 매번
+   * 바뀌면 허브를 재시작할 때마다 **앱을 다시 배포해야 한다**. 쓰기 전용이라 공개돼도
+   * 되는 값이므로 회전시킬 이유가 없다 — 고정 주소(고정 터널·팀 허브)와 합치면
+   * 앱에 넣는 값이 영구히 그대로다.
+   */
+  ingestKey: string | undefined;
 }
 
 /** `--write-env`에 경로를 주지 않았을 때. Vite·Next·CRA·Astro가 모두 읽고, 보통 gitignore돼 있다 */
@@ -139,8 +177,21 @@ function parsePositiveNumberFlag(flag: string, value: string): number {
   return parsed;
 }
 
+/** 빈 문자열은 미설정으로 본다 — 정의만 하고 비운 환경변수가 흔하다 */
+function nonEmptyEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value !== undefined && value !== '' ? value : undefined;
+}
+
 /** 값을 받는 플래그 — 오타를 "Missing value"가 아니라 "Unknown option"으로 안내하기 위한 목록 */
-const VALUE_FLAGS = new Set(['--port', '--host', '--tls-cert', '--tls-key', '--public-url']);
+const VALUE_FLAGS = new Set([
+  '--port',
+  '--host',
+  '--tls-cert',
+  '--tls-key',
+  '--public-url',
+  '--ingest-key',
+]);
 
 /**
  * `--public-url` 검증. 에이전트가 이 값으로 WebSocket 주소를 만들므로
@@ -170,7 +221,12 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let writeEnv: string | undefined;
   let tlsCert: string | undefined;
   let tlsKey: string | undefined;
-  let publicUrl: string | undefined;
+  /**
+   * 환경변수를 기본값으로 삼는다 — 고정 셋업(고정 터널 + 고정 키)을 셸 프로파일이나
+   * 프로젝트 .env에 한 번 넣어 두면 매번 타이핑하지 않는다. 플래그가 항상 이긴다.
+   */
+  let publicUrl = nonEmptyEnv('CROSSPANE_PUBLIC_URL');
+  let ingestKey = nonEmptyEnv('CROSSPANE_INGEST_KEY');
 
   while (args.length > 0) {
     const flag = args.shift();
@@ -210,6 +266,8 @@ export function parseCliArguments(argv: string[]): CliOptions {
       tlsCert = value;
     } else if (flag === '--tls-key') {
       tlsKey = value;
+    } else if (flag === '--ingest-key') {
+      ingestKey = value;
     } else {
       publicUrl = parsePublicUrl(value);
     }
@@ -220,6 +278,9 @@ export function parseCliArguments(argv: string[]): CliOptions {
   if ((tlsCert === undefined) !== (tlsKey === undefined)) {
     throw new Error('--tls-cert and --tls-key must be given together');
   }
+
+  // 환경변수로 들어온 값도 검증한다 — 잘못된 주소로 조용히 뜨면 진단이 불가능하다
+  if (publicUrl !== undefined) parsePublicUrl(publicUrl);
 
   return {
     port,
@@ -232,6 +293,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     tlsCert,
     tlsKey,
     publicUrl,
+    ingestKey,
   };
 }
 

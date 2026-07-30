@@ -14,6 +14,7 @@ describe('parseCliArguments', () => {
       tlsCert: undefined,
       tlsKey: undefined,
       publicUrl: undefined,
+      ingestKey: undefined, // 기본은 재시작마다 새 값 — 고정은 옵트인
     });
   });
 
@@ -66,6 +67,43 @@ describe('parseCliArguments', () => {
   it('--public-url은 http(s)만 받는다 — 에이전트가 이 값으로 WS 주소를 만든다', () => {
     expect(() => parseCliArguments(['--public-url', 'wss://a.example'])).toThrow(/must be http/);
     expect(() => parseCliArguments(['--public-url', 'not a url'])).toThrow(/Invalid value/);
+  });
+
+  it('--ingest-key로 키를 고정할 수 있다 — 배포된 앱의 주소가 계속 유효해야 한다', () => {
+    expect(parseCliArguments(['--ingest-key', 'team-fixed-key']).ingestKey).toBe('team-fixed-key');
+  });
+
+  it('환경변수를 기본값으로 삼되 플래그가 이긴다 — 고정 셋업을 매번 타이핑하지 않는다', () => {
+    process.env.CROSSPANE_PUBLIC_URL = 'https://crosspane.example.com';
+    process.env.CROSSPANE_INGEST_KEY = 'from-env';
+    try {
+      expect(parseCliArguments([])).toMatchObject({
+        publicUrl: 'https://crosspane.example.com',
+        ingestKey: 'from-env',
+      });
+      expect(parseCliArguments(['--ingest-key', 'from-flag']).ingestKey).toBe('from-flag');
+    } finally {
+      delete process.env.CROSSPANE_PUBLIC_URL;
+      delete process.env.CROSSPANE_INGEST_KEY;
+    }
+  });
+
+  it('빈 환경변수는 미설정으로 본다 — 정의만 하고 비운 경우가 흔하다', () => {
+    process.env.CROSSPANE_PUBLIC_URL = '';
+    try {
+      expect(parseCliArguments([]).publicUrl).toBeUndefined();
+    } finally {
+      delete process.env.CROSSPANE_PUBLIC_URL;
+    }
+  });
+
+  it('환경변수의 잘못된 주소도 기동 전에 잡는다', () => {
+    process.env.CROSSPANE_PUBLIC_URL = 'not a url';
+    try {
+      expect(() => parseCliArguments([])).toThrow(/Invalid value/);
+    } finally {
+      delete process.env.CROSSPANE_PUBLIC_URL;
+    }
   });
 
   it('알 수 없는 옵션과 잘못된 포트는 명확한 에러', () => {

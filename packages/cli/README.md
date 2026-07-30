@@ -176,6 +176,34 @@ A **self-signed certificate does not work** in app webviews: since Android 7, ap
 trust user-installed CAs, so no amount of installing helps. That's why crosspane accepts a
 certificate but never generates one.
 
+### Configure it once, then stop touching it
+
+The address your app holds has two moving parts, and by default **both** move: a quick tunnel
+picks a new hostname each run, and the ingest key is regenerated on every hub restart. That is
+what forces a redeploy every session. Pin both and the deployed value never changes again.
+
+```bash
+# 1. a permanent hostname — a *named* tunnel on a domain you already own, free
+cloudflared tunnel login
+cloudflared tunnel create crosspane
+cloudflared tunnel route dns crosspane crosspane.example.com
+cloudflared tunnel run --url http://localhost:7788 crosspane
+
+# 2. a permanent key — write-only, so there is nothing to protect by rotating it
+export CROSSPANE_PUBLIC_URL=https://crosspane.example.com
+export CROSSPANE_INGEST_KEY=$(openssl rand -hex 8)   # once, then keep it
+```
+
+Now `crosspane` takes no flags, and your app keeps one value forever:
+
+```
+NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com/?k=<that key>
+```
+
+The read token still rotates every restart — that one *is* sensitive, and it never leaves your
+machine. Tailscale Funnel works as well for step 1 (a fixed `*.ts.net` name), and a team hub
+on real infrastructure needs neither step.
+
 ## What you get
 
 - **Console** — `console.*` with argument serialization, uncaught errors with stacks,
