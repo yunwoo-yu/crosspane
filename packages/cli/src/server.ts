@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import type { AddressInfo } from 'node:net';
 import {
   type AgentMessage,
@@ -57,6 +58,29 @@ export interface HubServerOptions {
   historyLimit?: number;
   /** 종료된 세션을 히스토리째 유지할 최대 개수 (오래된 것부터 폐기) */
   retainedSessions?: number;
+  /**
+   * TLS 인증서·키 (PEM 내용). 주면 허브가 https/wss로 뜬다.
+   *
+   * **이것이 `https://` 페이지에서 라이브 모드를 쓰는 유일한 길이다.** 브라우저는 보안
+   * 페이지에서 평문 `ws://`를 차단하는데(실측: 연결이 서버에 도달조차 하지 않는다),
+   * 우회 수단이 없다 — img·iframe·fetch 모두 같은 mixed content 규칙을 받는다.
+   *
+   * 인증서를 우리가 만들어 주지 않는 이유: **자체 서명은 이 프로젝트의 타깃에서 원리적으로
+   * 통하지 않는다.** Android 7+부터 앱은 사용자가 설치한 CA를 신뢰하지 않으므로
+   * (`network_security_config`), 남의 앱 웹뷰에서는 무엇을 설치해도 검증에 실패한다.
+   * 그래서 "기기가 이미 신뢰하는 인증서"를 받는 형태여야 한다 — 사내 CA(MDM으로 배포된),
+   * 사설 IP를 가리키는 공인 인증서, 또는 터널이 종단하는 인증서.
+   */
+  tls?: { cert: string; key: string };
+  /**
+   * 에이전트·대시보드에 안내할 외부 주소 (예: `https://xyz.trycloudflare.com`).
+   *
+   * 허브가 리버스 프록시나 터널 뒤에 있을 때 필요하다 — 그 경우 LAN 주소는 기기에서
+   * 닿지 않으므로 안내에 쓰면 안 된다. 이 값이 있으면 `/hub-info`와 `--write-env`가
+   * 이것을 쓴다. 터널은 실제 공인 인증서로 종단하므로 `https://` 페이지에서도 동작하고,
+   * LTE처럼 같은 네트워크가 아닌 기기에서도 붙는다.
+   */
+  publicUrl?: string;
 }
 
 const DEFAULT_HISTORY_LIMIT = 2_000;
@@ -115,6 +139,33 @@ export function contentDisposition(filename: string): string {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
+export interface AgentUrlOptions {
+  port: number;
+  /** 허브가 LAN에 노출됐는지 (`--host`) */
+  exposed: boolean;
+  authToken?: string;
+  /** 터널·리버스 프록시의 외부 주소 — 있으면 이것만 쓴다 */
+  publicUrl?: string;
+  scheme: 'http' | 'https';
+}
+
+/**
+ * 에이전트가 붙을 주소 목록. 대시보드 안내(`/hub-info`)와 `--write-env`가 같은 값을 써야
+ * 하므로 여기 한 곳에서 만든다.
+ *
+ * `publicUrl`이 있으면 **그것만** 돌려준다 — 터널 뒤에서는 LAN 주소가 기기에 닿지 않고,
+ * 닿지 않는 주소를 함께 보여주면 사용자가 그걸 골라 조용히 실패한다.
+ */
+export function agentUrls(options: AgentUrlOptions): string[] {
+  // 토큰이 있으면 주소에 담아 준다 — 사용자가 스니펫을 그대로 붙여넣을 수 있어야 한다
+  const query = options.authToken ? `/?t=${options.authToken}` : '';
+  if (options.publicUrl !== undefined && options.publicUrl !== '') {
+    return [`${options.publicUrl.replace(/\/+$/, '')}${query}`];
+  }
+  const hosts = options.exposed ? lanAddresses() : ['localhost'];
+  return hosts.map((host) => `${options.scheme}://${host}:${options.port}${query}`);
+}
+
 interface SessionRecord {
   meta: SessionMeta;
   history: SessionEvent[];
@@ -132,7 +183,7 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
 
   const authToken = options.authToken;
 
-  const httpServer = http.createServer((req, res) => {
+  const requestListener: http.RequestListener = (req, res) => {
     const pathname = (req.url ?? '').split('?')[0];
     // 정적 파일(대시보드 셸)은 토큰 없이 서빙한다 — 토큰을 넣을 화면 자체를 못 열면
     // 안내가 불가능하다. 세션 데이터가 흐르는 경로만 막는다
@@ -146,14 +197,16 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
     if (pathname === '/hub-info') {
       const port = (httpServer.address() as AddressInfo | null)?.port ?? options.port;
       const exposed = host !== '127.0.0.1' && host !== 'localhost';
-      // 토큰이 있으면 주소에 담아 준다 — 사용자가 스니펫을 그대로 붙여넣을 수 있어야 한다
-      const query = authToken ? `/?t=${authToken}` : '';
       const info: HubInfo = {
         port,
         exposed,
-        serverUrls: exposed
-          ? lanAddresses().map((address) => `http://${address}:${port}${query}`)
-          : [`http://localhost:${port}${query}`],
+        serverUrls: agentUrls({
+          port,
+          exposed,
+          authToken,
+          publicUrl: options.publicUrl,
+          scheme: options.tls ? 'https' : 'http',
+        }),
       };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(info));
@@ -186,7 +239,15 @@ export function startHubServer(options: HubServerOptions): Promise<HubServer> {
       return;
     }
     void serveDashboardFile(dashboardDir, req, res);
-  });
+  };
+
+  /**
+   * TLS를 주면 https 서버로 뜬다. `ws` 패키지는 `noServer: true` + upgrade 이벤트로
+   * 붙으므로 두 서버 타입에 그대로 얹힌다 — 아래 배선은 스킴과 무관하다.
+   */
+  const httpServer = options.tls
+    ? https.createServer({ cert: options.tls.cert, key: options.tls.key }, requestListener)
+    : http.createServer(requestListener);
 
   // 세션 상태 — 살아있는 것 + 최근 종료분 (늦게 연 대시보드의 히스토리 재생용)
   const records = new Map<string, SessionRecord>();

@@ -21,10 +21,7 @@ npm install @crosspane/agent
 ```ts
 import { initCrosspane } from '@crosspane/agent'
 
-const agent = initCrosspane({
-  label: 'checkout webview',
-  serverUrl: 'http://192.168.0.10:7788', // omit for offline-only capture
-})
+const agent = initCrosspane({ label: 'checkout webview' })
 
 // Offline mode: wire this to a debug gesture or hidden QA menu
 agent.exportFile() // downloads <label>.crosspane.json
@@ -44,7 +41,7 @@ server connection needed.
 ## Without a bundler
 
 If you can't run a bundler — injecting into a page through a proxy, a kiosk build, a
-plain static page — use the prebuilt single-file bundles (~3.4 KB gzipped):
+plain static page — use the prebuilt single-file bundles (~4 KB gzipped):
 
 ```html
 <!-- ES module -->
@@ -89,7 +86,7 @@ Response bodies are **not** captured unless you pass `captureBodies: true`.
 initCrosspane(options?: {
   label?: string             // shown in the dashboard (default: document.title)
   enabled?: boolean | (() => boolean)
-  serverUrl?: string         // live mode; omit for offline-only
+  serverUrl?: string         // usually omit — resolved automatically (see below)
   bufferSize?: number        // ring buffer size (default: 2000 events)
   captureBodies?: boolean    // capture response bodies (default: false)
   bodyPreviewLimit?: number  // default: 2048 chars
@@ -105,6 +102,67 @@ initCrosspane(options?: {
 | `agent.dispose()` | Restores `console`/`fetch`/XHR, closes the live connection |
 | `agent.session` | Session metadata (id, label, userAgent, platform) |
 | `agent.enabled` | `false` when gated off |
+| `agent.live` | `true` if streaming to a hub; `false` means offline capture only |
+
+## Where the hub address comes from
+
+On `localhost` you don't configure anything. Everywhere else it's an ordinary env var, the
+same way you configure an API URL:
+
+```ts
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,  // Vite: import.meta.env.VITE_CROSSPANE_URL
+})
+```
+
+```
+.env.development   NEXT_PUBLIC_CROSSPANE_URL=http://localhost:7788
+.env.staging       NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.staging.example.com
+.env.production    (leave it out)
+```
+
+Unset means offline capture only — the agent never guesses an address. You can also omit
+`serverUrl` and let the agent read those variable names itself
+(`NEXT_PUBLIC_`/`VITE_`/`PUBLIC_`/`REACT_APP_`).
+
+Full resolution order, if you need the details:
+
+| Page is on | Live mode connects to |
+|---|---|
+| `localhost` | `http://localhost:7788` automatically, or the configured address if there is one |
+| any other host, `serverUrl` passed | that address |
+| any other host, address only from env | it — but **only** on devices activated with `?__crosspane=on` |
+| anywhere, no address | nothing; the ring buffer still records for offline capture |
+
+Auto-connect requires the page itself to be on loopback, so a build that reaches real users
+never contacts a hub. The activation gate applies to env-derived addresses because CI places
+those and they can survive into a production build; an explicit `serverUrl` is a deliberate
+act and skips it.
+
+**In a webview the app opens itself there is no address bar, so `?__crosspane=on` cannot be
+typed — pass `serverUrl` explicitly there.** The activation link is for pages you open by URL:
+an in-app browser reached from a chat message or QR code, or a phone browser. Omitting
+`serverUrl` where you can't add the parameter means nothing streams, with no way to see why
+from inside the webview; `agent.live` is the only signal.
+
+To keep one shared build from streaming everyone's session, gate on the account the app already
+knows — no address bar involved, and `enabled: false` installs no hooks at all:
+
+```ts
+initCrosspane({
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,
+  enabled: () => user.isQA,
+})
+```
+
+A hub on your own laptop plus a phone is the one case a static value can't cover — the LAN
+address and token change every restart. `crosspane --host 0.0.0.0 --write-env` writes them
+into `.env.local` and removes them when the hub stops.
+
+From an `https://` page the hub must be reachable over `wss://` with a certificate the device
+trusts — see "Debugging an `https://` page" in the
+[crosspane README](https://github.com/yunwoo-yu/crosspane#debugging-an-https-page).
 
 ## Notes
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cliVersion, parseCliArguments, parseMcpArguments } from '../src/args';
+import { cliVersion, DEFAULT_ENV_FILE, parseCliArguments, parseMcpArguments } from '../src/args';
 
 describe('parseCliArguments', () => {
   it('기본값: 포트 7788, 로컬 전용 바인딩, 브라우저 자동 열기', () => {
@@ -10,7 +10,25 @@ describe('parseCliArguments', () => {
       openBrowser: true,
       verbose: false,
       noAuth: false, // 노출 시에만 토큰이 붙고, 그걸 끄는 건 명시적 옵트아웃이다
+      writeEnv: undefined, // 사용자 파일을 건드리는 일은 옵트인이어야 한다
+      tlsCert: undefined,
+      tlsKey: undefined,
+      publicUrl: undefined,
     });
+  });
+
+  it('--write-env는 값 없이도 되고 기본 파일은 .env.local이다', () => {
+    expect(parseCliArguments(['--write-env']).writeEnv).toBe(DEFAULT_ENV_FILE);
+    expect(parseCliArguments(['--write-env', 'apps/web/.env.local']).writeEnv).toBe(
+      'apps/web/.env.local',
+    );
+  });
+
+  it('--write-env가 뒤따르는 플래그를 파일명으로 삼지 않는다', () => {
+    // 이걸 놓치면 '0.0.0.0'이 파일명이 되고 허브는 로컬에만 뜬다 — 조용히 어긋난다
+    const options = parseCliArguments(['--write-env', '--host', '0.0.0.0']);
+    expect(options.writeEnv).toBe(DEFAULT_ENV_FILE);
+    expect(options.host).toBe('0.0.0.0');
   });
 
   it('--port는 명시 플래그로 기록된다 (자동 폴백 없음)', () => {
@@ -22,6 +40,32 @@ describe('parseCliArguments', () => {
   it('--host / --no-open / --verbose를 반영한다', () => {
     const options = parseCliArguments(['--host', '0.0.0.0', '--no-open', '--verbose']);
     expect(options).toMatchObject({ host: '0.0.0.0', openBrowser: false, verbose: true });
+  });
+
+  it('--tls-cert/--tls-key/--public-url을 반영한다', () => {
+    const options = parseCliArguments([
+      '--tls-cert',
+      'cert.pem',
+      '--tls-key',
+      'key.pem',
+      '--public-url',
+      'https://abc.trycloudflare.com',
+    ]);
+    expect(options).toMatchObject({
+      tlsCert: 'cert.pem',
+      tlsKey: 'key.pem',
+      publicUrl: 'https://abc.trycloudflare.com',
+    });
+  });
+
+  it('TLS는 인증서와 키를 함께 요구한다 — 한쪽만 주고 평문으로 뜨면 진단이 불가능하다', () => {
+    expect(() => parseCliArguments(['--tls-cert', 'cert.pem'])).toThrow(/together/);
+    expect(() => parseCliArguments(['--tls-key', 'key.pem'])).toThrow(/together/);
+  });
+
+  it('--public-url은 http(s)만 받는다 — 에이전트가 이 값으로 WS 주소를 만든다', () => {
+    expect(() => parseCliArguments(['--public-url', 'wss://a.example'])).toThrow(/must be http/);
+    expect(() => parseCliArguments(['--public-url', 'not a url'])).toThrow(/Invalid value/);
   });
 
   it('알 수 없는 옵션과 잘못된 포트는 명확한 에러', () => {
@@ -39,14 +83,22 @@ describe('parseMcpArguments', () => {
     expect(parseMcpArguments([])).toEqual({ hubUrl: 'http://127.0.0.1:7788', verbose: false });
   });
 
-  it('--hub는 origin으로 정규화하되 쿼리는 남긴다 (접속 토큰)', () => {
-    // 경로는 버린다 — 허브 엔드포인트는 우리가 정한다
-    expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/x']).hubUrl).toBe(
-      'http://10.0.0.5:9000',
-    );
-    // 쿼리는 남긴다 — 노출된 허브는 토큰 없이 붙을 수 없다(버리면 401로 조용히 실패)
+  it('--hub는 쿼리(접속 토큰)를 남긴다 — 버리면 401로 조용히 실패한다', () => {
     expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/?t=abc']).hubUrl).toBe(
       'http://10.0.0.5:9000?t=abc',
+    );
+    // 끝 슬래시만 있으면 경로가 없는 것으로 본다
+    expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/']).hubUrl).toBe(
+      'http://10.0.0.5:9000',
+    );
+  });
+
+  it('--hub의 경로 접두사는 유지한다 — 프록시·터널 뒤의 허브에 붙을 수 있어야 한다', () => {
+    expect(parseMcpArguments(['--hub', 'https://x.example/__crosspane']).hubUrl).toBe(
+      'https://x.example/__crosspane',
+    );
+    expect(parseMcpArguments(['--hub', 'https://x.example/__crosspane/?t=abc']).hubUrl).toBe(
+      'https://x.example/__crosspane?t=abc',
     );
   });
 

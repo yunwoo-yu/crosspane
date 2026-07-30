@@ -12,6 +12,9 @@
   `GET /hub-info`(실제 포트·LAN 주소 → 대시보드가 붙여넣을 스니펫을 만든다.
   허브만 이 정보를 알고 사용자는 대시보드를 본다)
 - `addresses.ts` — LAN IPv4 목록. CLI 안내와 `/hub-info`가 공유한다
+- `env-file.ts` — `--write-env`: 허브 주소·토큰을 앱의 env 파일에 적는다(관리 블록만 소유,
+  종료 시 제거). 변수 이름은 `packages/agent/src/endpoint.ts`가 읽는 것과 **일치해야 한다** —
+  틀리면 조용히 undefined가 된다
 - `static.ts` — 대시보드 정적 서빙 (경로 탈출 방어, SPA 폴백)
 - `protocol.ts` — `@crosspane/protocol` 재수출 (소비자 import 경로 유지용)
 - `mcp/` — `crosspane mcp`: 코딩 에이전트용 MCP stdio 서버.
@@ -25,6 +28,10 @@
 ## 보안 불변식
 
 - 기본 바인딩은 `127.0.0.1` — LAN 노출은 `--host` 옵트인 (세션 로그가 흐르는 채널)
+- **토큰 발급 조건은 "이 머신 밖에서 닿는지"다 (`--host` **또는** `--public-url`).**
+  `--host`만 보면 `crosspane --public-url https://…`이 토큰 없는 공개 허브가 된다 —
+  루프백 바인딩이어도 터널이 인터넷 전체에 열어 주기 때문이다(실측으로 발견).
+  노출 경로를 새로 추가하면 `reachableFromOutside`에 반드시 함께 넣을 것
 - 대시보드 WS는 Origin 검증(CSWSH 차단), 에이전트 메시지는 크기 상한 + 세션 위조 검사
 
 ## 테스트

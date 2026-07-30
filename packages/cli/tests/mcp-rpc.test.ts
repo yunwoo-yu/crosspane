@@ -197,7 +197,14 @@ describe('toWebSocketUrl', () => {
   it('허브 http 주소를 대시보드 WS 엔드포인트로 바꾼다', () => {
     expect(toWebSocketUrl('http://127.0.0.1:7788')).toBe('ws://127.0.0.1:7788/ws');
     expect(toWebSocketUrl('https://hub.example.com')).toBe('wss://hub.example.com/ws');
-    // 경로는 갈아치우고 쿼리(접속 토큰)는 남긴다 — 버리면 노출된 허브에서 401이 된다
-    expect(toWebSocketUrl('http://127.0.0.1:7788/foo?t=abc')).toBe('ws://127.0.0.1:7788/ws?t=abc');
+    // 쿼리(접속 토큰)는 남긴다 — 버리면 노출된 허브에서 401이 된다
+    expect(toWebSocketUrl('http://127.0.0.1:7788/?t=abc')).toBe('ws://127.0.0.1:7788/ws?t=abc');
+  });
+
+  it('경로 접두사를 유지한다 — 리버스 프록시·터널 뒤의 허브', () => {
+    expect(toWebSocketUrl('https://x.example/__crosspane')).toBe('wss://x.example/__crosspane/ws');
+    expect(toWebSocketUrl('https://x.example/__crosspane/?t=abc')).toBe(
+      'wss://x.example/__crosspane/ws?t=abc',
+    );
   });
 });

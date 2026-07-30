@@ -232,5 +232,24 @@ describe('LiveTransport', () => {
       transport = new LiveTransport('not a url', session);
       expect(() => transport?.connect()).not.toThrow();
     });
+
+    it('경로 접두사를 유지한다 — 리버스 프록시 뒤의 허브 (https 페이지의 실제 경로)', () => {
+      // 접두사를 버리면 프록시가 /agent를 매칭하지 못해 조용히 실패한다
+      transport = new LiveTransport('https://staging.example.com/__crosspane', session);
+      transport.connect();
+      expect(FakeSocket.instances[0].url).toBe('wss://staging.example.com/__crosspane/agent');
+    });
+
+    it('경로 접두사 + 토큰을 함께 유지한다', () => {
+      transport = new LiveTransport('https://staging.example.com/__crosspane/?t=abc', session);
+      transport.connect();
+      expect(FakeSocket.instances[0].url).toBe('wss://staging.example.com/__crosspane/agent?t=abc');
+    });
+
+    it('끝 슬래시가 //agent 를 만들지 않는다', () => {
+      transport = new LiveTransport('http://192.168.0.10:7788/', session);
+      transport.connect();
+      expect(FakeSocket.instances[0].url).toBe('ws://192.168.0.10:7788/agent');
+    });
   });
 });

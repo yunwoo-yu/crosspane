@@ -32,6 +32,9 @@ pnpm mcp                # MCP stdio 서버 (허브가 떠 있어야 한다)
 
 포트를 바꾸려면 `CROSSPANE_PORT=7801 PORT=7802 pnpm try` — 데모 페이지의 serverUrl은
 serve.mjs가 주입하므로 함께 따라간다(하드코딩하면 조용히 연결 실패한다).
+**노출된 허브의 접속 토큰도 같은 경로로 주입된다**(`CROSSPANE_HUB_TOKEN`) — 포트만
+넘기던 동안 `pnpm try:lan`이 401로 조용히 깨져 있었다. 주입 경로를 손대면 LAN에서
+실제로 세션이 도달하는지까지 확인할 것.
 
 실브라우저 확인은 `agent-browser`로:
 ```bash
@@ -50,7 +53,7 @@ CLAUDE.md                     ← 공통 명령어/규칙 (항상 로드)
 packages/*/CLAUDE.md          ← 패키지 모듈 맵 (해당 디렉터리 작업 시)
 │   agent / agent-replay / cli / dashboard
 .claude/rules/                ← 불변 규칙 (paths: 매칭 파일을 건드릴 때만)
-├── agent-sdk.md                번들 크기·페이지 무영향·게이팅·링버퍼
+├── agent-sdk.md                번들 크기·페이지 무영향·게이팅·링버퍼·주소 해석 게이트
 ├── protocol-sync.md            프로토콜 단일 소스·이벤트 추가 절차
 ├── mcp-server.md               crosspane mcp: stdout 전용 채널·툴 추가 절차
 ├── release.md                  릴리스 PR의 CI 미트리거·필수 체크 이름 함정

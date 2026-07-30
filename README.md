@@ -36,8 +36,8 @@ your app (dev/QA build)                 your machine
 
 Two ways to get the data out, because networks aren't always available:
 
-- **Live** — the agent streams to the hub over your LAN, you watch in real time, and can
-  save any session to a file from the dashboard
+- **Live** — the agent streams to the hub (your LAN by default, or through a tunnel or your
+  own origin), you watch in real time, and can save any session to a file from the dashboard
 - **Offline** — the agent keeps the last N events in a ring buffer; export one JSON file,
   send it to a developer, replay it in the same dashboard
 
@@ -49,6 +49,7 @@ Two ways to get the data out, because networks aren't always available:
 npx crosspane                  # dashboard on http://localhost:7788
 npx crosspane --host 0.0.0.0   # also accept live sessions from devices on your network
                                # (prints an access token — session logs are not public)
+                               # add --write-env and you never have to copy the address
 ```
 
 **2. Add the agent to your app** (dev/QA builds only — see [Shipping safely](#shipping-safely))
@@ -60,11 +61,7 @@ npm install @crosspane/agent
 ```ts
 import { initCrosspane } from '@crosspane/agent'
 
-const agent = initCrosspane({
-  label: 'checkout webview',
-  // omit serverUrl for offline-only capture
-  serverUrl: 'http://192.168.0.10:7788',
-})
+const agent = initCrosspane({ label: 'checkout webview' })
 
 // Offline mode: wire this to a debug gesture / hidden QA menu.
 // In a webview, prefer copyCapture() — downloads often don't work there
@@ -72,11 +69,103 @@ const agent = initCrosspane({
 agent.exportFile()   // downloads <label>.crosspane.json
 ```
 
-No bundler? Load the single-file build (~3.4 KB gzipped) with a plain script tag —
+That's the whole setup on localhost — the agent finds the hub by itself. No address, no
+token, no config. `agent.live` tells you whether it's streaming.
+
+No bundler? Load the single-file build (~4 KB gzipped) with a plain script tag —
 see the [agent README](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent#without-a-bundler).
 
 **3. Reproduce the bug.** Console logs, uncaught errors, unhandled rejections, failed
 requests and navigations show up in the dashboard — or in the exported file.
+
+### Other environments: it's just an env var
+
+The agent only auto-connects when the page is on `localhost`, so a build that reaches real
+users never phones home. Everywhere else the address comes from your environment config —
+the same mechanism you already use for API URLs:
+
+```ts
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,  // Vite: import.meta.env.VITE_CROSSPANE_URL
+})
+```
+
+```
+.env.development   NEXT_PUBLIC_CROSSPANE_URL=http://localhost:7788
+.env.staging       NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.staging.example.com
+.env.production    (leave it out)
+```
+
+Each build gets the right address, production gets none, and there are no crosspane flags
+involved. If the variable is unset the agent falls back to offline capture — it never
+guesses. You can also omit `serverUrl` entirely: the agent reads those same variable names
+itself (`NEXT_PUBLIC_`, `VITE_`, `PUBLIC_`, `REACT_APP_`).
+
+**The one case where a static value can't work** is a hub on your own laptop plus a device
+that isn't your laptop — a phone on your Wi-Fi. The LAN address and the access token change
+every restart, so only the hub knows them. Let it write them:
+
+```bash
+npx crosspane --host 0.0.0.0 --write-env   # writes .env.local, removed when the hub stops
+npm run dev                                # restart so the dev server picks it up
+```
+
+**Pass `serverUrl` explicitly for a webview the app opens itself.** That's the case this tool
+exists for — a payment webview, an embedded page — and there is no address bar in it, so the
+opt-in link below is impossible to use. An explicit address streams straight away, which is
+what you want in a QA build.
+
+**Omitting `serverUrl` on a deployed page asks each device to opt in once**, by opening it with
+`?__crosspane=on` (that choice sticks; `?__crosspane=off` clears it). This keeps a shared
+staging URL from streaming every visitor's session. It only works where you control the URL:
+
+| Where the page opens | Opt-in link usable? |
+|---|---|
+| In-app browser (KakaoTalk, Instagram — you send the link, or a QR code) | yes |
+| A phone browser on your staging URL | yes |
+| **A webview the app opens itself** (the app decides the URL) | **no — pass `serverUrl`** |
+
+If you omit `serverUrl` where you can't add the parameter, nothing streams and there is no way
+to see why from inside the webview. Check `agent.live` if you're unsure which state you're in.
+
+**One shared build, one tester?** An address in the env var means every install streams to your
+hub. Gate it on your own account instead — the app already knows who is logged in, and this
+needs no address bar:
+
+```ts
+initCrosspane({
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,
+  enabled: () => user.isQA,          // or user.email === 'you@example.com'
+})
+```
+
+`enabled: false` installs no hooks at all, so everyone else's app is untouched.
+
+The link only ever carries "on": the destination comes from the build, never from the URL, so a
+link can't redirect anyone's logs somewhere else.
+
+### Debugging an `https://` page
+
+This is about **where you run the hub**, not about your app config — the env var above
+doesn't change.
+
+A secure page cannot open a plain `ws://` connection (measured; `img`, `iframe` and `fetch`
+all get the same treatment, and `localhost` gets no exception). So the hub needs to be
+reachable over `wss://` with a certificate the device already trusts. If your team already
+runs a hub at a fixed `https://` address, you're done — put it in `.env.staging` and stop
+reading. Otherwise, one of these makes your own hub reachable:
+
+| | how | trade-off |
+|---|---|---|
+| **Tunnel** | `cloudflared tunnel --url http://localhost:7788`, then run the hub with `--public-url https://<id>.trycloudflare.com` | works on any network including cellular, no certificate of your own — but session logs transit the tunnel provider |
+| **A certificate the device trusts** | `--tls-cert cert.pem --tls-key key.pem` | nothing leaves your network; needs a corporate CA already on your devices, or a public certificate for a name resolving to your LAN IP |
+| **Reverse proxy on the staging origin** | `--public-url https://staging.example.com/__crosspane`, and point that path at the hub | same origin, no third party; needs one route in your app server, forwarding the WebSocket upgrade |
+| **Nothing at all** | `agent.copyCapture()` | no network, no certificate, no origin rules — the path that always works |
+
+A **self-signed certificate does not work** in app webviews: since Android 7, apps don't
+trust user-installed CAs, so no amount of installing helps. That's why crosspane accepts a
+certificate but never generates one.
 
 ## What you get
 
@@ -139,9 +228,17 @@ crosspane [options]
                an explicit port does not)
 --host <addr>  bind address (default: 127.0.0.1 — local only. Use 0.0.0.0 to receive
                live agent sessions from phones/devices on your network. Exposing the
-               hub generates a one-time access token, printed with the URLs; put it in
-               the agent's serverUrl)
+               hub generates a one-time access token, printed with the URLs. Use
+               --write-env and you never have to copy it)
 --no-auth      disable that token — only on a network you fully trust
+--write-env [file]
+               write this hub's address and token into an env file (default .env.local)
+               so the agent needs no arguments; removed again when the hub stops
+--tls-cert <file> / --tls-key <file>
+               serve the hub over https/wss — required to debug an https:// page
+--public-url <url>
+               advertise this address instead of the LAN one, for a tunnel or a
+               reverse proxy in front of the hub
 --no-open      don't open the dashboard automatically
 --verbose      diagnostic logging — attach to bug reports
 -v, --version  print the version
@@ -178,17 +275,30 @@ device is attached. Pass `--hub <url>` if the hub isn't on the default port.
 const agent = initCrosspane({
   label?: string            // shown in the dashboard (default: document.title)
   enabled?: boolean | (() => boolean)
-  serverUrl?: string        // live mode; omit for offline-only
+  serverUrl?: string        // usually omit — resolved automatically (see below)
   bufferSize?: number       // ring buffer size (default: 2000 events)
   captureBodies?: boolean   // capture response bodies (default: false)
   bodyPreviewLimit?: number // default: 2048 chars
 })
 
+agent.live           // → true if streaming to a hub (false = offline capture only)
 agent.capture()      // → SessionCapture object (send it wherever you like)
 agent.exportFile()   // → downloads .crosspane.json
 agent.copyCapture()  // → Promise<boolean>, puts the JSON on the clipboard
 agent.dispose()      // → restores console/fetch/XHR, closes the live connection
 ```
+
+`serverUrl` is resolved in this order, so you rarely pass it:
+
+| Page is on | Live mode connects to |
+| --- | --- |
+| `localhost` | `http://localhost:7788` automatically, or the injected address if there is one |
+| any other host | the injected address — **only** on devices activated with `?__crosspane=on` |
+| anywhere, no injected address | nothing; the ring buffer still records for offline capture |
+
+Passing `serverUrl` yourself always wins and never needs activation — writing it down is
+already a deliberate act. Injected addresses are treated more carefully because CI puts
+them there, so they can end up in a production build.
 
 ## Getting captures off a locked device
 
@@ -208,7 +318,7 @@ assumed). Pick a route that survives that:
 | `agent.copyCapture()` | ✓ | Falls back to `execCommand('copy')` on non-secure origins. Needs a user gesture — call it from a tap, not on a timer. Returns `false` if it couldn't copy: **show that to the tester**, or they'll blame the tool instead of reporting the bug |
 | Native bridge | ✗ (a few lines of app code) | The most reliable route for RN / native webviews — see below |
 | `agent.exportFile()` | ✗ | Fine in a desktop browser or a webview whose host implements downloads |
-| Live mode (`serverUrl`) | ✓ | Best when the device can reach your machine; the hub also saves sessions itself |
+| Live mode | ✓ | Best when the device can reach your machine; the hub also saves sessions itself. From an `https://` page the hub needs `wss://` — see [Debugging an `https://` page](#debugging-an-https-page) |
 
 For a native webview, hand the object to the app and let it write a file or open a share
 sheet — it is a plain JSON-serializable value:

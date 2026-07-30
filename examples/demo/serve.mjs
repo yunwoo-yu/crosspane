@@ -13,6 +13,12 @@ const PORT = Number(process.env.PORT ?? 7999);
 // 허브 포트를 페이지에 주입한다 — 하드코딩하면 커스텀 포트에서 에이전트가
 // 조용히 연결 실패하고 대시보드가 이유 없이 비어 보인다
 const HUB_PORT = Number(process.env.CROSSPANE_PORT ?? 7788);
+/**
+ * 노출된 허브(`--host`)의 접속 토큰. **이것을 넘기지 않으면 `pnpm try:lan`이 조용히
+ * 깨진다** — 허브는 토큰을 요구하고 데모의 serverUrl에는 없어서 `/agent`가 401로 거절된다.
+ * 문서가 안내하는 폰 테스트 경로가 그 상태로 있었다(실측: 토큰 없이 401, 있으면 연결).
+ */
+const HUB_TOKEN = process.env.CROSSPANE_HUB_TOKEN ?? '';
 
 const server = http.createServer(async (req, res) => {
   const path = (req.url ?? '/').split('?')[0];
@@ -20,7 +26,11 @@ const server = http.createServer(async (req, res) => {
     if (path === '/' || path.startsWith('/screen-')) {
       const html = await readFile(join(here, 'index.html'), 'utf-8');
       res.writeHead(200, { 'content-type': 'text/html' });
-      res.end(html.replace('__CROSSPANE_HUB_PORT__', String(HUB_PORT)));
+      res.end(
+        html
+          .replace('__CROSSPANE_HUB_PORT__', String(HUB_PORT))
+          .replace('__CROSSPANE_HUB_QUERY__', HUB_TOKEN === '' ? '' : `/?t=${HUB_TOKEN}`),
+      );
       return;
     }
     // 단일 파일 번들 — 번들러 없이 <script type="module">로 붙는 실제 사용자 경로

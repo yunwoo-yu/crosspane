@@ -7,6 +7,7 @@ import {
 } from '@crosspane/protocol';
 import { RingBuffer } from './buffer.js';
 import { copyText } from './clipboard.js';
+import { envServerUrl, isLiveActivated, resolveLiveEndpoint } from './endpoint.js';
 import { installHooks } from './hooks.js';
 import { LiveTransport } from './transport.js';
 
@@ -21,7 +22,17 @@ export interface CrosspaneAgentOptions {
    * 제거(데드코드 엘리미네이션)하는 것을 권장한다 (README 참조).
    */
   enabled?: boolean | (() => boolean);
-  /** 라이브 모드: crosspane 허브 주소 (예: "http://192.168.0.10:7788"). 없으면 오프라인 전용 */
+  /**
+   * 라이브 모드: crosspane 허브 주소 (예: "http://192.168.0.10:7788").
+   *
+   * **생략하는 것이 기본 사용법이다** (`src/endpoint.ts`):
+   * - 페이지가 localhost면 `http://localhost:7788`로 자동 연결 — 로컬 개발은 무설정
+   * - 배포 페이지는 빌드 시 주입된 주소(`crosspane --write-env`) + 기기별 활성화
+   *   링크(`?__crosspane=on`)가 있을 때만 전송한다
+   * - 어느 쪽도 아니면 오프라인 캡처 전용 (링버퍼는 항상 기록한다)
+   *
+   * 직접 지정하면 활성화 링크 없이도 항상 연결한다 — 손으로 쓴 주소는 그 자체가 의사표시다.
+   */
   serverUrl?: string;
   /** 링버퍼 상한 (기본 2000 이벤트) */
   bufferSize?: number;
@@ -37,6 +48,14 @@ export interface CrosspaneAgentOptions {
 
 export interface CrosspaneAgent {
   readonly enabled: boolean;
+  /**
+   * 라이브 허브로 전송 중인지 (false면 오프라인 캡처 전용).
+   *
+   * 노출하는 이유: 주소 자동 해석이 실패하는 것은 정상 동작이지만(프로덕션에서는 오히려
+   * 정답이다) **조용하면 QA가 버그 대신 툴을 의심한다.** 이 값으로 앱이 배지를 띄우거나
+   * 개발자가 콘솔에서 확인할 수 있다.
+   */
+  readonly live: boolean;
   readonly session: SessionMeta;
   /** 링버퍼 스냅샷을 리플레이 파일 객체로 (대시보드에 드롭하면 재생) */
   capture(): SessionCapture;
@@ -68,6 +87,7 @@ export interface CrosspaneAgent {
 
 const DISABLED_AGENT: CrosspaneAgent = {
   enabled: false,
+  live: false,
   session: { id: '', label: '', userAgent: '', startedAt: 0 },
   capture() {
     return {
@@ -136,7 +156,15 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
   };
 
   const buffer = new RingBuffer(options.bufferSize ?? 2_000);
-  const transport = options.serverUrl ? new LiveTransport(options.serverUrl, session) : null;
+  // 주소 해석이 실패해도 링버퍼는 계속 기록한다 — 오프라인 캡처가 잠금 환경의 주력이다
+  const liveUrl = resolveLiveEndpoint({
+    explicit: options.serverUrl,
+    env: envServerUrl(),
+    hostname: location.hostname,
+    activated: isLiveActivated(location.search, location.hostname),
+    userAgent: navigator.userAgent,
+  });
+  const transport = liveUrl === undefined ? null : new LiveTransport(liveUrl, session);
   transport?.connect();
 
   const emit = (event: SessionEvent): void => {
@@ -157,6 +185,7 @@ export function initCrosspane(options: CrosspaneAgentOptions = {}): CrosspaneAge
 
   const agent: CrosspaneAgent = {
     enabled: true,
+    live: transport !== null,
     session,
     capture(): SessionCapture {
       return {
