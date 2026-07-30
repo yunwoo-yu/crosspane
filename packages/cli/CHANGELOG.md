@@ -1,5 +1,43 @@
 # crosspane
 
+## 0.19.0
+
+### Minor Changes
+
+- 85f17f4: 대시보드 한국어/영어 지원과, 터미널이 어떤 페이지를 로깅 중인지 알려 주는 기능.
+
+  - 대시보드에 ko/en 전환을 추가했다. 처음 열 때는 브라우저 언어를 따르고, 한 번 고르면
+    그 선택이 이긴다. 영어 사전이 키의 단일 정의라 번역이 빠지면 컴파일이 실패한다.
+  - 허브가 세션이 붙고 끊길 때 터미널에 알린다 (`● session · <label>  <url>`).
+    지금까지는 대시보드를 열어야만 붙었는지 알 수 있었고, 붙였는데 아무 반응이 없으면
+    주소가 틀렸는지 코드가 안 도는지 구분할 수 없었다.
+  - `--lan-tls`가 `--host 0.0.0.0` 없이도 동작한다. "다른 기기에서 붙어라"가 이미 그 뜻이므로
+    요구하지 않고 함의한다 (LAN에 열렸다는 사실은 그대로 출력한다).
+  - **버그 수정**: `--lan-tls`일 때 `/hub-info`가 인증서와 맞지 않는 LAN IP를 안내했다.
+    그 주소로는 이름 불일치로 붙지 못하는데 실패가 조용해서, 대시보드는 계속 "연결 중…"이고
+    페이지 쪽에는 아무 표시가 없었다. 이제 인증서가 덮는 호스트명을 안내한다.
+  - https 페이지가 안 붙을 때의 안내가 `--lan-tls`를 먼저 제시한다. 이 제약을 실제로 없애는
+    것이 그것인데, 예전 문구는 인증서를 직접 준비하는 길만 가리켰다.
+  - 좁은 화면 레이아웃: 390px에서 헤더가 잘리고 가로 스크롤이 생기던 것, 세션 라벨이 세로로
+    깨지던 것을 고쳤다. 콘솔 패널의 세션 필터는 상단 세션 탭과 중복이라 제거했다.
+
+### Patch Changes
+
+- ce65d79: Fix `--lan-tls` pointing the dashboard at a hostname its certificate doesn't cover
+
+  `--lan-tls` printed the dashboard as `https://localhost:<port>`, but the certificate only covers
+  `*.local-ip.sh`. The page could be opened by clicking through the warning — and then the WebSocket
+  could never connect, because browsers do not allow certificate exceptions for a WebSocket handshake.
+  The result was a dashboard stuck on `connecting…` with no clue why, while agents were connecting to
+  the same hub perfectly well. Found by using it: a phone was streaming the whole time and the
+  dashboard simply couldn't show it.
+
+  The dashboard URL now uses the certificate's hostname.
+
+  The dashboard also stops hiding the reason: after a few failed attempts it shows the address it is
+  trying to reach, and hovering shows it immediately. A certificate-name mismatch is invisible
+  otherwise.
+
 ## 0.18.0
 
 ### Minor Changes
