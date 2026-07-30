@@ -38,12 +38,15 @@ export interface NetworkEntry {
   sessionId: string;
   method: string;
   url: string;
-  status: number;
+  /** 없을 수 있다 — 리소스 타이밍으로 관측된 요청은 상태 코드를 모른다 */
+  status?: number;
   durationMs: number;
   error?: string;
   initiator?: string;
   responseHeaders?: Record<string, string>;
   bodyPreview?: string;
   bodyTruncated?: boolean;
+  /** 훅이 아니라 리소스 타이밍으로 관측된 요청 (정보가 적은 이유) */
+  observed?: boolean;
   ts: number;
 }

@@ -158,3 +158,35 @@ describe('NetworkPanel', () => {
     });
   });
 });
+
+/**
+ * 빈 화면의 두 가지 뜻 — "요청이 없었다"와 "필터가 다 걸렀다".
+ *
+ * 구분해 주지 않으면 사용자는 툴이 기록을 못 한 것으로 읽는다. 기본값이
+ * XHR/fetch만 보기이므로 이미지·CSS가 조용히 사라지는 것이 특히 그랬다.
+ */
+describe('가려진 요청', () => {
+  it('필터가 다 걸렀으면 몇 건인지 밝히고 되돌릴 길을 준다', () => {
+    const entries = [
+      request({ url: '/an-image.png', initiator: 'img' }),
+      request({ url: '/a-style.css', initiator: 'css' }),
+    ];
+    render(<NetworkPanel entries={entries} sessions={[]} />, { locale: 'en' });
+
+    // 기본값(XHR/fetch만)이 둘 다 가린다 — 빈 화면이지만 이유가 보여야 한다
+    expect(screen.getByText('2 hidden by filters · Show all')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('2 hidden by filters · Show all'));
+    expect(screen.getByText('/an-image.png')).toBeTruthy();
+    expect(screen.getByText('/a-style.css')).toBeTruthy();
+  });
+
+  it('상태 코드를 모르는 요청은 실패로 표시하지 않는다', () => {
+    const entries = [request({ url: '/an-sse', initiator: 'other', status: undefined })];
+    render(<NetworkPanel entries={entries} sessions={[]} />, { locale: 'en' });
+
+    fireEvent.click(screen.getByTitle('Hide static assets — show XHR/fetch only'));
+    expect(screen.getByText('—')).toBeTruthy();
+    expect(screen.queryByText('ERR')).toBeNull();
+  });
+});

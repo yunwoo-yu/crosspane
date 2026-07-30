@@ -67,12 +67,31 @@ export type SessionEvent =
       sessionId: string;
       method: string;
       url: string;
-      /** 0 = 응답 못 받음 (네트워크 실패/차단) — error에 사유 */
-      status: number;
+      /**
+       * 0 = 응답 못 받음 (네트워크 실패/차단) — error에 사유.
+       *
+       * **없을 수 있다.** 리소스 타이밍으로 관측한 요청(이미지·CSS·beacon, 그리고
+       * 에이전트가 설치되기 전에 나간 요청)은 브라우저가 상태 코드를 주지 않는
+       * 경우가 있다. 0으로 채우면 "실패"로 읽히므로 비워 둔다 — 모르는 것과
+       * 실패한 것은 다르다.
+       */
+      status?: number;
       durationMs: number;
       error?: string;
-      /** fetch/xhr 구분 등 — 에이전트가 아는 만큼만 */
+      /**
+       * 무엇이 이 요청을 냈는지 — `fetch` `xhr` `img` `css` `script` `beacon` 등.
+       *
+       * 훅이 잡은 것은 `fetch`/`xhr`이고, 나머지는 리소스 타이밍에서 온다.
+       * 대시보드의 "XHR/fetch만" 필터가 이 값으로 갈라진다
+       */
       initiator?: string;
+      /**
+       * 훅이 아니라 리소스 타이밍으로 **관측**된 요청.
+       *
+       * 구분하는 이유: 이쪽은 상태 코드와 메서드가 없을 수 있고 요청 본문도 모른다.
+       * 화면에서 "왜 이 줄만 정보가 적지"의 답이 되어야 한다
+       */
+      observed?: boolean;
       responseHeaders?: Record<string, string>;
       bodyPreview?: string;
       bodyTruncated?: boolean;

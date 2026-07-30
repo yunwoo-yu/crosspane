@@ -236,8 +236,11 @@ the cost of carrying it in your env var.
 
 - **Console** — `console.*` with argument serialization, uncaught errors with stacks,
   unhandled promise rejections. Filter by level, search, follow-tail
-- **Network** — fetch and XHR with status, duration and failures (`status 0` = blocked or
-  offline, the thing that's invisible in a webview). Optional response body previews
+- **Network** — every request the page makes, not just the ones we can intercept. fetch and
+  XHR are hooked (status, duration, failures, optional body previews); images, CSS, scripts,
+  `sendBeacon`, `EventSource` **and requests that fired before the agent loaded** are recovered
+  from resource timing. Requests hidden by a filter are always counted on screen, so an empty
+  list never means "we didn't record it"
 - **Navigation timeline** — SPA route changes included, so logs are grouped by screen
 - **Session list** — several devices at once, each labeled, live/ended state, error badges
 - **Save and replay** — save what you're watching live to a `.crosspane.json`, or drop a file
