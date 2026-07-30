@@ -6,18 +6,23 @@ import { mergeRepeat } from './repeat.js';
  * 허브를 네트워크에 노출하면 토큰을 요구하고, 사용자는 그 토큰이 붙은 주소를
  * serverUrl에 그대로 붙여넣는다(`http://ip:7788/?t=…`).
  *
- * URL 파싱에 실패하면 예전처럼 단순 치환으로 떨어진다 — 잘못된 주소로 페이지가
+ * **경로는 갈아치우지 않고 뒤에 붙인다.** 허브가 경로 접두사를 가진 리버스 프록시 뒤에
+ * 있을 수 있다(`https://staging.example.com/__crosspane` → `/__crosspane/agent`).
+ * 이건 `https://` 페이지에서 라이브 모드를 쓰는 실제 경로 중 하나다 — 접두사를 버리면
+ * 프록시가 매칭하지 못해 조용히 실패한다.
+ *
+ * URL 파싱에 실패하면 단순 치환으로 떨어진다 — 잘못된 주소로 페이지가
  * 죽는 일은 없어야 한다(호출부가 try/catch로 감싸고 조용히 재시도한다).
  */
 function agentUrl(serverUrl: string): string {
   try {
     const url = new URL(serverUrl);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    url.pathname = '/agent';
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/agent`;
     url.hash = '';
     return url.toString();
   } catch {
-    return `${serverUrl.replace(/^http/, 'ws')}/agent`;
+    return `${serverUrl.replace(/^http/, 'ws').replace(/\/+$/, '')}/agent`;
   }
 }
 

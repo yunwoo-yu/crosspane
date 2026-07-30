@@ -5,7 +5,7 @@ Records the DOM with [rrweb](https://github.com/rrweb-io/rrweb) so you can see w
 screen looked like, not just what it logged.
 
 **This is a separate package on purpose.** rrweb is tens of times larger than the core
-agent (~2.5 KB gzipped). Keeping it out of the core means teams who only need console and
+agent (~3.8 KB gzipped). Keeping it out of the core means teams who only need console and
 network data pay nothing for screen recording.
 
 ## Install
@@ -20,7 +20,7 @@ npm install @crosspane/agent @crosspane/agent-replay
 import { initCrosspane } from '@crosspane/agent'
 import { startScreenRecording } from '@crosspane/agent-replay'
 
-const agent = initCrosspane({ label: 'checkout webview', serverUrl: 'http://192.168.0.10:7788' })
+const agent = initCrosspane({ label: 'checkout webview' })
 const recording = startScreenRecording(agent)
 
 // later, if you want to stop early

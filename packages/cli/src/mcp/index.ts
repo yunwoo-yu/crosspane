@@ -180,11 +180,15 @@ function write(output: Writable, response: unknown): void {
 /**
  * http(s):// 허브 주소 → 대시보드 WS 엔드포인트.
  * 쿼리(접속 토큰)는 그대로 옮긴다 — 노출된 허브는 토큰 없이 붙을 수 없다.
+ *
+ * 경로는 갈아치우지 않고 뒤에 붙인다 — 허브가 경로 접두사를 가진 리버스 프록시나
+ * 터널 뒤에 있을 수 있다(`--hub https://x.example/__crosspane`). 에이전트 쪽
+ * `agentUrl`과 같은 규칙이다.
  */
 export function toWebSocketUrl(hubUrl: string): string {
   const url = new URL(hubUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.pathname = '/ws';
+  url.pathname = `${url.pathname.replace(/\/+$/, '')}/ws`;
   url.hash = '';
   return url.toString();
 }

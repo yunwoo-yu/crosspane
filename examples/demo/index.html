@@ -34,9 +34,10 @@
   // 데모는 항상 켠다 — 실제 앱에서는 dev/QA 빌드로 게이팅할 것 (README 참조)
   const agent = initCrosspane({
     label: 'crosspane demo page',
-    // 포트는 serve.mjs가 주입한다 (CROSSPANE_PORT) — 하드코딩하면 커스텀 포트에서
-    // 조용히 연결 실패한다
-    serverUrl: location.origin.replace(/:\d+$/, ':__CROSSPANE_HUB_PORT__'),
+    // 포트와 접속 토큰은 serve.mjs가 주입한다 — 하드코딩하면 커스텀 포트에서 조용히
+    // 연결 실패하고, 토큰이 빠지면 `pnpm try:lan`이 401로 실패한다(실측된 버그).
+    // 호스트는 location.origin에서 가져온다: 폰이 LAN 주소로 열면 그 주소의 허브를 가리킨다
+    serverUrl: `${location.origin.replace(/:\d+$/, ':__CROSSPANE_HUB_PORT__')}__CROSSPANE_HUB_QUERY__`,
     captureBodies: true,
   })
 

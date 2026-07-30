@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { lanAddresses } from './addresses.js';
+import { readFileSync } from 'node:fs';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
 import { setVerbose } from './debug.js';
 import { clearEnvFile, writeEnvFile } from './env-file.js';
 import { startMcpServer } from './mcp/index.js';
-import { startHubServer } from './server.js';
+import { agentUrls, startHubServer } from './server.js';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -35,16 +35,20 @@ async function main(): Promise<void> {
    * `--no-auth`는 사내 테스트 자동화용 탈출구다(경고를 함께 찍는다).
    */
   const authToken = exposed && !options.noAuth ? randomBytes(8).toString('hex') : undefined;
+  const tls = readTlsFiles(options.tlsCert, options.tlsKey);
   const server = await startHubServer({
     port: options.port,
     host: options.host,
     authToken,
+    tls,
+    publicUrl: options.publicUrl,
     // 명시된 포트는 존중하고, 기본 포트는 사용 중이면 +1씩 폴백
     portAttempts: options.portExplicit ? 1 : 10,
   });
 
+  const scheme = tls ? 'https' : 'http';
   const tokenQuery = authToken ? `/?t=${authToken}` : '';
-  const dashboardUrl = `http://localhost:${server.port}${tokenQuery}`;
+  const dashboardUrl = `${scheme}://localhost:${server.port}${tokenQuery}`;
   // 폴백을 조용히 넘기면 안 된다: 앱의 serverUrl은 그대로 기본 포트를 가리키므로
   // 세션이 다른 허브(또는 아무데도)로 가고, 대시보드는 빈 화면을 보여준다.
   // 실제로 이 혼란을 겪었다 — 두 허브가 떠 있으면 원인을 찾기가 매우 어렵다
@@ -56,28 +60,42 @@ async function main(): Promise<void> {
     );
   }
   console.log(`crosspane dashboard → ${dashboardUrl}`);
-  if (exposed) {
-    // 실기기의 에이전트가 접속할 주소를 보여준다 — serverUrl에 넣을 값
-    for (const address of lanAddresses()) {
-      console.log(
-        `  live agents → http://${address}:${server.port}${tokenQuery}  (serverUrl for @crosspane/agent)`,
-      );
+  // 에이전트가 붙을 주소는 허브가 계산한다 (터널·TLS·LAN을 한 곳에서 판단 — server.ts)
+  const agentAddresses = agentUrls({
+    port: server.port,
+    exposed,
+    authToken,
+    publicUrl: options.publicUrl,
+    scheme,
+  });
+  if (exposed || options.publicUrl !== undefined) {
+    for (const address of agentAddresses) {
+      console.log(`  live agents → ${address}  (serverUrl for @crosspane/agent)`);
     }
     console.log(
       authToken
-        ? '  the token in those URLs is required — anyone on this network could otherwise read\n' +
-            '  your session logs and inject fake sessions. It changes every restart.'
-        : '  ⚠ --no-auth: anyone on this network can read your session logs and inject sessions.',
+        ? '  the token in those URLs is required — anyone who can reach this hub could\n' +
+            '  otherwise read your session logs and inject fake sessions. It changes every restart.'
+        : '  ⚠ --no-auth: anyone who can reach this hub can read your session logs and inject sessions.',
     );
   } else {
     console.log('  local only — pass --host 0.0.0.0 to receive live agent sessions from devices');
   }
+  if (options.publicUrl !== undefined) {
+    console.log(
+      `  advertising ${options.publicUrl} — make sure it actually forwards to this hub,\n` +
+        '  including the WebSocket upgrade on /agent and /ws',
+    );
+  } else if (!tls) {
+    // https 페이지에서 왜 안 되는지를 여기서 알려준다 — 나중에 알면 원인 찾기가 매우 어렵다
+    console.log(
+      '  note: an https:// page cannot connect to this hub over plain ws://. See --tls-cert\n' +
+        '  and --public-url in `crosspane --help` ("Debugging an https:// page").',
+    );
+  }
 
   if (options.writeEnv !== undefined) {
-    // 기기가 접속할 주소를 적는다. 노출됐으면 LAN 주소(에이전트가 폰에서 붙는 곳),
-    // 아니면 루프백 — 폴백 포트로 떴을 때도 정확한 값이 들어간다
-    const agentAddress = exposed ? (lanAddresses()[0] ?? 'localhost') : 'localhost';
-    announceEnvFile(options.writeEnv, `http://${agentAddress}:${server.port}${tokenQuery}`);
+    announceEnvFile(options.writeEnv, agentAddresses[0]);
   }
 
   const isInteractiveTerminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
@@ -106,6 +124,26 @@ async function main(): Promise<void> {
   };
   process.on('uncaughtException', onFatal('uncaughtException'));
   process.on('unhandledRejection', onFatal('unhandledRejection'));
+}
+
+/**
+ * TLS 인증서·키 파일을 읽는다. 둘 다 없으면 undefined(평문 허브).
+ *
+ * 읽기 실패는 기동을 막는다 — TLS를 켜라고 했는데 조용히 평문으로 뜨면, https 페이지에서
+ * 왜 안 붙는지 추적할 방법이 없다. 인증서 문제는 시작할 때 알아야 한다.
+ */
+function readTlsFiles(
+  certPath: string | undefined,
+  keyPath: string | undefined,
+): { cert: string; key: string } | undefined {
+  if (certPath === undefined || keyPath === undefined) return undefined;
+  try {
+    return { cert: readFileSync(certPath, 'utf-8'), key: readFileSync(keyPath, 'utf-8') };
+  } catch (err) {
+    throw new Error(
+      `could not read TLS files: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**

@@ -5,6 +5,7 @@ import type { ServerEvent, SessionEvent, SessionMeta } from '@crosspane/protocol
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import {
+  agentUrls,
   captureFileStem,
   contentDisposition,
   type HubInfo,
@@ -342,6 +343,61 @@ describe('startHubServer', () => {
     const response = await fetch(`http://127.0.0.1:${server.port}/`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('test-dashboard');
+  });
+});
+
+describe('agentUrls', () => {
+  it('노출되지 않았으면 localhost만 안내한다', () => {
+    expect(agentUrls({ port: 7788, exposed: false, scheme: 'http' })).toEqual([
+      'http://localhost:7788',
+    ]);
+  });
+
+  it('TLS면 https로 안내한다 — 에이전트가 이걸 wss로 바꾼다', () => {
+    expect(agentUrls({ port: 7788, exposed: false, scheme: 'https' })).toEqual([
+      'https://localhost:7788',
+    ]);
+  });
+
+  it('토큰을 주소에 담는다 — 사용자가 스니펫을 그대로 붙여넣는다', () => {
+    expect(agentUrls({ port: 7788, exposed: false, scheme: 'http', authToken: 'abc' })).toEqual([
+      'http://localhost:7788/?t=abc',
+    ]);
+  });
+
+  it('publicUrl이 있으면 그것만 안내한다 — 닿지 않는 LAN 주소를 함께 보이면 그걸 골라 실패한다', () => {
+    expect(
+      agentUrls({
+        port: 7788,
+        exposed: true,
+        scheme: 'http',
+        authToken: 'abc',
+        publicUrl: 'https://xyz.trycloudflare.com',
+      }),
+    ).toEqual(['https://xyz.trycloudflare.com/?t=abc']);
+  });
+
+  it('publicUrl의 끝 슬래시를 정리한다 — //?t= 가 되면 경로가 어긋난다', () => {
+    expect(
+      agentUrls({
+        port: 7788,
+        exposed: true,
+        scheme: 'http',
+        authToken: 'abc',
+        publicUrl: 'https://xyz.example/',
+      }),
+    ).toEqual(['https://xyz.example/?t=abc']);
+  });
+
+  it('publicUrl에 경로가 있어도 유지한다 (스테이징 오리진 리버스 프록시)', () => {
+    expect(
+      agentUrls({
+        port: 7788,
+        exposed: true,
+        scheme: 'http',
+        publicUrl: 'https://staging.example.com/__crosspane',
+      }),
+    ).toEqual(['https://staging.example.com/__crosspane']);
   });
 });
 

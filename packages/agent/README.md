@@ -41,7 +41,7 @@ server connection needed.
 ## Without a bundler
 
 If you can't run a bundler — injecting into a page through a proxy, a kiosk build, a
-plain static page — use the prebuilt single-file bundles (~3.4 KB gzipped):
+plain static page — use the prebuilt single-file bundles (~4 KB gzipped):
 
 ```html
 <!-- ES module -->
@@ -120,8 +120,13 @@ depending on your framework) and removes them when the hub stops.
 
 Because auto-connect requires the page itself to be on loopback, a build that reaches real
 users never contacts a hub. Passing `serverUrl` yourself always wins and never needs
-activation. Live mode is not available from an `https://` page — browsers block plain
-`ws://` from a secure origin, so use offline capture there.
+activation.
+
+From an `https://` page the address has to be `https://` too — browsers block plain `ws://`
+from a secure origin, so the hub needs a certificate the device trusts. Run it with
+`--tls-cert`/`--tls-key`, or put it behind a tunnel or your staging origin with
+`--public-url`; see "Debugging an `https://` page" in the
+[crosspane README](https://github.com/yunwoo-yu/crosspane#debugging-an-https-page).
 
 ## Notes
 

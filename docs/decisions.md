@@ -37,7 +37,7 @@ serve the goal.
 Two splits, two different reasons.
 
 **`agent-replay` is separate because of cost.** rrweb is roughly twenty times the size of
-the core agent (57 KB vs 3.4 KB gzipped), and many users never want screen capture. Code
+the core agent (57 KB vs 3.8 KB gzipped), and many users never want screen capture. Code
 that ships inside someone else's app has to let them decline what they don't use. The
 plugin emits through the core's `agent.emit` rather than opening its own transport, so
 there is still one connection, one session, one ordered timeline.
@@ -47,7 +47,7 @@ agent was considered and rejected: the hub is a Node program, and it would then 
 DOM-typed browser package purely for types. That inverts the direction — the shared
 vocabulary should not live inside one of its consumers.
 
-It also keeps the door open for consumers that are not the agent: the planned MCP server,
+It also keeps the door open for consumers that are not the agent: the MCP server,
 attach-mode adapters (Android CDP, iOS WebKit), a CI reporter that ingests
 `.crosspane.json`. Those need the event types without `window`. The generic `screen.format`
 field exists for the same reason — the protocol is meant to outlive any one capture method.
@@ -142,8 +142,8 @@ the next call instead of asking the developer.
 `tsc` output is multi-file ESM, which cannot be loaded with a plain `<script>` tag. The
 users this project targets are frequently the ones who *cannot* run a bundler — injecting
 through a proxy, kiosk images, static pages maintained by another team. `dist/crosspane-agent.esm.js`
-and `dist/crosspane-agent.global.js` (built by esbuild, ES2019, ~3.4 KB gzipped) exist for
-them, and a budget test fails if the bundle grows past 4 KB gzipped.
+and `dist/crosspane-agent.global.js` (built by esbuild, ES2019, ~4.0 KB gzipped) exist for
+them, and a budget test fails if either bundle grows past 4.5 KB gzipped.
 
 ## Tests resolve workspace dependencies from source
 
@@ -162,7 +162,7 @@ Path mapping to the dependency's source conflicts with `rootDir`, so the package
 ## Screen recording lives in a separate package
 
 `@crosspane/agent-replay` records the DOM with rrweb. It is not part of the core agent
-because rrweb is tens of times larger than the core (~3.4 KB gzipped) — folding it in would
+because rrweb is tens of times larger than the core (~3.8 KB gzipped) — folding it in would
 break the promise that makes the SDK adoptable in the first place. Teams that only need
 console and network data must not pay for screen capture.
 
@@ -311,11 +311,51 @@ than a measured limit.
 - **Anything before `initCrosspane` runs.** Boot failures and parse errors are invisible.
 - **Loading under a strict CSP that blocks the hub.** Bundling rather than CDN-loading
   avoids the `script-src` half of this; `connect-src` still has to allow live mode.
-- **Live mode from an `https://` page.** Measured: a secure page opening
-  `ws://127.0.0.1:7899` is blocked outright — the local ws server never sees a connection.
-  A hub on a laptop has no certificate, and asking every device to trust a local CA is the
-  exact friction this project exists to remove. Offline capture is the answer there, and it
-  needs no network at all.
+- **Live mode from an `https://` page over plain `ws://`.** This one is a transport
+  requirement rather than a missing feature — see the section below for how it is met.
 
 These are stated in the README rather than worked around, because pretending otherwise
 would cost users more than the missing feature does.
+
+## Reaching an `https://` page: the hub speaks TLS, or something in front of it does
+
+Measured in a real browser, from `https://example.com`:
+
+| target | result |
+| --- | --- |
+| `wss://` with a publicly trusted certificate | **opens** |
+| `ws://` plain (localhost, 127.0.0.1 and LAN IP alike) | blocked; the server never sees a connection |
+| `wss://` with a self-signed certificate | fails — Chrome does not offer an interstitial for WebSocket handshakes |
+
+That table decides the design. There is no in-page workaround (`img`, `iframe` and `fetch`
+are all subject to the same rule), and `localhost` gets no carve-out — which was worth
+checking, because a carve-out would have made `adb reverse` a complete answer on Android.
+So the requirement is exactly: reachable over `wss://`, with a certificate the device
+already trusts.
+
+crosspane therefore does not try to supply a certificate. It accepts one (`--tls-cert` /
+`--tls-key`, which switches the hub to https/wss) and it can advertise an address other
+than its own (`--public-url`, for a tunnel or a reverse proxy). Everything else is the
+user's existing infrastructure:
+
+- a **tunnel** (`cloudflared`, `ngrok`, Tailscale Funnel) terminates a real certificate and
+  works on cellular too; the cost is that session logs transit a third party, so it is
+  opt-in and the CLI says so
+- a **corporate CA** already pushed to managed devices — the common case in exactly the
+  regulated environments this tool targets
+- a **reverse proxy on the staging origin** — same origin, so no mixed content, no CSP
+  change, and nothing leaves the company
+
+**Generating a self-signed certificate would have been the obvious feature, and it is
+useless here.** Since Android 7, apps do not trust user-installed CAs, so a certificate
+installed on the device is still rejected inside another app's webview — the primary target.
+The table above confirms the browser side: there is no click-through for WebSocket.
+
+`--public-url` forced a related fix. Both `agentUrl` (agent) and `toWebSocketUrl` (MCP)
+replaced the URL path with `/agent` and `/ws`, and `parseMcpArguments` discarded the path
+entirely. Behind a path-prefixed proxy (`https://staging.example.com/__crosspane`) that
+silently dropped the prefix, so the proxy never matched. All three now append instead of
+replacing.
+
+Offline capture remains the answer when none of this is available, and it is unaffected by
+any of it — no network, no certificate, no origin rules.

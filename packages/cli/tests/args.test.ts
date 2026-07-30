@@ -11,6 +11,9 @@ describe('parseCliArguments', () => {
       verbose: false,
       noAuth: false, // 노출 시에만 토큰이 붙고, 그걸 끄는 건 명시적 옵트아웃이다
       writeEnv: undefined, // 사용자 파일을 건드리는 일은 옵트인이어야 한다
+      tlsCert: undefined,
+      tlsKey: undefined,
+      publicUrl: undefined,
     });
   });
 
@@ -39,6 +42,32 @@ describe('parseCliArguments', () => {
     expect(options).toMatchObject({ host: '0.0.0.0', openBrowser: false, verbose: true });
   });
 
+  it('--tls-cert/--tls-key/--public-url을 반영한다', () => {
+    const options = parseCliArguments([
+      '--tls-cert',
+      'cert.pem',
+      '--tls-key',
+      'key.pem',
+      '--public-url',
+      'https://abc.trycloudflare.com',
+    ]);
+    expect(options).toMatchObject({
+      tlsCert: 'cert.pem',
+      tlsKey: 'key.pem',
+      publicUrl: 'https://abc.trycloudflare.com',
+    });
+  });
+
+  it('TLS는 인증서와 키를 함께 요구한다 — 한쪽만 주고 평문으로 뜨면 진단이 불가능하다', () => {
+    expect(() => parseCliArguments(['--tls-cert', 'cert.pem'])).toThrow(/together/);
+    expect(() => parseCliArguments(['--tls-key', 'key.pem'])).toThrow(/together/);
+  });
+
+  it('--public-url은 http(s)만 받는다 — 에이전트가 이 값으로 WS 주소를 만든다', () => {
+    expect(() => parseCliArguments(['--public-url', 'wss://a.example'])).toThrow(/must be http/);
+    expect(() => parseCliArguments(['--public-url', 'not a url'])).toThrow(/Invalid value/);
+  });
+
   it('알 수 없는 옵션과 잘못된 포트는 명확한 에러', () => {
     expect(() => parseCliArguments(['--wat'])).toThrow(/Unknown option/);
     expect(() => parseCliArguments(['--port', 'abc'])).toThrow(/Invalid value/);
@@ -54,14 +83,22 @@ describe('parseMcpArguments', () => {
     expect(parseMcpArguments([])).toEqual({ hubUrl: 'http://127.0.0.1:7788', verbose: false });
   });
 
-  it('--hub는 origin으로 정규화하되 쿼리는 남긴다 (접속 토큰)', () => {
-    // 경로는 버린다 — 허브 엔드포인트는 우리가 정한다
-    expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/x']).hubUrl).toBe(
-      'http://10.0.0.5:9000',
-    );
-    // 쿼리는 남긴다 — 노출된 허브는 토큰 없이 붙을 수 없다(버리면 401로 조용히 실패)
+  it('--hub는 쿼리(접속 토큰)를 남긴다 — 버리면 401로 조용히 실패한다', () => {
     expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/?t=abc']).hubUrl).toBe(
       'http://10.0.0.5:9000?t=abc',
+    );
+    // 끝 슬래시만 있으면 경로가 없는 것으로 본다
+    expect(parseMcpArguments(['--hub', 'http://10.0.0.5:9000/']).hubUrl).toBe(
+      'http://10.0.0.5:9000',
+    );
+  });
+
+  it('--hub의 경로 접두사는 유지한다 — 프록시·터널 뒤의 허브에 붙을 수 있어야 한다', () => {
+    expect(parseMcpArguments(['--hub', 'https://x.example/__crosspane']).hubUrl).toBe(
+      'https://x.example/__crosspane',
+    );
+    expect(parseMcpArguments(['--hub', 'https://x.example/__crosspane/?t=abc']).hubUrl).toBe(
+      'https://x.example/__crosspane?t=abc',
     );
   });
 

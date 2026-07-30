@@ -36,8 +36,8 @@ your app (dev/QA build)                 your machine
 
 Two ways to get the data out, because networks aren't always available:
 
-- **Live** — the agent streams to the hub over your LAN, you watch in real time, and can
-  save any session to a file from the dashboard
+- **Live** — the agent streams to the hub (your LAN by default, or through a tunnel or your
+  own origin), you watch in real time, and can save any session to a file from the dashboard
 - **Offline** — the agent keeps the last N events in a ring buffer; export one JSON file,
   send it to a developer, replay it in the same dashboard
 
@@ -49,6 +49,7 @@ Two ways to get the data out, because networks aren't always available:
 npx crosspane                  # dashboard on http://localhost:7788
 npx crosspane --host 0.0.0.0   # also accept live sessions from devices on your network
                                # (prints an access token — session logs are not public)
+                               # add --write-env and you never have to copy the address
 ```
 
 **2. Add the agent to your app** (dev/QA builds only — see [Shipping safely](#shipping-safely))
@@ -93,9 +94,44 @@ has to opt in once — open it with `?__crosspane=on` (that choice sticks; `?__c
 clears it). The link only carries "on": the destination comes from the build, never from
 the URL, so a link can't redirect anyone's logs somewhere else.
 
-> **`https://` pages can't use live mode.** Browsers block plain `ws://` from a secure
-> page, and a hub on your laptop has no certificate, so the connection never leaves the
-> browser. Use offline capture there (`copyCapture()`) — it needs no network at all.
+### Debugging an `https://` page
+
+A secure page cannot open a plain `ws://` connection — measured, and there is no way
+around it from inside the page (`img`, `iframe` and `fetch` all get the same treatment).
+So the hub has to be reachable over `wss://`, with a certificate the device already
+trusts. Pick whichever fits:
+
+**1. Tunnel** — works on any network, including cellular, with no certificate of your own:
+
+```bash
+cloudflared tunnel --url http://localhost:7788      # prints https://<id>.trycloudflare.com
+crosspane --public-url https://<id>.trycloudflare.com --write-env
+```
+
+Session logs pass through the tunnel provider, so use this only where that's acceptable.
+
+**2. A certificate the device already trusts** — nothing leaves your network:
+
+```bash
+crosspane --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem --write-env
+```
+
+Good when you have a corporate CA already deployed to managed devices, or a publicly
+trusted certificate for a name that resolves to your LAN IP. A **self-signed certificate
+does not work** in app webviews: since Android 7, apps don't trust user-installed CAs,
+so no amount of installing helps.
+
+**3. Reverse-proxy the hub through the staging origin** — same origin, no mixed content,
+nothing goes to a third party:
+
+```bash
+crosspane --public-url https://staging.example.com/__crosspane --write-env
+```
+
+Point that path at the hub from your app server, forwarding the WebSocket upgrade.
+
+**4. No infrastructure at all** — skip live mode and use `agent.copyCapture()`, which
+needs no network and is unaffected by any of this.
 
 ## What you get
 
@@ -158,9 +194,17 @@ crosspane [options]
                an explicit port does not)
 --host <addr>  bind address (default: 127.0.0.1 — local only. Use 0.0.0.0 to receive
                live agent sessions from phones/devices on your network. Exposing the
-               hub generates a one-time access token, printed with the URLs; put it in
-               the agent's serverUrl)
+               hub generates a one-time access token, printed with the URLs. Use
+               --write-env and you never have to copy it)
 --no-auth      disable that token — only on a network you fully trust
+--write-env [file]
+               write this hub's address and token into an env file (default .env.local)
+               so the agent needs no arguments; removed again when the hub stops
+--tls-cert <file> / --tls-key <file>
+               serve the hub over https/wss — required to debug an https:// page
+--public-url <url>
+               advertise this address instead of the LAN one, for a tunnel or a
+               reverse proxy in front of the hub
 --no-open      don't open the dashboard automatically
 --verbose      diagnostic logging — attach to bug reports
 -v, --version  print the version
@@ -240,7 +284,7 @@ assumed). Pick a route that survives that:
 | `agent.copyCapture()` | ✓ | Falls back to `execCommand('copy')` on non-secure origins. Needs a user gesture — call it from a tap, not on a timer. Returns `false` if it couldn't copy: **show that to the tester**, or they'll blame the tool instead of reporting the bug |
 | Native bridge | ✗ (a few lines of app code) | The most reliable route for RN / native webviews — see below |
 | `agent.exportFile()` | ✗ | Fine in a desktop browser or a webview whose host implements downloads |
-| Live mode | ✓ | Best when the device can reach your machine; the hub also saves sessions itself. Not available from an `https://` page — browsers block plain `ws://` there |
+| Live mode | ✓ | Best when the device can reach your machine; the hub also saves sessions itself. From an `https://` page the hub needs `wss://` — see [Debugging an `https://` page](#debugging-an-https-page) |
 
 For a native webview, hand the object to the app and let it write a file or open a share
 sheet — it is a plain JSON-serializable value:

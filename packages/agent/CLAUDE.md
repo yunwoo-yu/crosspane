@@ -27,7 +27,7 @@ CI의 클린 설치에서 `TS2688`로 죽는다(로컬은 상위 디렉터리로
 ## 성능
 
 `node scripts/bench.mjs` (빌드 후) — 직렬화 핫패스 비용을 재현한다. 핫패스를 건드리면
-전후를 이 스크립트로 비교할 것. 번들 예산(gzip 4KB)은 `tests/bundle-size.test.ts`가 지킨다.
+전후를 이 스크립트로 비교할 것. 번들 예산(gzip 4.5KB)은 `tests/bundle-size.test.ts`가 지킨다.
 
 ## 테스트
 

@@ -44,11 +44,16 @@ function start() {
   const startDemo = (dashboardUrl) => {
     if (started) return;
     started = true;
-    const port = new URL(dashboardUrl).port || String(DEFAULT_HUB_PORT);
+    const parsed = new URL(dashboardUrl);
+    const port = parsed.port || String(DEFAULT_HUB_PORT);
+    // 토큰도 함께 넘긴다. 포트만 넘기던 동안 `pnpm try:lan`은 조용히 깨져 있었다 —
+    // 노출된 허브는 토큰을 요구하는데 데모의 serverUrl에는 없어서 /agent가 401이었다(실측)
+    const token = parsed.searchParams.get('t') ?? '';
     children.push(
       run('demo', 'node', [join(root, 'examples/demo/serve.mjs')], undefined, {
         ...process.env,
         CROSSPANE_PORT: port,
+        CROSSPANE_HUB_TOKEN: token,
         PORT: demoPort,
       }),
     );

@@ -42,5 +42,7 @@ ffmpeg -i /tmp/demo.webm \
 
 Keep it under ~25 seconds and ~250 KB — GitHub serves README images on every page view.
 
-To try it from a phone on the same network, run the hub with `--host 0.0.0.0` and
-change `serverUrl` in `index.html` to your machine's LAN address.
+To try it from a phone on the same network, use `pnpm try:lan` and open
+`http://<your LAN address>:7999` on the phone. Nothing to edit: `serve.mjs` injects the hub
+port and its access token, and the page derives the host from `location.origin`, so opening
+it at the LAN address points the agent at the LAN hub automatically.

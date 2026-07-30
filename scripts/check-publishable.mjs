@@ -41,6 +41,19 @@ for (const entry of readdirSync('packages', { withFileTypes: true })) {
   if (!existsSync(join(dir, 'LICENSE'))) problems.push(`${pkg.name}: LICENSE 누락`);
 }
 
+/**
+ * `crosspane`의 README는 루트 README의 사본이다 — npm 페이지가 프로젝트 소개를 그대로
+ * 보여야 하므로 그렇게 뒀는데, **수동 사본은 조용히 어긋난다**. 루트만 고치고 배포하면
+ * npm 페이지가 옛 사용법을 계속 안내한다(실제로 어긋난 상태를 발견해 이 검사를 넣었다).
+ */
+const rootReadme = 'README.md';
+const cliReadme = join('packages', 'cli', 'README.md');
+if (existsSync(rootReadme) && existsSync(cliReadme)) {
+  if (readFileSync(rootReadme, 'utf-8') !== readFileSync(cliReadme, 'utf-8')) {
+    problems.push(`${cliReadme}가 루트 README와 다르다 — \`cp README.md ${cliReadme}\``);
+  }
+}
+
 if (problems.length > 0) {
   console.error('publishable package check failed:');
   for (const problem of problems) console.error(`  ✗ ${problem}`);

@@ -17,12 +17,17 @@ pnpm build
 
 ```bash
 pnpm exec biome check --write .   # format + lint
+pnpm exec biome ci .              # what CI actually judges — see below
+pnpm check:publishable            # no workspace: specifiers or missing README/LICENSE
 pnpm typecheck                    # sources and tests
 pnpm test                         # unit + integration
 pnpm coverage                     # same, with the coverage ratchet enforced
 pnpm build
 pnpm smoke                        # e2e: real hub process + agent round-trip
 ```
+
+`biome ci` is not redundant: `check --write` can pass while `ci` fails, because some rules
+(suppression validity, a few a11y ones) are only judged in CI mode. Run it before pushing.
 
 To try your change by hand, `pnpm try` starts the hub and the demo page together and prints
 what to open — the demo page is where you click things, the dashboard is where they show up:
@@ -36,7 +41,7 @@ pnpm mcp            # MCP stdio server (needs a running hub)
 ```
 
 Use different ports with `CROSSPANE_PORT=7801 PORT=7802 pnpm try`; the demo page's `serverUrl`
-follows automatically.
+follows automatically, including the access token when the hub is exposed.
 
 Some regressions only appear in a real browser — a webview-shaped one especially. Screen
 recording, clipboard export, and anything layout-related have all shipped broken past a green
@@ -53,12 +58,16 @@ single test: `pnpm --filter @crosspane/agent exec vitest run -t "test name"`.
 - `packages/agent` — the in-page SDK. Held to different standards than the rest:
   zero dependencies, no observable effect on the host page, explicit gating.
   Read `.claude/rules/agent-sdk.md` before touching it
-- `packages/cli` — hub server (session relay) + dashboard serving + CLI
+- `packages/agent-replay` — optional screen recording (rrweb). Heavy dependencies are
+  allowed here precisely because it is optional; it emits through the core's `agent.emit`
+  rather than opening its own transport
+- `packages/cli` — hub server (session relay) + dashboard serving + CLI + `crosspane mcp`
 - `packages/dashboard` — React dashboard: live sessions and capture-file replay
 - `.claude/rules/` — invariants per area (path-scoped). Read the matching rule file
   before touching the protocol or the agent
-- `ARCHITECTURE.md` — full design rationale, including why the 0.6.x engine-mirroring
-  architecture was removed
+- `ARCHITECTURE.md` — the design and the reasoning behind each constraint
+- `docs/decisions.md` — structural decisions and why, including why the 0.6.x
+  engine-mirroring architecture was removed. Read it before proposing to bring anything back
 
 ## Conventions
 
