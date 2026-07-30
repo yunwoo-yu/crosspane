@@ -110,26 +110,34 @@ export function isAuthorized(url: string | undefined, expected: string | undefin
 }
 
 /**
- * 쓰기 전용 자격 — `/agent` 수신만 막는다. `?k=` 인제스트 키 또는 읽기 토큰(`?t=`)을 받는다.
+ * 쓰기 전용 자격 — `/agent` 수신만 막는다.
  *
- * **왜 별도 자격인가 (실측으로 알아냈다):** 공개 배포 페이지에 에이전트를 넣으면 허브
- * 주소가 클라이언트에 들어가고, 공개 페이지가 아는 값은 누구나 안다. 단일 토큰으로
- * 읽기·쓰기를 함께 막던 동안, 운영 사이트에 붙이자 **페이지 소스에서 읽기 토큰이 그대로
- * 노출됐다** — 그 토큰이면 남의 세션 로그를 읽고 가짜 세션을 주입할 수 있다.
+ * **읽기와 쓰기를 나눈 이유 (실측):** 공개 배포 페이지에 에이전트를 넣으면 허브 주소가
+ * 클라이언트에 들어가고, 공개 페이지가 아는 값은 누구나 안다. 단일 토큰으로 둘을 함께
+ * 막던 동안 운영 사이트에 붙이자 **페이지 소스에서 읽기 토큰이 노출됐다** — 그 토큰이면
+ * 세션 로그를 읽을 수 있었다. 읽기(`/ws`·`/capture`·`/hub-info`)는 앞으로도 토큰 필수다.
  *
- * 그래서 Sentry의 DSN 공개 키와 같은 모양으로 나눈다: 인제스트 키는 공개돼도 되고
- * (최악이 남이 우리 허브에 쓰레기 세션을 넣는 것), 읽기는 내 머신에만 남는 토큰이 필요하다.
- * **읽기 토큰을 `/agent`에도 계속 받아 주는 이유**는 하위호환이다 — 기존 사용자의
- * `serverUrl`에는 `?t=`가 들어 있다.
+ * **왜 쓰기는 기본이 열림인가:** 공개 페이지에 비밀을 담을 수 없으므로, 앱이 제시할 수
+ * 있는 것은 결국 누구나 볼 수 있는 값이다. Sentry가 DSN에 공개 키를 넣는 것은 하나의
+ * 인제스트 엔드포인트가 수많은 프로젝트를 받아 **키로 프로젝트를 식별**해야 하기 때문인데,
+ * crosspane의 허브는 그 사람 것 하나뿐이라 **주소가 곧 식별자다.** 키는 "추측 어렵게"
+ * 외에 하는 일이 없고 그건 호스트명이 이미 한다 — 대신 사용자가 앱 env에 키를 붙여
+ * 관리해야 하는 대가가 생긴다. 그 거래는 남는 게 없다.
+ *
+ * 열려 있을 때의 위험은 **주입뿐이고 읽기가 아니다**: 주소를 아는 사람이 쓰레기 세션을
+ * 보낼 수 있고, 많이 보내면 보관 상한(세션 10개) 때문에 내 세션이 밀려날 수 있다.
+ * 그게 문제가 되는 상시 팀 허브라면 `--ingest-key`로 닫는다.
  */
 export function isIngestAuthorized(
   url: string | undefined,
   ingestKey: string | undefined,
   readToken: string | undefined,
 ): boolean {
-  if (ingestKey === undefined && readToken === undefined) return true;
+  // 인제스트 키를 설정하지 않았으면 `/agent`는 열려 있다 — 아래 주석의 "왜 기본이 열림인가"
+  if (ingestKey === undefined) return true;
   const query = new URLSearchParams((url ?? '').split('?')[1] ?? '');
-  if (ingestKey !== undefined && query.get('k') === ingestKey) return true;
+  if (query.get('k') === ingestKey) return true;
+  // 읽기 토큰도 받아 준다 — 기존 사용자의 serverUrl에는 `?t=`가 들어 있다
   return readToken !== undefined && query.get('t') === readToken;
 }
 

@@ -359,7 +359,13 @@ describe('agentUrls', () => {
     ]);
   });
 
-  it('쓰기 전용 인제스트 키를 담는다 — 읽기 토큰은 절대 담지 않는다', () => {
+  it('키가 없으면 주소만 준다 — 앱 env에 붙일 것이 주소 하나여야 한다', () => {
+    expect(agentUrls({ port: 7788, exposed: false, scheme: 'http' })).toEqual([
+      'http://localhost:7788',
+    ]);
+  });
+
+  it('키를 설정했을 때만 담고, 읽기 토큰은 절대 담지 않는다', () => {
     // 이 주소는 배포된 페이지의 클라이언트로 들어가 페이지 소스에 노출된다(실측).
     // 읽기 토큰이 여기 있으면 누구나 세션 로그를 읽는다
     const urls = agentUrls({ port: 7788, exposed: false, scheme: 'http', ingestKey: 'k1' });
@@ -521,11 +527,21 @@ describe('접속 토큰 (authToken)', () => {
       expect(await ws(`/ws?t=${TOKEN}`)).toBe('open');
     });
 
-    it('토큰 없는 에이전트 등록을 거부한다 — 가짜 세션 주입을 막는다', async () => {
+    it('읽기 토큰만 설정되면 /agent는 열려 있다 — 앱이 들고 다닐 값이 없어야 한다', async () => {
+      // 공개 페이지에 비밀을 담을 수 없으므로, 앱이 제시할 값은 결국 누구나 볼 수 있다.
+      // 그래서 쓰기는 열고 **읽기만** 막는다 (`isIngestAuthorized` 주석 참조).
+      // 위험은 주입뿐이고 읽기가 아니다 — 아래 /ws·/capture 테스트가 그쪽을 지킨다
       server = await startHubServer({ port: 0, authToken: TOKEN });
+      expect(await ws('/agent')).toBe('open');
+      expect(await ws(`/agent?t=${TOKEN}`)).toBe('open'); // 기존 serverUrl 하위호환
+    });
+
+    it('--ingest-key를 주면 /agent도 닫힌다 — 상시 팀 허브용', async () => {
+      server = await startHubServer({ port: 0, authToken: TOKEN, ingestKey: 'k1' });
       expect(await ws('/agent')).toBe('rejected');
-      expect(await ws('/agent?t=wrong')).toBe('rejected');
-      expect(await ws(`/agent?t=${TOKEN}`)).toBe('open');
+      expect(await ws('/agent?k=wrong')).toBe('rejected');
+      expect(await ws('/agent?k=k1')).toBe('open');
+      expect(await ws(`/agent?t=${TOKEN}`)).toBe('open'); // 하위호환
     });
 
     it('/capture/:id와 /hub-info를 401로 막는다', async () => {

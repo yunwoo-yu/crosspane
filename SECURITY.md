@@ -63,14 +63,16 @@ bodies) out of an app and into a local dashboard. The sensitive parts:
   regenerated on each restart:
   - a **read token** (`?t=`) required on `/ws`, `/capture/:id` and `/hub-info`. This one can
     read every session, so it must never appear in a page. It is not persisted.
-  - a **write-only ingest key** (`?k=`) accepted on `/agent` only. This is the one that goes
-    into the agent's `serverUrl`, and it is **designed to be public**: a deployed page's
-    address is visible to every visitor, so anything the page knows is public by definition.
-    Exposure lets someone send junk sessions to your hub; it does not let them read any.
-  - Splitting them is what makes it safe to debug a **production** page. While one token
-    guarded both directions, putting the agent on a live site leaked a read token in the page
-    source — measured on a real deployment. `/agent` still accepts the read token so existing
-    `serverUrl` values keep working.
+  - **`/agent` (sending sessions) needs no credential by default.** A public page cannot hold a
+    secret — anything it knows is public — so the address itself is what identifies your hub.
+    Consequence: anyone who knows the address can send junk sessions, and enough of them can
+    push your own out of the retained-session limit. They cannot read a single session.
+    `--ingest-key <key>` closes it for a hub that is long-lived and shared, at the cost of
+    carrying that key in your app's env var.
+  - Splitting read from write is what makes it safe to debug a **production** page. While one
+    token guarded both directions, putting the agent on a live site leaked a read token in the
+    page source — measured on a real deployment. `/agent` also accepts the read token so
+    existing `serverUrl` values keep working.
 - The token travels as a `?t=` query parameter, because browsers cannot set headers on a
   WebSocket handshake. It may therefore appear in proxy or server logs on the path between
   you and the hub; treat it as short-lived, not as a credential to store.
