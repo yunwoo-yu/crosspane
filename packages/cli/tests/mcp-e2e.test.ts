@@ -125,7 +125,9 @@ describe('crosspane mcp ↔ hub', () => {
     await client.request('initialize');
 
     // 폴링 없이 곧바로 묻는다 — 클라이언트는 기동 직후 부르므로, 첫 호출이
-    // WS 핸드셰이크를 앞질러 "미연결"이라 답하면 안 된다 (실측된 레이스)
+    // WS 핸드셰이크를 앞질러 "미연결"이라 답하면 안 된다 (실측된 레이스).
+    // 히스토리 재생도 여러 프레임으로 오므로 첫 답이 **부분 히스토리**여선 안 된다 —
+    // 그래서 MCP는 history-complete까지 기다린다 (CI에서 플레이크로 드러난 지점)
     const listed = await client.callTool('list_sessions');
     expect(listed).toContain('s-1');
     expect(listed).toContain('결제 웹뷰');

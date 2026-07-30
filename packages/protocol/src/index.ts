@@ -97,6 +97,16 @@ export type ServerEvent =
   | { type: 'hello'; sessions: SessionMeta[] }
   | { type: 'session-joined'; session: SessionMeta }
   | { type: 'session-left'; sessionId: string; ts: number }
+  /**
+   * 접속 직후의 히스토리 재생이 끝났다는 신호. 세션당 하나가 아니라 접속당 하나다.
+   *
+   * 왜 필요한가: 허브는 `hello` 뒤에 히스토리를 **여러 프레임으로** 흘려보낸다. 라이브
+   * UI는 몇 프레임 늦게 채워져도 무해하지만, `crosspane mcp`처럼 접속 직후 질문에
+   * 답해야 하는 소비자는 재생이 끝났는지 알 방법이 없어 **부분 히스토리로 답한다**
+   * (CI에서 플레이크로 드러났고, 실제로는 코딩 에이전트가 "에러 없음"이라 답할 수 있다는 뜻).
+   * 이 신호가 그 경계다 — 조용히 자른 답을 주지 않기 위한 것이므로 지우지 말 것.
+   */
+  | { type: 'history-complete' }
   | SessionEvent;
 
 /**

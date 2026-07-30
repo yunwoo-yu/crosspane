@@ -46,8 +46,14 @@ export function startMcpServer(options: McpServerOptions): McpServer {
   let attempt = 0;
   let closed = false;
 
-  // 첫 연결 시도가 성공이든 실패든 끝났는지. 이후 재접속에서는 다시 막지 않는다 —
-  // 한 번 붙었다가 끊긴 것은 즉시 보고해야 하는 사실이다
+  /**
+   * 첫 응답을 내도 되는 상태인지. **연결만으로는 부족하다** — 허브가 `hello` 뒤에
+   * 히스토리를 여러 프레임으로 흘리므로, 연결 직후 답하면 부분 히스토리로 답하게 된다
+   * (CI 플레이크로 드러났고, 실제로는 "에러 없음"이라 오답할 수 있다는 뜻).
+   * 그래서 `history-complete`까지 기다린다. 실패로 끝난 첫 시도도 여기서 풀린다 —
+   * 허브가 없는 것은 즉시 보고해야 하는 사실이므로 무한정 붙잡지 않는다.
+   * 이후 재접속에서는 다시 막지 않는다.
+   */
   let settled = false;
   const waiters: (() => void)[] = [];
   const settle = (): void => {
@@ -63,12 +69,15 @@ export function startMcpServer(options: McpServerOptions): McpServer {
     next.on('open', () => {
       connected = true;
       attempt = 0;
-      settle();
+      // 여기서 settle하지 않는다 — 히스토리 재생이 아직 흐르는 중이다
       debugLog('mcp', `connected to hub ${url}`);
     });
     next.on('message', (raw) => {
       try {
-        store.apply(JSON.parse(String(raw)) as ServerEvent);
+        const event = JSON.parse(String(raw)) as ServerEvent;
+        store.apply(event);
+        // 재생이 끝난 뒤부터 답한다 (부분 히스토리로 답하지 않기 위해)
+        if (event.type === 'history-complete') settle();
       } catch (err) {
         debugLog('mcp', err); // 허브가 보낸 잘못된 페이로드로 죽지 않는다
       }

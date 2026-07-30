@@ -36,9 +36,18 @@ class TestDashboard {
   private readonly queue: ServerEvent[] = [];
   private readonly waiters: ((event: ServerEvent) => void)[] = [];
 
+  /** 받은 history-complete 개수 — 경계가 실제로 오는지 확인하는 테스트가 쓴다 */
+  historyCompleteCount = 0;
+
   private constructor(readonly ws: WebSocket) {
     ws.on('message', (raw) => {
       const event = JSON.parse(String(raw)) as ServerEvent;
+      // 경계 신호는 데이터가 아니므로 `next()` 흐름에서 빼 준다 — 넣으면 모든
+      // 순차 단정이 프레임 하나씩 밀린다(실측). 신호 자체는 아래 카운터로 검증한다
+      if (event.type === 'history-complete') {
+        this.historyCompleteCount += 1;
+        return;
+      }
       const waiter = this.waiters.shift();
       if (waiter) waiter(event);
       else this.queue.push(event);
@@ -64,6 +73,15 @@ class TestDashboard {
 }
 
 /** 에이전트 대역 */
+/** 조건이 참이 될 때까지 짧게 폴링 — 프레임 도착처럼 비동기인 것을 기다린다 */
+async function waitFor(condition: () => boolean, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
 function connectAgent(port: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/agent`);
@@ -102,6 +120,27 @@ describe('startHubServer', () => {
       sessionId: 's-1',
       text: 'hello',
     });
+  });
+
+  it('재생이 끝나면 history-complete를 보낸다 — 접속당 한 번', async () => {
+    server = await startHubServer({ port: 0 });
+    const agent = await connectAgent(server.port);
+    sockets.push(agent);
+    agent.send(JSON.stringify({ type: 'register', session: meta('s-1') }));
+    agent.send(JSON.stringify({ type: 'events', events: [consoleEvent('s-1', 'a')] }));
+    await waitFor(() => server?.sessions().length === 1, 'session to register');
+
+    const dashboard = await TestDashboard.connect(server.port);
+    sockets.push(dashboard.ws);
+    expect(await dashboard.next()).toMatchObject({ type: 'hello' });
+    expect(await dashboard.next()).toMatchObject({ type: 'console', text: 'a' });
+    // 경계가 히스토리 **뒤에** 온다 — 그래야 소비자가 전량을 받은 뒤 답할 수 있다
+    await waitFor(() => dashboard.historyCompleteCount === 1, 'history-complete');
+
+    // 이후 라이브 이벤트에는 붙지 않는다 (접속당 하나다)
+    agent.send(JSON.stringify({ type: 'events', events: [consoleEvent('s-1', 'b')] }));
+    expect(await dashboard.next()).toMatchObject({ type: 'console', text: 'b' });
+    expect(dashboard.historyCompleteCount).toBe(1);
   });
 
   it('늦게 접속한 대시보드는 hello + 세션 히스토리를 받는다', async () => {
