@@ -2,10 +2,12 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { lanAddresses } from './addresses.js';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
 import { loadConfig, saveConfigValue } from './config.js';
 import { setVerbose } from './debug.js';
 import { clearEnvFile, writeEnvFile } from './env-file.js';
+import { dnsBlockedMessage, ensureLanTls, resolvesToSelf } from './lan-tls.js';
 import { startMcpServer } from './mcp/index.js';
 import { agentUrls, startHubServer } from './server.js';
 import {
@@ -46,6 +48,13 @@ async function main(): Promise<void> {
    * 지금 살아 있는 주소이고, 저장된 예전 주소는 죽어 있을 수 있다.
    */
   const tunnel = options.tunnel ? await openTunnel(options.port, options.hostname) : undefined;
+  /**
+   * `--lan-tls`: LAN을 https/wss로 여는 신뢰 인증서. 주소는 **포트가 확정된 뒤에** 만든다 —
+   * 기본 포트가 점유되면 +1로 폴백하므로 여기서 만들면 틀린 주소를 안내하게 된다.
+   * 사용자가 직접 준 `--tls-cert`가 항상 이긴다.
+   */
+  const lanTls =
+    options.lanTls && options.tlsCert === undefined ? await openLanTls(options.host) : undefined;
   const savedPublicUrl = loadConfig().publicUrl;
   // `--public-url ''`는 저장된 값을 지운다 (터널을 그만 쓸 때)
   const cleared = options.publicUrl === '';
@@ -85,7 +94,11 @@ async function main(): Promise<void> {
    * 한다(`server.ts`의 `isIngestAuthorized` 주석). 읽기는 토큰 필수로 남는다.
    */
   const ingestKey = options.ingestKey ?? loadConfig().ingestKey;
-  const tls = readTlsFiles(options.tlsCert, options.tlsKey);
+  /**
+   * `--lan-tls`: 기기가 신뢰하는 인증서로 LAN을 https/wss로 연다.
+   * 명시한 `--tls-cert`가 있으면 그것이 이긴다 — 사용자가 직접 준 것이 항상 우선이다.
+   */
+  const tls = readTlsFiles(options.tlsCert, options.tlsKey) ?? lanTls?.material;
   const server = await startHubServer({
     port: options.port,
     host: options.host,
@@ -122,7 +135,8 @@ async function main(): Promise<void> {
     port: server.port,
     exposed,
     ingestKey,
-    publicUrl,
+    // --lan-tls면 인증서가 덮는 이름으로 안내해야 한다 — 원시 IP로는 인증서가 맞지 않는다
+    publicUrl: publicUrl ?? (lanTls ? `https://${lanTls.hostname}:${server.port}` : undefined),
     scheme,
   });
   if (reachableFromOutside) {
@@ -190,6 +204,37 @@ async function main(): Promise<void> {
   };
   process.on('uncaughtException', onFatal('uncaughtException'));
   process.on('unhandledRejection', onFatal('unhandledRejection'));
+}
+
+/**
+ * LAN용 신뢰 인증서를 준비한다. 실패하면 원인과 대안을 남기고 종료한다 —
+ * `--lan-tls`를 줬는데 조용히 평문으로 뜨면 https 페이지에서 왜 안 붙는지 알 수 없다.
+ */
+async function openLanTls(
+  host: string,
+): Promise<{ material: { cert: string; key: string }; hostname: string } | undefined> {
+  const ip = host !== '127.0.0.1' && host !== 'localhost' ? lanAddresses()[0] : undefined;
+  if (ip === undefined) {
+    console.error(
+      '--lan-tls needs --host 0.0.0.0 (it is for reaching this hub from other devices)',
+    );
+    process.exit(1);
+  }
+  try {
+    const material = await ensureLanTls(ip);
+    // 이 네트워크에서 실제로 해석되는지 먼저 본다 — 안 되면 사용자는 원인 없는 실패를 만난다
+    if (!(await resolvesToSelf(material.hostname, ip))) {
+      console.error(dnsBlockedMessage(material.hostname, ip));
+      process.exit(1);
+    }
+    return { material, hostname: material.hostname };
+  } catch (err) {
+    console.error(
+      `--lan-tls failed: ${err instanceof Error ? err.message : String(err)}\n` +
+        '  Bring your own certificate with --tls-cert / --tls-key, or use --tunnel instead.',
+    );
+    process.exit(1);
+  }
 }
 
 /**

@@ -41,6 +41,13 @@ Options:
                        secure page, and there is no way around it. The certificate has to be
                        one the device already trusts — see "Debugging an https:// page" below
   --tls-key <file>     Private key for --tls-cert
+  --lan-tls            Serve the hub over https/wss on your LAN with a certificate devices
+                       already trust, so a deployed https:// page can reach it from the same
+                       Wi-Fi — no tunnel, no account, nothing to install. The device asks
+                       once for permission to reach your local network; allow it.
+                       Uses the published *.local-ip.sh certificate (its private key is
+                       public by design, so this buys trust, not secrecy — reading sessions
+                       still needs the ?t= token)
   --tunnel             Start a tunnel with an installed cloudflared or ngrok and advertise
                        its address — one command instead of two terminals and a copy-paste.
                        Needed for an https:// page, which cannot use plain ws://.
@@ -164,6 +171,11 @@ export interface CliOptions {
   /** `--tunnel` — 설치된 cloudflared/ngrok을 허브가 직접 띄워 그 주소를 쓴다 */
   tunnel: boolean;
   /**
+   * `--lan-tls` — 기기가 신뢰하는 인증서로 LAN 허브를 https/wss로 띄운다.
+   * 배포된 https 페이지를 **터널·계정·설치 없이** 같은 Wi-Fi에서 보기 위한 것이다.
+   */
+  lanTls: boolean;
+  /**
    * `--hostname` — 고정 주소 named 터널. 배포된 앱은 주소가 배포 설정에 들어가므로
    * 실행마다 바뀌는 퀵 터널로는 안 된다. 주면 create·route까지 우리가 한다.
    */
@@ -238,6 +250,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let publicUrl = nonEmptyEnv('CROSSPANE_PUBLIC_URL');
   let ingestKey = nonEmptyEnv('CROSSPANE_INGEST_KEY');
   let tunnel = false;
+  let lanTls = false;
   let hostname = nonEmptyEnv('CROSSPANE_HOSTNAME');
 
   while (args.length > 0) {
@@ -264,6 +277,10 @@ export function parseCliArguments(argv: string[]): CliOptions {
     }
     if (flag === '--tunnel') {
       tunnel = true;
+      continue;
+    }
+    if (flag === '--lan-tls') {
+      lanTls = true;
       continue;
     }
     // 값을 받는 플래그인지 먼저 판정 — 그래야 오타 플래그가
@@ -313,6 +330,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     publicUrl,
     ingestKey,
     tunnel,
+    lanTls,
     hostname,
   };
 }

@@ -173,10 +173,31 @@ is `prompt` in an ordinary browser, like camera or microphone. Measured with tha
 nothing else changed: `https://example.com` → `wss://<lan-ip>.local-ip.sh/agent` delivered a session
 and a console event to the hub, over a genuine Let's Encrypt certificate.
 
-So a LAN hub *can* serve a deployed page, given a certificate valid for a name that resolves to the
-private IP plus one grant on the device. Whether that prompt appears inside an **in-app webview** —
-the case this tool exists for — is not yet verified, so the options below remain the reliable ones
-for now.
+`--lan-tls` is that path, in one flag:
+
+```bash
+crosspane --host 0.0.0.0 --lan-tls
+```
+
+The hub then serves `https://<your-lan-ip-with-dashes>.local-ip.sh:7788` with a certificate devices
+already trust, and a deployed page on the same Wi-Fi can reach it. No tunnel, no account, nothing to
+install. Put that address in your env var like any other.
+
+Know what you're getting before you rely on it:
+
+- **The device asks once.** Chrome shows a local-network permission prompt; allow it. Whether an
+  **in-app webview** surfaces that prompt at all is not verified — that is the environment this tool
+  exists for, so treat it as unknown until you've tried your own app.
+- **Some networks won't resolve it.** Corporate resolvers and many routers drop public DNS answers
+  that point at private addresses (rebinding protection). crosspane checks at startup and tells you
+  so rather than failing silently.
+- **The certificate's private key is public** — that's how `*.local-ip.sh` works, and it's the only
+  way to get a trusted certificate for an address that isn't yours. So this buys *trust*, not
+  secrecy: someone on your Wi-Fi could decrypt the traffic. It replaces plain HTTP, which they could
+  read anyway, and reading sessions still needs the `?t=` token. Don't use it on a network where
+  that matters — use your own certificate or a tunnel.
+- **It depends on `local-ip.sh` staying up**, both for DNS and for the certificate (fetched once and
+  cached until a week before expiry).
 
 A **self-signed certificate does not work** in app webviews either: since Android 7, apps don't
 trust user-installed CAs. That's why crosspane accepts a certificate but never generates one — and
