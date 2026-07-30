@@ -76,6 +76,12 @@ bodies) out of an app and into a local dashboard. The sensitive parts:
 - `--public-url` only changes the address crosspane *advertises*; it does not proxy anything.
   If it points at a tunnel, session logs transit that provider — use it only where that is
   acceptable.
+- **`--public-url` counts as exposure and generates the access token**, even with the default
+  loopback binding, because a tunnel or reverse proxy makes the hub reachable from outside this
+  machine — with a tunnel, from the whole internet. An earlier build keyed the token off
+  `--host` alone, so `crosspane --public-url https://…` produced a publicly reachable hub with
+  no token at all. Any change that lets the hub be reachable from outside without a token is in
+  scope.
 
 **Out of scope**
 - Shipping the agent enabled in a production build is a deployment choice; see

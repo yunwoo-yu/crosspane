@@ -28,13 +28,23 @@ async function main(): Promise<void> {
   const options = parseCliArguments(argv);
   setVerbose(options.verbose || process.env.CROSSPANE_VERBOSE === '1');
 
+  /** LAN 바인딩 여부 — 안내할 주소를 LAN IP로 할지 localhost로 할지 결정한다 */
   const exposed = options.host !== '127.0.0.1' && options.host !== 'localhost';
   /**
-   * 네트워크에 노출할 때만 토큰을 요구한다. 루프백은 OS가 이미 막아 주므로 토큰이
-   * 마찰만 되고, 노출된 허브는 토큰이 없으면 같은 Wi-Fi의 누구나 세션 로그를 읽는다.
-   * `--no-auth`는 사내 테스트 자동화용 탈출구다(경고를 함께 찍는다).
+   * 이 허브가 이 머신 밖에서 닿는지. **토큰 여부는 이 값으로 정한다.**
+   *
+   * `--public-url`을 포함해야 한다: 터널·리버스 프록시는 루프백 바인딩이어도 허브를
+   * 외부에 노출하며, 그 범위는 LAN보다 넓다(터널이면 인터넷 전체다). `--host`만 보던
+   * 동안 `crosspane --public-url https://…`은 **토큰 없는 공개 허브**가 됐다 — 주소를 아는
+   * 누구나 세션 로그를 읽고 가짜 세션을 주입할 수 있는 상태다.
    */
-  const authToken = exposed && !options.noAuth ? randomBytes(8).toString('hex') : undefined;
+  const reachableFromOutside = exposed || options.publicUrl !== undefined;
+  /**
+   * 외부에서 닿을 때만 토큰을 요구한다. 루프백 전용이면 OS가 이미 막아 주므로 토큰이
+   * 마찰만 된다. `--no-auth`는 사내 테스트 자동화용 탈출구다(경고를 함께 찍는다).
+   */
+  const authToken =
+    reachableFromOutside && !options.noAuth ? randomBytes(8).toString('hex') : undefined;
   const tls = readTlsFiles(options.tlsCert, options.tlsKey);
   const server = await startHubServer({
     port: options.port,
@@ -74,7 +84,7 @@ async function main(): Promise<void> {
     publicUrl: options.publicUrl,
     scheme,
   });
-  if (exposed || options.publicUrl !== undefined) {
+  if (reachableFromOutside) {
     for (const address of agentAddresses) {
       console.log(`  live agents → ${address}  (serverUrl for @crosspane/agent)`);
     }
@@ -90,7 +100,9 @@ async function main(): Promise<void> {
   if (options.publicUrl !== undefined) {
     console.log(
       `  advertising ${options.publicUrl} — make sure it actually forwards to this hub,\n` +
-        '  including the WebSocket upgrade on /agent and /ws',
+        '  including the WebSocket upgrade on /agent and /ws.\n' +
+        '  A tunnel reaches the whole internet, so the token above is what keeps the hub yours;\n' +
+        '  session logs also transit the tunnel provider.',
     );
   } else if (!tls) {
     // https 페이지에서 왜 안 되는지를 여기서 알려준다 — 나중에 알면 원인 찾기가 매우 어렵다
