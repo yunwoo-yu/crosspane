@@ -15,6 +15,10 @@ import { useEventBatcher } from './useEventBatcher';
 
 export interface CrosspaneConnection {
   connected: boolean;
+  /** 한 번도 못 붙은 채 실패한 횟수 — 화면이 이유를 말할 수 있게 노출한다 */
+  failedAttempts: number;
+  /** 붙으려는 주소 — 인증서 이름 불일치 같은 원인은 이걸 보여줘야 알 수 있다 */
+  hubUrl: string;
   sessions: SessionMetas;
   sessionStates: SessionStates;
   logs: ReturnType<typeof useEventBatcher>['logs'];
@@ -32,6 +36,8 @@ export interface CrosspaneConnection {
 export function useCrosspaneSocket(): CrosspaneConnection {
   const socketRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [hubUrl, setHubUrl] = useState('');
   const [sessions, setSessions] = useState<SessionMetas>({});
   const [sessionStates, setSessionStates] = useState<SessionStates>({});
 
@@ -67,15 +73,22 @@ export function useCrosspaneSocket(): CrosspaneConnection {
 
     const connect = (): void => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const socket = new WebSocket(withHubToken(`${proto}://${location.host}/ws`));
+      const url = `${proto}://${location.host}/ws`;
+      setHubUrl(url);
+      const socket = new WebSocket(withHubToken(url));
       socketRef.current = socket;
-      socket.onopen = () => setConnected(true);
+      socket.onopen = () => {
+        setConnected(true);
+        setFailedAttempts(0);
+      };
       // 허브 재시작 등으로 끊기면 자동 재접속한다.
       // 좀비 소켓 가드: 이전 소켓의 늦은 close/message가 새 소켓의 상태를
       // 덮어쓰지 않게 한다 (StrictMode 재마운트·재접속 레이스에서 실제 발생)
       socket.onclose = () => {
         if (socketRef.current !== socket) return;
         setConnected(false);
+        // 붙은 적 없이 닫힌 것만 센다 — 정상 재접속과 "처음부터 못 붙는 것"은 다르다
+        setFailedAttempts((count) => count + 1);
         if (!disposed) retryTimer = window.setTimeout(connect, RECONNECT_DELAY_MS);
       };
       socket.onmessage = (ev: MessageEvent<string>) => {
@@ -94,6 +107,8 @@ export function useCrosspaneSocket(): CrosspaneConnection {
 
   return {
     connected,
+    failedAttempts,
+    hubUrl,
     sessions,
     sessionStates,
     logs: batcher.logs,

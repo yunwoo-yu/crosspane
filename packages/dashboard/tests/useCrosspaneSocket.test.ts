@@ -156,4 +156,30 @@ describe('useCrosspaneSocket', () => {
       expect(result.current.sessionStates.a.live).toBe(false);
     });
   });
+
+  describe('붙지 못하는 이유를 드러낸다', () => {
+    it('붙으려는 주소를 노출한다 — 인증서 이름 불일치는 주소를 봐야 알 수 있다', () => {
+      const { result } = renderHook(() => useCrosspaneSocket());
+      expect(result.current.hubUrl).toContain('/ws');
+      expect(result.current.hubUrl).toMatch(/^wss?:\/\//);
+    });
+
+    it('붙은 적 없이 닫히면 실패 횟수가 올라간다', () => {
+      const { result } = renderHook(() => useCrosspaneSocket());
+      expect(result.current.failedAttempts).toBe(0);
+      act(() => latest().onclose?.());
+      expect(result.current.failedAttempts).toBe(1);
+    });
+
+    it('붙으면 실패 횟수가 0으로 돌아간다 — 정상 재접속을 고장처럼 보이게 하지 않는다', () => {
+      const { result } = renderHook(() => useCrosspaneSocket());
+      const socket = latest();
+      act(() => socket.onclose?.());
+      expect(result.current.failedAttempts).toBe(1);
+      // 재접속이 성공하면 카운터가 풀린다 — 안 풀면 한 번 끊긴 뒤로 영영 고장난 것처럼 보인다
+      act(() => socket.onopen?.());
+      expect(result.current.failedAttempts).toBe(0);
+      expect(result.current.connected).toBe(true);
+    });
+  });
 });
