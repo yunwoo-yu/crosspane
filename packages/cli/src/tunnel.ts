@@ -43,7 +43,10 @@ export const TUNNEL_PROVIDERS: TunnelProvider[] = [
     command: 'cloudflared',
     label: 'Cloudflare quick tunnel',
     args: (port) => ['tunnel', '--url', `http://127.0.0.1:${port}`],
-    install: 'brew install cloudflared  (or https://developers.cloudflare.com/cloudflare-one/)',
+    install:
+      'brew install cloudflared  (or apt/yum/winget — see Cloudflare docs). ' +
+      '`npx cloudflared` works without installing, but that wrapper is community-maintained, ' +
+      'not published by Cloudflare.',
   },
   {
     command: 'ngrok',

@@ -32,8 +32,8 @@ Options:
                        for the agent (?k=, safe in a deployed page whose source anyone can
                        read) and a read token for the dashboard (?t=, keep it off your
                        pages). Use --write-env and you never copy either by hand)
-  --write-env [file]   Write this hub's address (with the write-only key) into an env file so
-                       the agent needs no arguments at all — defaults to .env.local.
+  --write-env [file]   Write this hub's address into an env file so the agent needs no
+                       arguments at all — defaults to .env.local.
                        Read by Vite/Next/CRA/Astro; the variable name is picked from your
                        package.json. Removed again when the hub stops
   --tls-cert <file>    Serve the hub over https/wss with this certificate (needs --tls-key).
