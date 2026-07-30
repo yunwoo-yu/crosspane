@@ -46,6 +46,13 @@ Options:
                        Needed for an https:// page, which cannot use plain ws://.
                        Session logs transit that provider; nothing is downloaded for you.
                        Pair with --write-env and there is nothing to copy at all
+  --hostname <name>    Use a permanent address instead of a throwaway one, e.g.
+                       crosspane.example.com. With --tunnel, crosspane creates and routes a
+                       named Cloudflare tunnel for you (idempotent, so it is also the daily
+                       command). Needed for a deployed app, whose address lives in your
+                       deployment config and must not change. Requires a Cloudflare-managed
+                       domain and one "cloudflared tunnel login".
+                       Defaults to $CROSSPANE_HOSTNAME
   --public-url <url>   Address to advertise instead of the LAN one, for when the hub sits
                        behind a tunnel or reverse proxy (e.g. https://xyz.trycloudflare.com).
                        --write-env and the dashboard both use it. **Given once, remembered** —
@@ -85,13 +92,14 @@ One setup for every environment:
   It starts your installed cloudflared/ngrok, advertises that address, and writes it into
   .env.local — nothing to copy. Stopping the hub stops the tunnel and removes the entry.
 
-  For a deployed app you want an address that does not change, since it lives in your
-  deployment config. A named cloudflared tunnel on a domain you own is free and permanent:
-       cloudflared tunnel create crosspane
-       cloudflared tunnel route dns crosspane crosspane.example.com
-       cloudflared tunnel run --url http://localhost:7788 crosspane
-       crosspane --public-url https://crosspane.example.com     # once; remembered
-  From then on: crosspane.
+  A deployed app needs an address that does not change, since it lives in your deployment
+  config. Give it a hostname and crosspane sets the permanent tunnel up itself:
+       cloudflared tunnel login                             # once, opens a browser
+       crosspane --tunnel --hostname crosspane.example.com   # every day (idempotent)
+  It creates the named tunnel, routes DNS and runs it. Only the login needs a human: a
+  permanent hostname belongs to an account, and that account needs a browser once.
+  (ngrok free refuses custom subdomains; Tailscale Funnel gives a stable *.ts.net with no
+  domain at all — point --public-url at it instead.)
 
   On localhost you can omit the env var entirely — the agent finds http://localhost:7788 itself.
 
@@ -155,6 +163,11 @@ export interface CliOptions {
   ingestKey: string | undefined;
   /** `--tunnel` — 설치된 cloudflared/ngrok을 허브가 직접 띄워 그 주소를 쓴다 */
   tunnel: boolean;
+  /**
+   * `--hostname` — 고정 주소 named 터널. 배포된 앱은 주소가 배포 설정에 들어가므로
+   * 실행마다 바뀌는 퀵 터널로는 안 된다. 주면 create·route까지 우리가 한다.
+   */
+  hostname: string | undefined;
 }
 
 /** `--write-env`에 경로를 주지 않았을 때. Vite·Next·CRA·Astro가 모두 읽고, 보통 gitignore돼 있다 */
@@ -185,6 +198,7 @@ const VALUE_FLAGS = new Set([
   '--tls-key',
   '--public-url',
   '--ingest-key',
+  '--hostname',
 ]);
 
 /**
@@ -224,6 +238,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
   let publicUrl = nonEmptyEnv('CROSSPANE_PUBLIC_URL');
   let ingestKey = nonEmptyEnv('CROSSPANE_INGEST_KEY');
   let tunnel = false;
+  let hostname = nonEmptyEnv('CROSSPANE_HOSTNAME');
 
   while (args.length > 0) {
     const flag = args.shift();
@@ -269,6 +284,8 @@ export function parseCliArguments(argv: string[]): CliOptions {
       tlsKey = value;
     } else if (flag === '--ingest-key') {
       ingestKey = value;
+    } else if (flag === '--hostname') {
+      hostname = value;
     } else {
       publicUrl = parsePublicUrl(value);
     }
@@ -296,6 +313,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     publicUrl,
     ingestKey,
     tunnel,
+    hostname,
   };
 }
 

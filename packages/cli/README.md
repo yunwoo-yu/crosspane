@@ -110,19 +110,23 @@ writes it into `.env.local` for you — so during local and on-device developmen
 to copy at all. Stop the hub and the tunnel and the env entry go with it. Session logs transit the
 tunnel provider, which is why it's an explicit flag; crosspane never downloads a binary for you.
 
-For a **deployed** app the address goes into your deployment config, so you want one that doesn't
-change. A named `cloudflared` tunnel on a domain you already own is free and permanent:
+For a **deployed** app the address goes into your deployment config, so it must not change. Add a
+hostname and crosspane sets the permanent tunnel up for you:
 
 ```bash
-cloudflared tunnel login
-cloudflared tunnel create crosspane
-cloudflared tunnel route dns crosspane crosspane.example.com
-cloudflared tunnel run --url http://localhost:7788 crosspane
-
-crosspane --public-url https://crosspane.example.com    # once — remembered from here on
+cloudflared tunnel login                                        # once, opens a browser
+crosspane --tunnel --hostname crosspane.example.com             # every day
 ```
 
-After that it's `crosspane`, and the address you pasted once stays valid.
+The second command creates the named tunnel, routes DNS to it and runs it — and it's idempotent,
+so it's also the command you run tomorrow. Your deployment config keeps
+`https://crosspane.example.com` forever.
+
+Only the login can't be automated: a permanent public hostname belongs to an account somewhere, and
+that account needs a browser once. (Measured while looking for a way around it: ngrok's free plan
+refuses custom subdomains outright — *"Only paid plans may create endpoints with custom
+subdomains"*. Tailscale Funnel gives a stable `*.ts.net` with no domain at all, if you'd rather not
+use Cloudflare; point `--public-url` at it.)
 
 ### Who actually streams
 

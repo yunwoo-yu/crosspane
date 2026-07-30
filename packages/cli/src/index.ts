@@ -8,7 +8,13 @@ import { setVerbose } from './debug.js';
 import { clearEnvFile, writeEnvFile } from './env-file.js';
 import { startMcpServer } from './mcp/index.js';
 import { agentUrls, startHubServer } from './server.js';
-import { pickProvider, startTunnel, TUNNEL_PROVIDERS, type Tunnel } from './tunnel.js';
+import {
+  pickProvider,
+  startNamedTunnel,
+  startTunnel,
+  TUNNEL_PROVIDERS,
+  type Tunnel,
+} from './tunnel.js';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -39,7 +45,7 @@ async function main(): Promise<void> {
    * 터널을 우리가 띄운다면 그 주소가 저장값·플래그보다 먼저다 — 방금 만든 터널이
    * 지금 살아 있는 주소이고, 저장된 예전 주소는 죽어 있을 수 있다.
    */
-  const tunnel = options.tunnel ? await openTunnel(options.port) : undefined;
+  const tunnel = options.tunnel ? await openTunnel(options.port, options.hostname) : undefined;
   const savedPublicUrl = loadConfig().publicUrl;
   // `--public-url ''`는 저장된 값을 지운다 (터널을 그만 쓸 때)
   const cleared = options.publicUrl === '';
@@ -190,7 +196,25 @@ async function main(): Promise<void> {
  * 터널을 띄운다. 실패하면 원인과 조치를 남기고 종료한다 — `--tunnel`을 줬는데 조용히
  * 터널 없이 뜨면 `https://` 페이지에서 왜 안 붙는지 추적할 방법이 없다.
  */
-async function openTunnel(port: number): Promise<Tunnel | undefined> {
+async function openTunnel(port: number, hostname: string | undefined): Promise<Tunnel | undefined> {
+  // 고정 주소를 요청했으면 named 터널 — 배포된 앱은 주소가 바뀌면 안 된다
+  if (hostname !== undefined) {
+    if (!which('cloudflared')) {
+      console.error(
+        '--hostname needs cloudflared on your PATH: brew install cloudflared\n' +
+          '  (or https://developers.cloudflare.com/cloudflare-one/)',
+      );
+      process.exit(1);
+    }
+    try {
+      const named = await startNamedTunnel({ hostname, port });
+      console.log(`tunnel (${named.provider}) → ${named.url}  — permanent address`);
+      return named;
+    } catch (err) {
+      console.error(`--hostname failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
   const provider = pickProvider((command) => which(command));
   if (provider === undefined) {
     console.error(
@@ -201,7 +225,11 @@ async function openTunnel(port: number): Promise<Tunnel | undefined> {
   }
   try {
     const tunnel = await startTunnel(provider, port);
-    console.log(`tunnel (${tunnel.provider}) → ${tunnel.url}`);
+    console.log(
+      `tunnel (${tunnel.provider}) → ${tunnel.url}\n` +
+        '  this address changes on every run — fine with --write-env, but a deployed app needs\n' +
+        '  a permanent one: add --hostname <name>',
+    );
     return tunnel;
   } catch (err) {
     console.error(`--tunnel failed: ${err instanceof Error ? err.message : String(err)}`);
