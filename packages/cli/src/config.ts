@@ -21,15 +21,53 @@ export function configPath(): string {
   return join(dir, 'config.json');
 }
 
-interface HubConfig {
+export interface HubConfig {
   /** 쓰기 전용 인제스트 키 — 공개를 전제로 한 값이다 */
   ingestKey?: string;
+  /** 마지막으로 쓴 `--public-url` — 고정 터널 주소를 매번 타이핑하지 않기 위해 기억한다 */
+  publicUrl?: string;
 }
 
 /** 깨진 파일로 허브 기동을 막지 않는다 — 값이 없는 것으로 보고 새로 만든다 */
 export function parseConfig(text: string): HubConfig {
-  const { ingestKey } = parseRawConfig(text);
-  return typeof ingestKey === 'string' && ingestKey !== '' ? { ingestKey } : {};
+  const raw = parseRawConfig(text);
+  const config: HubConfig = {};
+  if (typeof raw.ingestKey === 'string' && raw.ingestKey !== '') config.ingestKey = raw.ingestKey;
+  if (typeof raw.publicUrl === 'string' && raw.publicUrl !== '') config.publicUrl = raw.publicUrl;
+  return config;
+}
+
+/**
+ * 값을 하나 저장한다 (파일의 다른 필드는 보존). 저장 실패 시 false.
+ *
+ * `--public-url`을 여기에 기억해 두는 이유: 고정 터널 주소는 한 번 정하면 안 바뀌는데,
+ * 매 기동마다 다시 타이핑하게 만들면 결국 셸 프로파일에 export를 넣게 된다 —
+ * 사용자가 관리할 값을 늘리는 것이고, 그건 라이브러리가 할 일을 미루는 것이다.
+ */
+export function saveConfigValue(key: keyof HubConfig, value: string): boolean {
+  const path = configPath();
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const existing = existsSync(path) ? parseRawConfig(readFileSync(path, 'utf-8')) : {};
+    if (existing[key] === value) return true; // 같은 값이면 파일을 건드리지 않는다
+    writeFileSync(path, `${JSON.stringify({ ...existing, [key]: value }, null, 2)}\n`, {
+      mode: 0o600,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 저장된 설정 (없거나 깨졌으면 빈 객체) */
+export function loadConfig(): HubConfig {
+  const path = configPath();
+  if (!existsSync(path)) return {};
+  try {
+    return parseConfig(readFileSync(path, 'utf-8'));
+  } catch {
+    return {};
+  }
 }
 
 /**

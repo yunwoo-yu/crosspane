@@ -2,7 +2,13 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { configPath, loadOrCreateIngestKey, parseConfig } from '../src/config.js';
+import {
+  configPath,
+  loadConfig,
+  loadOrCreateIngestKey,
+  parseConfig,
+  saveConfigValue,
+} from '../src/config.js';
 
 let dir: string;
 
@@ -35,6 +41,34 @@ describe('parseConfig', () => {
   it('빈 문자열·잘못된 타입은 미설정으로 본다', () => {
     expect(parseConfig('{"ingestKey":""}')).toEqual({});
     expect(parseConfig('{"ingestKey":123}')).toEqual({});
+  });
+});
+
+describe('publicUrl 저장', () => {
+  it('한 번 주면 기억한다 — 매번 타이핑하면 결국 셸 export가 된다', () => {
+    expect(saveConfigValue('publicUrl', 'https://crosspane.example.com')).toBe(true);
+    expect(loadConfig().publicUrl).toBe('https://crosspane.example.com');
+  });
+
+  it('인제스트 키와 한 파일에 공존한다', () => {
+    const { key } = loadOrCreateIngestKey();
+    saveConfigValue('publicUrl', 'https://crosspane.example.com');
+    expect(loadConfig()).toEqual({ ingestKey: key, publicUrl: 'https://crosspane.example.com' });
+  });
+
+  it('빈 문자열로 지운 것은 미설정으로 읽힌다', () => {
+    saveConfigValue('publicUrl', 'https://crosspane.example.com');
+    saveConfigValue('publicUrl', '');
+    expect(loadConfig().publicUrl).toBeUndefined();
+  });
+
+  it('저장 못 해도 던지지 않고 false를 준다 — 허브 기동을 막지 않는다', () => {
+    chmodSync(dir, 0o500);
+    expect(saveConfigValue('publicUrl', 'https://x.example')).toBe(false);
+  });
+
+  it('설정 파일이 없으면 빈 객체다', () => {
+    expect(loadConfig()).toEqual({});
   });
 });
 

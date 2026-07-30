@@ -12,6 +12,9 @@ and reuses it on every restart. An address baked into a deployed app keeps worki
 setup at all. `--ingest-key` / `CROSSPANE_INGEST_KEY` still overrides it for a shared team hub
 or CI, and `CROSSPANE_CONFIG_DIR` moves the file.
 
+`--public-url` is remembered in the same file, so a stable tunnel address is given once instead
+of living in a shell profile. Later runs are just `crosspane`; pass an empty string to forget it.
+
 The read token deliberately stays ephemeral: it can read session logs, so regenerating it every
 restart is a safety property, and it never goes into an app.
 

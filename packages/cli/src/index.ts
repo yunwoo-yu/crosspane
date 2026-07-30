@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
-import { configPath, loadOrCreateIngestKey } from './config.js';
+import { configPath, loadConfig, loadOrCreateIngestKey, saveConfigValue } from './config.js';
 import { setVerbose } from './debug.js';
 import { clearEnvFile, writeEnvFile } from './env-file.js';
 import { startMcpServer } from './mcp/index.js';
@@ -29,6 +29,26 @@ async function main(): Promise<void> {
   const options = parseCliArguments(argv);
   setVerbose(options.verbose || process.env.CROSSPANE_VERBOSE === '1');
 
+  /**
+   * 고정 터널 주소는 한 번 주면 기억한다 — 매 기동마다 다시 타이핑하게 만들면 결국
+   * 셸 프로파일에 export를 넣게 되고, 그건 사용자가 관리할 값을 늘리는 것이다.
+   * 우선순위: 플래그·환경변수 > 저장값. `--public-url ''`로 지울 수 있다.
+   */
+  const savedPublicUrl = loadConfig().publicUrl;
+  // `--public-url ''`는 저장된 값을 지운다 (터널을 그만 쓸 때)
+  const cleared = options.publicUrl === '';
+  const publicUrl = cleared ? undefined : (options.publicUrl ?? savedPublicUrl);
+  const publicUrlIsNew =
+    options.publicUrl !== undefined &&
+    options.publicUrl !== '' &&
+    options.publicUrl !== savedPublicUrl;
+  if (publicUrlIsNew && options.publicUrl !== undefined) {
+    saveConfigValue('publicUrl', options.publicUrl);
+  } else if (cleared && savedPublicUrl !== undefined) {
+    saveConfigValue('publicUrl', '');
+    console.log('  forgot the saved --public-url');
+  }
+
   /** LAN 바인딩 여부 — 안내할 주소를 LAN IP로 할지 localhost로 할지 결정한다 */
   const exposed = options.host !== '127.0.0.1' && options.host !== 'localhost';
   /**
@@ -39,7 +59,7 @@ async function main(): Promise<void> {
    * 동안 `crosspane --public-url https://…`은 **토큰 없는 공개 허브**가 됐다 — 주소를 아는
    * 누구나 세션 로그를 읽고 가짜 세션을 주입할 수 있는 상태다.
    */
-  const reachableFromOutside = exposed || options.publicUrl !== undefined;
+  const reachableFromOutside = exposed || publicUrl !== undefined;
   /**
    * 외부에서 닿을 때만 토큰을 요구한다. 루프백 전용이면 OS가 이미 막아 주므로 토큰이
    * 마찰만 된다. `--no-auth`는 사내 테스트 자동화용 탈출구다(경고를 함께 찍는다).
@@ -70,7 +90,7 @@ async function main(): Promise<void> {
     authToken,
     ingestKey,
     tls,
-    publicUrl: options.publicUrl,
+    publicUrl,
     // 명시된 포트는 존중하고, 기본 포트는 사용 중이면 +1씩 폴백
     portAttempts: options.portExplicit ? 1 : 10,
   });
@@ -100,7 +120,7 @@ async function main(): Promise<void> {
     port: server.port,
     exposed,
     ingestKey,
-    publicUrl: options.publicUrl,
+    publicUrl,
     scheme,
   });
   if (reachableFromOutside) {
@@ -128,9 +148,9 @@ async function main(): Promise<void> {
             '    so an address you put in a deployed app keeps working across restarts.',
     );
   }
-  if (options.publicUrl !== undefined) {
+  if (publicUrl !== undefined) {
     console.log(
-      `  advertising ${options.publicUrl} — make sure it actually forwards to this hub,\n` +
+      `  advertising ${publicUrl}${publicUrlIsNew ? ' (remembered — no flag needed next time)' : ''} — make sure it actually forwards to this hub,\n` +
         '  including the WebSocket upgrade on /agent and /ws.\n' +
         '  A tunnel reaches the whole internet, so the token above is what keeps the hub yours;\n' +
         '  session logs also transit the tunnel provider.',

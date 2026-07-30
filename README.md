@@ -178,14 +178,12 @@ certificate but never generates one.
 
 ### Keeping a deployed app's address valid
 
-**The key is handled for you.** The hub generates it on first run, saves it to
-`~/.crosspane/config.json`, and reuses it every restart — nothing to create, copy, or keep in
-sync. (The read token still rotates each restart; that one *is* sensitive and never leaves your
-machine.)
+**Nothing to create, copy, or keep in sync.** The hub generates the ingest key on first run and
+remembers it — along with `--public-url` — in `~/.crosspane/config.json`. (The read token still
+rotates each restart; that one *is* sensitive and never leaves your machine.)
 
-The other half of the address is the hostname, and a *quick* tunnel picks a new one each run.
-Name it once and your app's value never changes again — a named `cloudflared` tunnel on a
-domain you already own is free:
+One-time setup, if you want a hostname that survives restarts — a *quick* tunnel picks a new one
+each run, while a named `cloudflared` tunnel on a domain you already own is free and permanent:
 
 ```bash
 cloudflared tunnel login
@@ -193,12 +191,17 @@ cloudflared tunnel create crosspane
 cloudflared tunnel route dns crosspane crosspane.example.com
 cloudflared tunnel run --url http://localhost:7788 crosspane
 
-export CROSSPANE_PUBLIC_URL=https://crosspane.example.com   # so crosspane needs no flags
+crosspane --public-url https://crosspane.example.com    # once — remembered from now on
 ```
 
+From then on it's just `crosspane`, and the address you pasted into your deployment config stays
+valid. **That paste is the only manual step left**, and it's irreducible: a deployed app can
+only learn the address from its own build or server config, and a link can't carry it — a
+crafted link would redirect someone else's logs. It's the same one-time paste as a Sentry DSN.
+
 Tailscale Funnel works too (a fixed `*.ts.net` name), and a team hub on real infrastructure
-needs none of this. To rotate the key, delete `~/.crosspane/config.json` and update the
-address in your app.
+needs none of this. To rotate the key, delete `~/.crosspane/config.json` and update the address
+in your app.
 
 ## What you get
 
