@@ -49,14 +49,20 @@ async function main(): Promise<void> {
   const scheme = tls ? 'https' : 'http';
   const tokenQuery = authToken ? `/?t=${authToken}` : '';
   const dashboardUrl = `${scheme}://localhost:${server.port}${tokenQuery}`;
-  // 폴백을 조용히 넘기면 안 된다: 앱의 serverUrl은 그대로 기본 포트를 가리키므로
-  // 세션이 다른 허브(또는 아무데도)로 가고, 대시보드는 빈 화면을 보여준다.
-  // 실제로 이 혼란을 겪었다 — 두 허브가 떠 있으면 원인을 찾기가 매우 어렵다
+  /**
+   * 폴백을 조용히 넘기면 안 된다. **무설정 자동 연결은 기본 포트를 노리기 때문에**
+   * (`packages/agent/src/endpoint.ts`) 폴백된 허브를 지나쳐, 세션이 먼저 뜬 다른 허브로
+   * 가거나 아무데도 가지 않는다 — 그 상태에서 대시보드는 그냥 비어 있다.
+   * 실제로 이 혼란을 겪었고, 허브가 두 개면 원인을 찾기가 매우 어렵다.
+   */
   if (server.port !== options.port) {
     console.log(
       `⚠ port ${options.port} is already in use — this hub is on ${server.port} instead.\n` +
-        `  Point your agent's serverUrl at port ${server.port}, or stop whatever holds ` +
-        `${options.port} and restart.`,
+        `  An agent with no serverUrl looks for port ${options.port}, so it will NOT find this hub.\n` +
+        `  Fix it one of these ways:\n` +
+        `    • stop whatever holds ${options.port} and restart (simplest)\n` +
+        `    • restart with --write-env, which records port ${server.port} for you\n` +
+        `    • point the agent at it yourself: http://localhost:${server.port}`,
     );
   }
   console.log(`crosspane dashboard → ${dashboardUrl}`);
