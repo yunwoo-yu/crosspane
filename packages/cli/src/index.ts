@@ -201,8 +201,14 @@ async function openTunnel(port: number, hostname: string | undefined): Promise<T
   if (hostname !== undefined) {
     if (!which('cloudflared')) {
       console.error(
-        '--hostname needs cloudflared on your PATH: brew install cloudflared\n' +
-          '  (or https://developers.cloudflare.com/cloudflare-one/)',
+        '--hostname needs cloudflared, which is not on your PATH. Either install it:\n' +
+          '    brew install cloudflared        (macOS; also apt/yum/winget — Cloudflare docs)\n' +
+          '    npx cloudflared --version       (no install; community npm wrapper around the\n' +
+          '                                     official binary, not published by Cloudflare)\n' +
+          '  …or get a permanent address another way and pass --public-url instead:\n' +
+          '    tailscale funnel 7788           (stable *.ts.net, no domain needed)\n' +
+          '    a hub on your own infrastructure with a normal certificate\n' +
+          '  For a throwaway address, --tunnel alone works with ngrok too.',
       );
       process.exit(1);
     }
