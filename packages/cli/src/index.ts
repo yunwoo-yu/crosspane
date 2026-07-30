@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { cliVersion, HELP_TEXT, parseCliArguments, parseMcpArguments } from './args.js';
@@ -8,6 +8,7 @@ import { setVerbose } from './debug.js';
 import { clearEnvFile, writeEnvFile } from './env-file.js';
 import { startMcpServer } from './mcp/index.js';
 import { agentUrls, startHubServer } from './server.js';
+import { pickProvider, startTunnel, TUNNEL_PROVIDERS, type Tunnel } from './tunnel.js';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -34,11 +35,17 @@ async function main(): Promise<void> {
    * 셸 프로파일에 export를 넣게 되고, 그건 사용자가 관리할 값을 늘리는 것이다.
    * 우선순위: 플래그·환경변수 > 저장값. `--public-url ''`로 지울 수 있다.
    */
+  /**
+   * 터널을 우리가 띄운다면 그 주소가 저장값·플래그보다 먼저다 — 방금 만든 터널이
+   * 지금 살아 있는 주소이고, 저장된 예전 주소는 죽어 있을 수 있다.
+   */
+  const tunnel = options.tunnel ? await openTunnel(options.port) : undefined;
   const savedPublicUrl = loadConfig().publicUrl;
   // `--public-url ''`는 저장된 값을 지운다 (터널을 그만 쓸 때)
   const cleared = options.publicUrl === '';
-  const publicUrl = cleared ? undefined : (options.publicUrl ?? savedPublicUrl);
+  const publicUrl = tunnel?.url ?? (cleared ? undefined : (options.publicUrl ?? savedPublicUrl));
   const publicUrlIsNew =
+    tunnel === undefined &&
     options.publicUrl !== undefined &&
     options.publicUrl !== '' &&
     options.publicUrl !== savedPublicUrl;
@@ -161,6 +168,7 @@ async function main(): Promise<void> {
     // env를 먼저 지운다: 죽은 주소·토큰이 남으면 다음 실행에서 루프백 기본값을 덮어써
     // 에이전트가 조용히 아무데도 붙지 않는다 (진단이 매우 어려운 상태)
     if (options.writeEnv !== undefined) clearEnvFile(options.writeEnv);
+    tunnel?.stop();
     server.close();
     process.exit(code);
   };
@@ -176,6 +184,37 @@ async function main(): Promise<void> {
   };
   process.on('uncaughtException', onFatal('uncaughtException'));
   process.on('unhandledRejection', onFatal('unhandledRejection'));
+}
+
+/**
+ * 터널을 띄운다. 실패하면 원인과 조치를 남기고 종료한다 — `--tunnel`을 줬는데 조용히
+ * 터널 없이 뜨면 `https://` 페이지에서 왜 안 붙는지 추적할 방법이 없다.
+ */
+async function openTunnel(port: number): Promise<Tunnel | undefined> {
+  const provider = pickProvider((command) => which(command));
+  if (provider === undefined) {
+    console.error(
+      '--tunnel needs cloudflared or ngrok on your PATH (crosspane does not download binaries):\n' +
+        TUNNEL_PROVIDERS.map((p) => `  ${p.command}: ${p.install}`).join('\n'),
+    );
+    process.exit(1);
+  }
+  try {
+    const tunnel = await startTunnel(provider, port);
+    console.log(`tunnel (${tunnel.provider}) → ${tunnel.url}`);
+    return tunnel;
+  } catch (err) {
+    console.error(`--tunnel failed: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
+/** PATH에 실행 파일이 있는지 — 없는 바이너리를 spawn해 ENOENT로 죽지 않게 미리 본다 */
+function which(command: string): boolean {
+  const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', [command], {
+    stdio: 'ignore',
+  });
+  return probe.status === 0;
 }
 
 /**

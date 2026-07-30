@@ -20,7 +20,7 @@ Usage:
 
 Examples:
   crosspane                       # dashboard on http://localhost:7788 (replay files, local agents)
-  crosspane --host 0.0.0.0        # accept live agents from devices on your network
+  crosspane --tunnel --write-env  # reachable from any device, address written into .env.local
   crosspane mcp                   # MCP server: let a coding agent query live sessions
 
 Options:
@@ -41,6 +41,11 @@ Options:
                        secure page, and there is no way around it. The certificate has to be
                        one the device already trusts — see "Debugging an https:// page" below
   --tls-key <file>     Private key for --tls-cert
+  --tunnel             Start a tunnel with an installed cloudflared or ngrok and advertise
+                       its address — one command instead of two terminals and a copy-paste.
+                       Needed for an https:// page, which cannot use plain ws://.
+                       Session logs transit that provider; nothing is downloaded for you.
+                       Pair with --write-env and there is nothing to copy at all
   --public-url <url>   Address to advertise instead of the LAN one, for when the hub sits
                        behind a tunnel or reverse proxy (e.g. https://xyz.trycloudflare.com).
                        --write-env and the dashboard both use it. **Given once, remembered** —
@@ -63,46 +68,51 @@ Options:
 One setup for every environment:
   npm install @crosspane/agent
 
-    import { initCrosspane, isDebugActivated } from '@crosspane/agent'
+    import { initCrosspane } from '@crosspane/agent'
     initCrosspane({
       label: 'checkout webview',
       serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,   // Vite: import.meta.env.VITE_...
-      enabled: isDebugActivated,
     })
 
-  One address, reachable from everywhere, and nothing varies between localhost, a phone, a
-  deployed page and production. The same value is fine in every environment: sending sessions needs no
-  credential, while reading them needs a token that stays on this machine. enabled:
-  isDebugActivated means nothing is installed until a device opens the page once with
-  ?__crosspane=on.
+    NEXT_PUBLIC_CROSSPANE_URL=https://crosspane.example.com
 
-  Get an address like that once — a named cloudflared tunnel on a domain you own is free:
-       cloudflared tunnel login
+  Just the address, like any other base URL, and the same value works from localhost, a phone,
+  a deployed http:// or https:// page and over cellular. Sending sessions needs no credential;
+  reading them needs the ?t= token, which stays on this machine.
+
+  For a hub reachable from anywhere, one command:
+       crosspane --tunnel --write-env
+  It starts your installed cloudflared/ngrok, advertises that address, and writes it into
+  .env.local — nothing to copy. Stopping the hub stops the tunnel and removes the entry.
+
+  For a deployed app you want an address that does not change, since it lives in your
+  deployment config. A named cloudflared tunnel on a domain you own is free and permanent:
        cloudflared tunnel create crosspane
        cloudflared tunnel route dns crosspane crosspane.example.com
        cloudflared tunnel run --url http://localhost:7788 crosspane
        crosspane --public-url https://crosspane.example.com     # once; remembered
+  From then on: crosspane.
 
-  From then on: crosspane. The address lives in ~/.crosspane/config.json, so what you put in
-  your app is just that address and it stays valid. Pasting it into your deployment config once is the only manual
-  step, and it cannot be avoided: a deployed app learns the address from its own build or server
-  config, and a link must not carry it (a crafted link would redirect someone else's logs).
+  On localhost you can omit the env var entirely — the agent finds http://localhost:7788 itself.
 
-  Shortcuts, not separate setups:
-    - On localhost, omit everything: the agent finds http://localhost:7788 by itself.
-    - A webview the app opens itself has no address bar, so ?__crosspane=on cannot be typed —
-      gate on what the app knows instead: enabled: () => user.isQA
-    - agent.copyCapture() needs no network, certificate or origin at all.
+Who actually streams:
+  By default every install with that address does, which is what a dev or QA build wants. If the
+  same build reaches people you would rather not hear from, gate on what your app already knows —
+  enabled: false installs no hooks at all:
+       initCrosspane({ serverUrl: HUB, enabled: () => user.isQA })
+  That is the right gate for a webview the app opens itself: there is no address bar in one, so
+  nothing URL-based works there. For a page with no user model, isDebugActivated gates on a link
+  (?__crosspane=on / =off) instead. agent.copyCapture() needs no network at all.
 
-  Can't route logs through a tunnel? Any of these replaces it and the app code above is
-  unchanged — only the address differs:
+Can't route logs through a tunnel?
+  Any of these replaces it and the app code above is unchanged — only the address differs:
     - a team hub on your own infrastructure with a normal certificate
     - your own certificate: --tls-cert / --tls-key (a corporate CA already on your devices, or a
       public certificate for a name resolving to your LAN IP). A self-signed one does NOT work in
       app webviews: since Android 7 apps do not trust user-installed CAs
     - a reverse proxy on your own origin: --public-url https://staging.example.com/__crosspane
-    - plain HTTP on your LAN: --host 0.0.0.0 --write-env writes the address into .env.local for
-      you. Simplest, but an https:// page cannot use it — browsers block plain ws:// there
+    - plain HTTP on your LAN: --host 0.0.0.0 --write-env. Simplest, but an https:// page cannot
+      use it — browsers block plain ws:// there
 
 MCP mode (crosspane mcp):
   Exposes the running hub's sessions to a coding agent over stdio, so it can ask
@@ -143,6 +153,8 @@ export interface CliOptions {
    * 앱에 넣는 값이 영구히 그대로다.
    */
   ingestKey: string | undefined;
+  /** `--tunnel` — 설치된 cloudflared/ngrok을 허브가 직접 띄워 그 주소를 쓴다 */
+  tunnel: boolean;
 }
 
 /** `--write-env`에 경로를 주지 않았을 때. Vite·Next·CRA·Astro가 모두 읽고, 보통 gitignore돼 있다 */
@@ -211,6 +223,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
    */
   let publicUrl = nonEmptyEnv('CROSSPANE_PUBLIC_URL');
   let ingestKey = nonEmptyEnv('CROSSPANE_INGEST_KEY');
+  let tunnel = false;
 
   while (args.length > 0) {
     const flag = args.shift();
@@ -232,6 +245,10 @@ export function parseCliArguments(argv: string[]): CliOptions {
     }
     if (flag === '--no-auth') {
       noAuth = true;
+      continue;
+    }
+    if (flag === '--tunnel') {
+      tunnel = true;
       continue;
     }
     // 값을 받는 플래그인지 먼저 판정 — 그래야 오타 플래그가
@@ -278,6 +295,7 @@ export function parseCliArguments(argv: string[]): CliOptions {
     tlsKey,
     publicUrl,
     ingestKey,
+    tunnel,
   };
 }
 
