@@ -162,14 +162,21 @@ accept. Any of these replaces it, and the app-side code above does not change �
 | | how | trade-off |
 |---|---|---|
 | **A team hub** | run the hub on real infrastructure with a normal certificate | nothing transits anyone else; needs somewhere to run it |
-| **Your own certificate** | `crosspane --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem` | nothing leaves your network; needs a corporate CA already on your devices, or a public certificate for a name resolving to your LAN IP |
+| **Your own certificate** | `crosspane --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem` | nothing leaves your network — but only works when the **page is on that network too** (an internal staging site, say). A page served from the public internet can never reach it, certificate or not |
 | **Reverse proxy on your origin** | `crosspane --public-url https://staging.example.com/__crosspane`, and point that path at the hub | same origin, no third party; needs one route in your app server, forwarding the WebSocket upgrade |
-| **Plain HTTP on your LAN** | `crosspane --host 0.0.0.0 --write-env` | simplest, but an `https://` page can't use it — browsers block plain `ws://` from a secure origin, with no way around it |
+| **Plain HTTP on your LAN** | `crosspane --host 0.0.0.0 --write-env` | simplest, and right for a dev server you open from a phone on the same Wi-Fi. A deployed page can't use it — see below |
 | **No network at all** | `agent.copyCapture()` | unaffected by addresses, certificates and origins; the main path on a locked-down build |
 
-A **self-signed certificate does not work** in app webviews: since Android 7, apps don't trust
-user-installed CAs, so no amount of installing helps. That's why crosspane accepts a certificate
-but never generates one.
+**A page served from the public internet can only reach public addresses.** Measured: from
+`https://example.com`, a WebSocket to a LAN address with a valid Let's Encrypt certificate never
+even leaves the browser, while the same page reaches a public `wss://` endpoint fine and a page on
+that LAN reaches the same address fine. So for a deployed page the receiver has to be public —
+a tunnel, a hub you deployed, or your own server holding the logs. No certificate changes this, and
+neither does writing `wss://` into the build.
+
+A **self-signed certificate does not work** in app webviews either: since Android 7, apps don't
+trust user-installed CAs. That's why crosspane accepts a certificate but never generates one — and
+why `--tls-cert` is for a hub the page can actually reach (an internal network, or a public one).
 
 Anyone who knows your hub's address can send junk sessions to it — never read one. If that matters
 for a hub that's long-lived and shared, `--ingest-key <key>` requires a `?k=` from senders too, at

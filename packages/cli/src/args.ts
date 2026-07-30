@@ -115,9 +115,9 @@ Who actually streams:
 Can't route logs through a tunnel?
   Any of these replaces it and the app code above is unchanged — only the address differs:
     - a team hub on your own infrastructure with a normal certificate
-    - your own certificate: --tls-cert / --tls-key (a corporate CA already on your devices, or a
-      public certificate for a name resolving to your LAN IP). A self-signed one does NOT work in
-      app webviews: since Android 7 apps do not trust user-installed CAs
+    - your own certificate: --tls-cert / --tls-key, when the page is on the same network as the
+      hub (an internal staging site). A self-signed one does NOT work in app webviews: since
+      Android 7 apps do not trust user-installed CAs
     - a reverse proxy on your own origin: --public-url https://staging.example.com/__crosspane
     - plain HTTP on your LAN: --host 0.0.0.0 --write-env. Simplest, but an https:// page cannot
       use it — browsers block plain ws:// there
