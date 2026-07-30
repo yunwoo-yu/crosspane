@@ -1,6 +1,5 @@
 ---
 'crosspane': patch
-'crosspane-dashboard': patch
 ---
 
 Fix `--lan-tls` pointing the dashboard at a hostname its certificate doesn't cover

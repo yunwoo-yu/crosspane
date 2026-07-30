@@ -38,3 +38,21 @@ PAT를 주는 것이며, 그건 저장소 시크릿이 필요하다.
 않으므로 의도적 제외 — 스크립트 주석 참조). 그래도 릴리스 후 빈 디렉터리에서
 `npm i crosspane@<버전>` → 기동 → 주요 경로를 눌러 보는 것이 마지막 관문이다.
 0.7.0이 설치 불가 상태로 배포된 이력이 있다.
+
+## 대시보드를 changeset에 넣지 말 것
+
+`packages/dashboard`는 **private**(`crosspane-dashboard`)이고 `crosspane`의 `dist/public`에
+번들돼 나간다. 배포되는 것은 `crosspane` 하나다.
+
+changeset에 넣으면 Release가 두 가지 방식으로 실패한다 — 둘 다 실측:
+- 이름을 `@crosspane/dashboard`로 쓰면 `Found changeset ... which is not in the workspace`
+  (워크스페이스 이름은 `crosspane-dashboard`다)
+- 올바른 이름을 써도 `Mixed changesets that contain both ignored and not ignored packages
+  are not allowed` — private 패키지는 `ignore` 취급이라 `crosspane`과 같은 changeset에 못 들어간다
+
+**대시보드만 바뀐 변경도 changeset에는 `crosspane`만 적는다.** 사용자는 그것을 설치하고,
+대시보드는 그 안에 들어 있다.
+
+이 실패는 머지 **후에** 드러난다(Release는 main push에서 돈다). CI가 초록이어도
+릴리스가 못 나갈 수 있으니, changeset을 쓸 때 패키지 이름을 확인할 것:
+`node -e "console.log(require('./packages/<p>/package.json').name)"`
