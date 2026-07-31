@@ -1,6 +1,6 @@
 {
   "name": "@crosspane/agent",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Tiny in-page debugging agent — capture console/errors/network in webviews and locked-down environments, export or live-stream to the crosspane dashboard",
   "keywords": [
     "webview",
