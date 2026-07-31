@@ -439,3 +439,47 @@ describe('성능 지표', () => {
     }).not.toThrow();
   });
 });
+
+describe('지표 중복', () => {
+  it('페이지당 한 번뿐인 지표는 두 번 오더라도 한 번만 낸다', () => {
+    // buffered:true로 관찰을 시작하면 브라우저가 같은 navigation 엔트리를 두 번 주는
+    // 경우가 있다(실측). 그대로 내면 타임라인에 TTFB가 두 줄로 찍혀 지표를 믿을 수 없다
+    class StubObserver {
+      constructor(private readonly callback: (list: { getEntries: () => unknown[] }) => void) {}
+      observe({ type }: { type: string }) {
+        if (type === 'navigation') {
+          const entry = { responseStart: 8 };
+          this.callback({ getEntries: () => [entry] });
+          this.callback({ getEntries: () => [entry] });
+          return;
+        }
+        throw new TypeError('unsupported');
+      }
+      disconnect() {}
+    }
+    vi.stubGlobal('PerformanceObserver', StubObserver);
+    agent = initCrosspane({ label: 'probe' });
+
+    const ttfb = agent.capture().events.filter((e) => e.type === 'vital' && e.name === 'TTFB');
+    expect(ttfb).toHaveLength(1);
+  });
+
+  it('여러 번 발생하는 것이 정상인 지표는 막지 않는다', () => {
+    class StubObserver {
+      constructor(private readonly callback: (list: { getEntries: () => unknown[] }) => void) {}
+      observe({ type }: { type: string }) {
+        if (type === 'longtask') {
+          this.callback({ getEntries: () => [{ duration: 80 }, { duration: 120 }] });
+          return;
+        }
+        throw new TypeError('unsupported');
+      }
+      disconnect() {}
+    }
+    vi.stubGlobal('PerformanceObserver', StubObserver);
+    agent = initCrosspane({ label: 'probe' });
+
+    const tasks = agent.capture().events.filter((e) => e.type === 'vital' && e.name === 'longtask');
+    expect(tasks).toHaveLength(2);
+  });
+});

@@ -270,9 +270,19 @@ crosspane --lan-tls
 
 Know what you're getting before you rely on it:
 
-- **The device asks once.** Chrome shows a local-network permission prompt; allow it. Whether an
-  **in-app webview** surfaces that prompt at all is not verified — that is the environment this tool
-  exists for, so treat it as unknown until you've tried your own app.
+- **Browsers ask once; in-app webviews don't.** Chrome shows a local-network permission prompt —
+  allow it. Inside an Android WebView (which is what KakaoTalk, Instagram and Line in-app browsers
+  are) Chrome currently grants Local Network Access **unconditionally**, with no prompt at all,
+  because WebView has no way for the host app to grant new permission types.
+- **That changes with Android 17.** `ACCESS_LOCAL_NETWORK` becomes a mandatory runtime permission
+  for apps targeting API 37+, and **WebView traffic inherits the permission state of the host app**.
+  So on Android 17 the in-app browser can only reach your laptop if KakaoTalk (or whichever app it
+  is) holds that permission — and those apps have little reason to ask for it. Treat `--lan-tls` as
+  something that works well today and may stop working, not as a foundation. iOS has been like this
+  since 14: the local-network check applies to `WKWebView`, and the host app must declare
+  `NSLocalNetworkUsageDescription`.
+- **Offline capture is the path that can't be taken away.** `agent.copyCapture()` needs no network,
+  no certificate and no permission, which is why it stays the fallback for a locked-down build.
 - **Some networks won't resolve it.** Corporate resolvers and many routers drop public DNS answers
   that point at private addresses (rebinding protection). crosspane checks at startup and tells you
   so rather than failing silently.
@@ -358,7 +368,7 @@ if (process.env.NODE_ENV !== 'production') {
   **reading** them needs a token that stays on your machine. That's why it's safe in a page whose
   source anyone can read — see [SECURITY.md](https://github.com/yunwoo-yu/crosspane/blob/main/SECURITY.md)
 - Response bodies are **not** captured unless you pass `captureBodies: true`
-- The agent has no dependencies and adds a few KB gzipped
+- The agent has no dependencies and adds ~5 KB gzipped
 
 ## CLI
 
