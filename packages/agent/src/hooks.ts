@@ -364,7 +364,22 @@ function hookVitals({ sessionId, emit }: HookOptions): () => void {
     }
   };
 
+  /**
+   * 페이지당 한 번뿐인 지표는 한 번만 낸다.
+   *
+   * 실측: `buffered: true`로 관찰을 시작하면 브라우저가 같은 navigation 엔트리를 두 번
+   * 전달하는 경우가 있어 타임라인에 `TTFB 8ms`가 두 줄로 찍혔다. 같은 사건이 두 번
+   * 일어난 것처럼 읽히므로 지표를 믿을 수 없게 만든다. LCP·CLS·INP·longtask는 갱신되거나
+   * 여러 번 발생하는 것이 정상이라 여기 넣지 않는다.
+   */
+  const once = new Set<string>();
+  const ONCE_PER_PAGE = ['TTFB', 'FCP'];
+
   const report = (name: string, value: number, detail?: string): void => {
+    if (ONCE_PER_PAGE.includes(name)) {
+      if (once.has(name)) return;
+      once.add(name);
+    }
     emit({
       type: 'vital',
       sessionId,

@@ -21,6 +21,7 @@
 ```
 ┌─ packages/agent (npm: @crosspane/agent) ─ 사용자 앱 번들에 들어간다 ──┐
 │  hooks.ts ──── console / error·rejection / fetch / XHR / navigation  │
+│                + resource timing(훅이 못 보는 요청) / 상호작용 / 지표  │
 │                (원본 동작 보존 + 해제 함수 반환)                       │
 │  serialize.ts ─ 예산 한계 직렬화 (핫패스 — 측정 근거는 파일 주석)       │
 │  buffer.ts ─── 크래시 내성 링버퍼 (마지막 N개 + 버린 수)               │
@@ -48,7 +49,8 @@
 │  useCrosspaneSocket ─ 연결/재접속 + 이벤트 배칭                       │
 │  event-log.ts ─ 이벤트 → 상태/로그/네트워크 엔트리 (순수 함수)          │
 │  capture-file.ts ─ .crosspane.json → 같은 엔트리 모양 (리플레이)       │
-│  SessionList / ConsolePanel / NetworkPanel / ScreenPanel            │
+│  SessionList / TimelinePanel / ConsolePanel / NetworkPanel /       │
+│  ScreenPanel   (i18n: ko·en)                                       │
 │  ConnectHint ─ 빈 상태의 접속 스니펫 (/hub-info에서 주소·토큰)         │
 │  hub-token.ts ─ URL의 ?t=를 받아 모든 허브 요청에 붙인다               │
 └─────────────────────────────────────────────────────────────────────┘

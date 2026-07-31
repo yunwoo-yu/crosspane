@@ -8,7 +8,7 @@ Captures console output, uncaught errors, unhandled rejections, fetch/XHR and
 navigations. Stream it live to the [crosspane](https://www.npmjs.com/package/crosspane)
 dashboard, or export a capture file when the network isn't an option.
 
-**Zero dependencies. A few KB gzipped.**
+**Zero dependencies. ~5 KB gzipped.**
 
 ## Install
 
@@ -90,7 +90,7 @@ server connection needed.
 ## Without a bundler
 
 If you can't run a bundler — injecting into a page through a proxy, a kiosk build, a
-plain static page — use the prebuilt single-file bundles (~4 KB gzipped):
+plain static page — use the prebuilt single-file bundles (~5 KB gzipped):
 
 ```html
 <!-- ES module -->
