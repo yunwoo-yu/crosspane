@@ -92,3 +92,45 @@ describe('searchTimeline', () => {
     expect(searchTimeline(items, 'nope')).toHaveLength(0);
   });
 });
+
+/**
+ * 타임라인은 인과를 읽는 화면이다 — 개발 서버 내부 요청이 그 자리를 먹으면 안 된다.
+ * 실측: Vite dev 서버에서 첫 화면 21줄 중 대부분이 `/@vite/client` 류였고,
+ * 정작 봐야 할 클릭 한 줄이 묻혔다.
+ */
+describe('노이즈 제거', () => {
+  it('정적 리소스는 타임라인에서 뺀다 — 네트워크 탭이 맡는다', () => {
+    const network = [
+      request({ url: '/@vite/client', initiator: 'script' }),
+      request({ url: '/index.css', initiator: 'css' }),
+      request({ url: '/hero.png', initiator: 'img' }),
+      request({ url: '/api/pay', initiator: 'fetch' }),
+    ];
+    const items = buildTimeline([], network, ALL);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].text).toContain('/api/pay');
+  });
+
+  it('실패한 요청은 정적 리소스라도 보여준다 — 깨진 이미지가 원인일 수 있다', () => {
+    const network = [
+      request({ url: '/hero.png', initiator: 'img', status: 404 }),
+      request({ url: '/ok.png', initiator: 'img', status: 200 }),
+    ];
+    const items = buildTimeline([], network, ALL);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].text).toContain('/hero.png');
+  });
+
+  it('칩의 숫자가 실제로 보이는 줄 수와 같다', () => {
+    const network = [
+      request({ url: '/@vite/client', initiator: 'script' }),
+      request({ url: '/api/pay', initiator: 'fetch' }),
+    ];
+    const counts = countByKind([], network);
+    const shown = buildTimeline([], network, ALL);
+
+    expect(counts.network).toBe(shown.length);
+  });
+});

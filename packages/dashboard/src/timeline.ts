@@ -97,10 +97,28 @@ export function buildTimeline(
     const item = fromLog(entry);
     if (kinds.has(item.kind)) items.push(item);
   }
-  for (const entry of network) {
-    if (kinds.has('network')) items.push(fromNetwork(entry));
+  if (kinds.has('network')) {
+    for (const entry of network) {
+      if (isMeaningfulRequest(entry)) items.push(fromNetwork(entry));
+    }
   }
   return items.sort((a, b) => a.ts - b.ts);
+}
+
+/**
+ * 이 화면에 실을 만한 요청인가 — **앱이 부른 것만.**
+ *
+ * 실측(Vite dev 서버에 붙였을 때): 첫 화면 21줄 중 대부분이 `/@vite/client`,
+ * `/node_modules/.vite/deps/…`, `/@react-refresh` 같은 개발 서버 내부 요청이었다.
+ * 정작 봐야 할 클릭 한 줄이 그 사이에 묻혔다. 인과를 읽는 화면에서 이건 노이즈다.
+ *
+ * 정적 리소스를 시간순으로 훑는 일은 드물고, 그건 네트워크 탭이 맡는다 —
+ * 거기서는 필터를 끄면 전부 볼 수 있고 가려진 건수도 표시된다.
+ */
+function isMeaningfulRequest(entry: NetworkEntry): boolean {
+  // 실패는 무엇이든 보여준다 — 깨진 이미지 하나가 원인인 경우가 실제로 있다
+  if (entry.status !== undefined && (entry.status === 0 || entry.status >= 400)) return true;
+  return entry.initiator === undefined || entry.initiator === 'fetch' || entry.initiator === 'xhr';
 }
 
 /** 검색어 적용 — 라벨과 본문 둘 다 본다 (`GET`으로도, URL로도 찾을 수 있게) */
@@ -120,7 +138,9 @@ export function countByKind(
   const counts: Record<TimelineKind, number> = {
     console: 0,
     error: 0,
-    network: network.length,
+    // 칩의 숫자는 **실제로 보이는 수**여야 한다 — 21이라고 해 놓고 3줄만 나오면
+    // 사용자는 나머지를 어디서 찾아야 할지 모른다
+    network: network.filter(isMeaningfulRequest).length,
     interaction: 0,
     vital: 0,
     navigation: 0,
