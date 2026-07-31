@@ -18,9 +18,58 @@ npm install @crosspane/agent
 
 ## Use
 
+**Call it once, as early as your app can run code.** Anything before the call is not hooked —
+requests are partly recovered from resource timing afterwards, but **console logs from before
+the call are gone for good.**
+
+| Your setup | File | Where in it |
+|---|---|---|
+| **Next.js** (App Router) | a new `app/crosspane.tsx` with `'use client'`, imported from `app/layout.tsx` | top level of that module — see below |
+| **Next.js** (Pages Router) | `pages/_app.tsx` | top of the file, outside the component |
+| **Vite** (React/Vue/Svelte/Solid) | `src/main.ts` / `src/main.tsx` | first lines, before `createApp` / `createRoot` |
+| **Create React App** | `src/index.tsx` | first lines, before `createRoot` |
+| **SvelteKit** | `src/routes/+layout.svelte` | inside `<script>`, guarded by `browser` |
+| **Astro** | your base layout's `<script>` | before other scripts |
+| **No bundler** | a `<script>` in `<head>` | before your other scripts — [see below](#without-a-bundler) |
+
 ```ts
+// src/main.tsx — Vite, CRA. First lines of the file.
 import { initCrosspane } from '@crosspane/agent'
 
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: import.meta.env.VITE_CROSSPANE_URL,   // omit entirely on localhost
+})
+
+// ...your own imports and createRoot() below
+```
+
+**Next.js App Router needs one extra step.** `app/layout.tsx` is a server component: calling
+`initCrosspane()` there runs it on the server, where there is no page to hook — it does not
+crash, it **silently does nothing**, which is harder to notice than a crash.
+
+```tsx
+// app/crosspane.tsx
+'use client'
+import { initCrosspane } from '@crosspane/agent'
+
+// Top level, not inside the component and not in useEffect — a module runs as soon as the
+// client bundle loads, while useEffect waits for React to mount and misses your early logs.
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,
+})
+
+export function Crosspane() {
+  return null
+}
+```
+
+Then render `<Crosspane />` once anywhere inside `<body>` in `app/layout.tsx`. Calling
+`initCrosspane()` twice is safe — the second call returns the same agent rather than hooking
+anything again.
+
+```ts
 const agent = initCrosspane({ label: 'checkout webview' })
 
 // Offline mode: wire this to a debug gesture or hidden QA menu
@@ -102,7 +151,7 @@ initCrosspane(options?: {
 | `agent.dispose()` | Restores `console`/`fetch`/XHR, closes the live connection |
 | `agent.session` | Session metadata (id, label, userAgent, platform) |
 | `agent.enabled` | `false` when gated off |
-| `agent.live` | `true` if streaming to a hub; `false` means offline capture only |
+| `agent.live` | `true` if a hub **address was resolved** — not that the hub answered. `false` means offline capture only. To confirm sessions arrive, watch the hub's terminal for `● session · <label>` |
 
 ## Where the hub address comes from
 

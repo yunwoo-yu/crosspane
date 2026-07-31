@@ -68,24 +68,86 @@ browser and switchable in the header.
 npm install @crosspane/agent
 ```
 
+**Call it once, as early as your app can run code.** Anything that happens before the call is
+not hooked — requests are partly recovered from resource timing afterwards, but **console logs
+from before the call are gone for good.** So it belongs at the top of your entry point, above
+your own imports, not inside a component that mounts later.
+
+| Your setup | File | Where in it |
+|---|---|---|
+| **Next.js** (App Router) | a new `app/crosspane.tsx` with `'use client'`, imported from `app/layout.tsx` | top level of that module — see below |
+| **Next.js** (Pages Router) | `pages/_app.tsx` | top of the file, outside the component |
+| **Vite** (React/Vue/Svelte/Solid) | `src/main.ts` / `src/main.tsx` | first lines, before `createApp` / `createRoot` |
+| **Create React App** | `src/index.tsx` | first lines, before `createRoot` |
+| **SvelteKit** | `src/routes/+layout.svelte` | inside `<script>`, guarded by `browser` |
+| **Astro** | your base layout's `<script>` | before other scripts |
+| **No bundler** | a `<script>` in `<head>` | before your other scripts — [see the agent README](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent#without-a-bundler) |
+
 ```ts
+// src/main.tsx — Vite, CRA. First lines of the file.
 import { initCrosspane } from '@crosspane/agent'
 
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: import.meta.env.VITE_CROSSPANE_URL,   // omit entirely on localhost
+})
+
+// ...your own imports and createRoot() below
+```
+
+**Next.js App Router needs one extra step.** `app/layout.tsx` is a server component: calling
+`initCrosspane()` there runs it on the server, where there is no page to hook — it does not
+crash, it just **silently does nothing**, which is harder to notice than a crash. Put it in a
+client module instead:
+
+```tsx
+// app/crosspane.tsx
+'use client'
+import { initCrosspane } from '@crosspane/agent'
+
+// Top level, not inside the component and not in useEffect — a module runs as soon as the
+// client bundle loads, while useEffect waits for React to mount and misses your early logs.
+initCrosspane({
+  label: 'checkout webview',
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,
+})
+
+export function Crosspane() {
+  return null
+}
+```
+
+```tsx
+// app/layout.tsx — render it once, anywhere inside <body>
+import { Crosspane } from './crosspane'
+```
+
+Calling `initCrosspane()` twice is safe — the second call returns the same agent rather than
+hooking anything again — so a hot reload or a double-mounted layout won't duplicate events.
+
+Offline capture works the same everywhere; wire it to a debug gesture or a hidden QA menu:
+
+```ts
 const agent = initCrosspane({ label: 'checkout webview' })
 
-// Offline mode: wire this to a debug gesture / hidden QA menu.
-// In a webview, prefer copyCapture() — downloads often don't work there
+// In a webview, prefer copyCapture() — downloads often fail silently there
 // (see "Getting captures off a locked device")
 agent.exportFile()   // downloads <label>.crosspane.json
 ```
 
-That's the whole setup on localhost — the agent finds the hub by itself. No address, no token,
-no config. `agent.live` tells you whether it's streaming. For every other environment you add
-one env var and nothing else changes: see [One setup for every
-environment](#one-setup-for-every-environment).
+That's the whole setup on localhost — the agent finds the hub by itself, so you can leave
+`serverUrl` out entirely. For every other environment you set that one env var and nothing else
+changes: see [One setup for every environment](#one-setup-for-every-environment).
 
-No bundler? Load the single-file build (~4 KB gzipped) with a plain script tag —
-see the [agent README](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent#without-a-bundler).
+**Pass the env var through `serverUrl` as the examples do, rather than letting the agent read
+it on its own.** Both work on localhost, but only the explicit one connects when you open the
+page from a phone at `http://<your-lan-ip>:3000` — an env var can be baked in by CI, so an
+address the agent picked up by itself needs a per-device opt-in before it will stream anywhere
+but localhost. Handing it to `serverUrl` is you saying it out loud, so no opt-in is asked for.
+
+`agent.live` tells you an address was resolved — **not that the hub answered.** It is `true`
+even when nothing is listening there. To see whether sessions actually arrive, watch the hub's
+terminal: it prints `● session · <label>` the moment a page connects.
 
 **3. Reproduce the bug.** Console logs, uncaught errors, unhandled rejections, failed
 requests and navigations show up in the dashboard — or in the exported file.
@@ -379,7 +441,7 @@ const agent = initCrosspane({
   bodyPreviewLimit?: number // default: 2048 chars
 })
 
-agent.live           // → true if streaming to a hub (false = offline capture only)
+agent.live           // → true if a hub address was resolved (NOT that the hub answered)
 agent.capture()      // → SessionCapture object (send it wherever you like)
 agent.exportFile()   // → downloads .crosspane.json
 agent.copyCapture()  // → Promise<boolean>, puts the JSON on the clipboard

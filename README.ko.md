@@ -58,21 +58,84 @@ crosspane dashboard → http://localhost:7788
 npm install @crosspane/agent
 ```
 
+**앱이 코드를 실행할 수 있는 가장 이른 지점에서 한 번만 부르세요.** 호출 전에 일어난 일은
+후킹되지 않습니다 — 요청은 나중에 리소스 타이밍으로 일부 복구되지만, **호출 전 콘솔 로그는
+영영 사라집니다.** 그래서 진입점 최상단, 여러분의 import보다 위가 맞습니다. 나중에 마운트되는
+컴포넌트 안이 아니고요.
+
+| 사용 중인 것 | 파일 | 그 안 어디에 |
+|---|---|---|
+| **Next.js** (App Router) | `app/crosspane.tsx`를 새로 만들고(`'use client'`) `app/layout.tsx`에서 import | 그 모듈의 최상위 — 아래 참조 |
+| **Next.js** (Pages Router) | `pages/_app.tsx` | 파일 상단, 컴포넌트 바깥 |
+| **Vite** (React/Vue/Svelte/Solid) | `src/main.ts` / `src/main.tsx` | 첫 줄, `createApp`·`createRoot` 전 |
+| **Create React App** | `src/index.tsx` | 첫 줄, `createRoot` 전 |
+| **SvelteKit** | `src/routes/+layout.svelte` | `<script>` 안, `browser` 가드와 함께 |
+| **Astro** | 기본 레이아웃의 `<script>` | 다른 스크립트보다 먼저 |
+| **번들러 없음** | `<head>`의 `<script>` | 다른 스크립트보다 먼저 — [에이전트 README](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent#without-a-bundler) |
+
 ```ts
+// src/main.tsx — Vite, CRA. 파일의 첫 줄입니다.
 import { initCrosspane } from '@crosspane/agent'
 
+initCrosspane({
+  label: '결제 웹뷰',
+  serverUrl: import.meta.env.VITE_CROSSPANE_URL,   // localhost만 쓸 거면 아예 빼세요
+})
+
+// ...여러분의 import와 createRoot()는 그 아래
+```
+
+**Next.js App Router는 한 단계가 더 필요합니다.** `app/layout.tsx`는 서버 컴포넌트라
+거기서 `initCrosspane()`을 부르면 서버에서 실행됩니다. 후킹할 페이지가 없으니 —
+크래시하지 않고 **조용히 아무 일도 하지 않습니다.** 크래시보다 알아채기 어렵습니다.
+클라이언트 모듈에 넣으세요:
+
+```tsx
+// app/crosspane.tsx
+'use client'
+import { initCrosspane } from '@crosspane/agent'
+
+// 컴포넌트 안도 useEffect도 아닌 모듈 최상위입니다 — 모듈은 클라이언트 번들이 로드되는
+// 즉시 실행되지만, useEffect는 React가 마운트할 때까지 기다리다가 초기 로그를 놓칩니다.
+initCrosspane({
+  label: '결제 웹뷰',
+  serverUrl: process.env.NEXT_PUBLIC_CROSSPANE_URL,
+})
+
+export function Crosspane() {
+  return null
+}
+```
+
+```tsx
+// app/layout.tsx — <body> 안 아무 데나 한 번 렌더하세요
+import { Crosspane } from './crosspane'
+```
+
+`initCrosspane()`을 두 번 불러도 안전합니다 — 두 번째 호출은 다시 후킹하지 않고 같은
+에이전트를 돌려줍니다. 핫 리로드나 레이아웃 이중 마운트로 이벤트가 중복되지 않습니다.
+
+오프라인 캡처는 어디서나 같습니다. 디버그 제스처나 숨은 QA 메뉴에 연결하세요:
+
+```ts
 const agent = initCrosspane({ label: '결제 웹뷰' })
 
-// 오프라인: 디버그 제스처나 숨은 QA 메뉴에 연결하세요.
-// 웹뷰에서는 copyCapture()를 우선하세요 — 다운로드가 안 되는 경우가 많습니다
+// 웹뷰에서는 copyCapture()를 우선하세요 — 다운로드가 조용히 실패하는 경우가 많습니다
 agent.exportFile()   // <label>.crosspane.json 다운로드
 ```
 
-localhost는 이게 전부입니다 — 에이전트가 허브를 스스로 찾습니다. 주소도, 토큰도,
-설정도 없습니다. `agent.live`로 실제로 흐르고 있는지 확인할 수 있습니다.
+localhost는 이게 전부입니다 — 에이전트가 허브를 스스로 찾으므로 `serverUrl`을 아예 빼도
+됩니다. 다른 환경에서는 그 환경변수 하나만 넣으면 나머지는 그대로입니다.
 
-번들러가 없다면 단일 파일 빌드(gzip 약 4KB)를 script 태그로 불러오세요 —
-[에이전트 README](https://github.com/yunwoo-yu/crosspane/tree/main/packages/agent#without-a-bundler).
+**예제처럼 환경변수를 `serverUrl`로 넘기세요. 에이전트가 알아서 읽게 두지 마세요.**
+localhost에서는 둘 다 되지만, 폰에서 `http://<맥북IP>:3000`으로 열었을 때는 명시한 쪽만
+붙습니다 — 환경변수는 CI가 프로덕션 빌드에 넣을 수 있어서, 에이전트가 **스스로 주워온**
+주소는 localhost 밖에서 기기별 동의를 요구합니다. `serverUrl`로 건네는 것은 여러분이
+직접 말한 것이므로 동의를 묻지 않습니다.
+
+`agent.live`는 **주소를 찾았다는 뜻이지 허브가 응답했다는 뜻이 아닙니다.** 아무도 듣고
+있지 않아도 `true`입니다. 세션이 실제로 도착하는지는 허브 터미널을 보세요 — 페이지가
+붙는 순간 `● session · <라벨>`이 찍힙니다.
 
 **3. 버그를 재현하세요.** 콘솔 로그, 잡히지 않은 에러, 처리되지 않은 프로미스 거부,
 실패한 요청, 화면 이동이 대시보드에 — 또는 내보낸 파일에 — 나타납니다.
