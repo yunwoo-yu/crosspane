@@ -64,7 +64,7 @@ jobs:
 
       - name: Create release PR or publish
         if: steps.auth.outputs.ready == 'true'
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
           # 버전 PR에서 lockfile까지 갱신한다 — 안 하면 다음 CI가
           # ERR_PNPM_OUTDATED_LOCKFILE로 죽는다 (실제 발생)
