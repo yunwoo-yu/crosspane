@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "@crosspane/agent": "^0.8.0",
-    "rrweb": "^2.1.1"
+    "rrweb": "^2.1.6"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
